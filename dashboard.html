@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ht">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MORNINGSTAR EXCHANGE - Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0f;background-image:radial-gradient(circle at 15% 20%,rgba(212,175,55,.08),transparent 40%);min-height:100vh;color:#e5e7eb}
+.gold-text{background:linear-gradient(135deg,#FFF099,#F1C40F 35%,#D4AF37 70%,#996515);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.gold-btn{background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B);color:#000;box-shadow:0 4px 15px rgba(212,175,55,.25)}
+.gold-btn:disabled{opacity:.4}
+.card{background:rgba(18,20,29,.8);border:1px solid rgba(212,175,55,.18);box-shadow:0 20px 50px rgba(0,0,0,.8)}
+.m{border:1px solid rgba(255,255,255,.12);background:rgba(10,11,16,.8)}
+.m.active{border-color:#D4AF37;background:rgba(212,175,55,.1)}
+input{background:rgba(10,11,16,.9);border:1px solid rgba(255,255,255,.15);color:#fff}
+input:focus{outline:2px solid #D4AF37}
+</style>
+</head>
+<body class="p-4 sm:p-6">
+<div class="max-w-xl mx-auto">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-lg font-extrabold tracking-wider gold-text uppercase">Morningstar Exchange</h1>
+    <button onclick="logout()" class="text-xs text-amber-400"><i class="fa-solid fa-right-from-bracket mr-1"></i>Dekonekte</button>
+  </div>
+
+  <div id="msg" class="hidden mb-4 p-3 rounded-xl text-sm"></div>
+
+  <div class="card rounded-2xl p-6 text-center mb-6">
+    <p id="hello" class="text-xs text-gray-400 mb-1"></p>
+    <p class="text-xs uppercase tracking-wider text-gray-400">Balans ou</p>
+    <p id="balance" class="text-4xl sm:text-5xl font-extrabold gold-text my-2">0.00$</p>
+    <button onclick="openSwap()" class="gold-btn w-full mt-4 py-3.5 rounded-xl font-bold uppercase tracking-wide text-sm">
+      <i class="fa-solid fa-arrow-right-arrow-left mr-2"></i>Swap
+    </button>
+  </div>
+
+  <div class="card rounded-2xl p-5">
+    <h2 class="text-sm font-bold mb-3">Dènye swap yo</h2>
+    <div id="swaps" class="space-y-2 text-sm text-gray-400">Pa gen swap ankò.</div>
+  </div>
+</div>
+
+<!-- Modal Swap -->
+<div id="modal" class="hidden fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center p-3 z-50">
+  <div class="card rounded-2xl p-5 w-full max-w-md max-h-[92vh] overflow-y-auto">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="font-bold">Swap balans ou</h2>
+      <button onclick="closeSwap()" class="text-gray-400 text-xl" aria-label="Fèmen">&times;</button>
+    </div>
+    <p class="text-xs uppercase tracking-wider text-gray-300 mb-2">Chwazi metòd la</p>
+    <div id="methods" class="grid grid-cols-3 gap-2 mb-4"></div>
+    <label class="text-xs uppercase tracking-wider text-gray-300">Montan ($)</label>
+    <input id="amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" class="w-full rounded-xl p-3 mt-1 mb-4">
+    <label id="acc-label" class="text-xs uppercase tracking-wider text-gray-300">Kont destinasyon</label>
+    <input id="account" type="text" maxlength="100" class="w-full rounded-xl p-3 mt-1 mb-4">
+    <p id="err" class="text-red-400 text-sm mb-3 hidden"></p>
+    <button id="go" onclick="submitSwap()" class="gold-btn w-full py-3 rounded-xl font-bold uppercase text-sm">Konfime swap</button>
+  </div>
+</div>
+
+<script>
+const METHODS = {
+  MonCash: ['fa-mobile-screen', 'Nimewo MonCash'], NatCash: ['fa-mobile-screen-button', 'Nimewo NatCash'],
+  Meru: ['fa-wallet', 'Kont Meru'], USDT: ['fa-coins', 'Adrès wallet USDT'],
+  Zelle: ['fa-building-columns', 'Imèl oswa telefòn Zelle'], CashApp: ['fa-dollar-sign', '$Cashtag CashApp']
+};
+const STATUS = { pending: ['An atant', 'text-amber-400'], done: ['Fini', 'text-emerald-400'], rejected: ['Refize (ranbouse)', 'text-red-400'] };
+let me = null, method = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = (n) => Number(n).toFixed(2) + '$';
+
+function note(t, ok) {
+  const m = $('msg');
+  m.className = 'mb-4 p-3 rounded-xl text-sm border ' + (ok ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400');
+  m.textContent = t;
+}
+async function logout() { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; }
+
+function render() {
+  $('hello').textContent = 'Byenveni, ' + me.name;
+  $('balance').textContent = money(me.balance);
+  $('swaps').innerHTML = me.swaps.length ? me.swaps.map((s) => {
+    const [l, c] = STATUS[s.status] || ['', ''];
+    return `<div class="flex justify-between border-b border-white/5 pb-2"><span>${esc(s.method)} · ${money(s.amount)}</span><span class="${c}">${l}</span></div>`;
+  }).join('') : 'Pa gen swap ankò.';
+}
+
+function openSwap() {
+  if (me.balance <= 0) return note('Balans ou se 0.00$. Ou pa ka fè swap pou kounye a.', false);
+  method = null; $('amount').value = ''; $('account').value = ''; $('err').classList.add('hidden');
+  $('acc-label').textContent = 'Kont destinasyon';
+  $('methods').innerHTML = Object.entries(METHODS).map(([k, [i]]) =>
+    `<button type="button" data-m="${k}" onclick="pick('${k}')" class="m rounded-xl py-3 text-center"><i class="fa-solid ${i} text-amber-400 text-lg block mb-1"></i><span class="text-xs font-semibold">${k}</span></button>`).join('');
+  $('modal').classList.remove('hidden');
+}
+function closeSwap() { $('modal').classList.add('hidden'); }
+function pick(k) {
+  method = k;
+  document.querySelectorAll('#methods .m').forEach((b) => b.classList.toggle('active', b.dataset.m === k));
+  $('acc-label').textContent = METHODS[k][1];
+}
+
+async function submitSwap() {
+  const err = (t) => { $('err').textContent = t; $('err').classList.remove('hidden'); };
+  const amount = parseFloat($('amount').value);
+  if (!method) return err('Chwazi yon metòd.');
+  if (!(amount > 0)) return err('Antre yon montan valid.');
+  if (amount > me.balance) return err('Balans ou pa sifi.');
+  if ($('account').value.trim().length < 3) return err('Antre kont destinasyon an.');
+  $('go').disabled = true;
+  try {
+    const r = await fetch('/api/swap', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method, amount, account: $('account').value }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Erè. Eseye ankò.');
+    me = d; render(); closeSwap();
+    note('Demann swap la voye. Ekip nou ap trete l.', true);
+  } catch (e) { err(e.message); }
+  $('go').disabled = false;
+}
+
+(async () => {
+  const r = await fetch('/api/me');
+  if (r.status === 401) return (location.href = '/');
+  me = await r.json();
+  if (me.role === 'admin') return (location.href = '/admin.html');
+  if (me.kyc.status !== 'approved') return (location.href = '/kyc.html');
+  render();
+})();
+</script>
+</body>
+</html>

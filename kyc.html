@@ -241,14 +241,16 @@
                        'Tanpri pasyante. KYC ou a ap aprouve nan 24 a 48 èdtan. Nou pral fè w konnen lè verifikasyon an fini.'],
             approved: ['fa-circle-check text-emerald-400', 'Idantite w verifye',
                        'Kont ou verifye ak siksè. Ou ka itilize tout fonksyon Morningstar Exchange.'],
-            rejected: ['fa-circle-xmark text-red-400', 'Verifikasyon an pa pase',
-                       kyc.reason || 'Foto yo pa klè. Tanpri re-soumèt dokiman yo.']
+            rejected: ['fa-circle-xmark text-red-400', 'KYC ou refize',
+                       (kyc.reason || '') + ' Kontakte sipò a si w panse se yon erè.'],
+            reupload: ['fa-camera-rotate text-amber-400', 'Re-voye dokiman yo',
+                       kyc.reason || 'Foto yo pa klè. Tanpri re-voye dokiman yo.']
         };
         const [icon, title, text] = map[kyc.status];
         $('status-icon').innerHTML = `<i class="fa-solid ${icon}"></i>`;
         $('status-title').textContent = title;
         $('status-text').textContent = text;
-        $('retry-btn').classList.toggle('hidden', kyc.status !== 'rejected');
+        $('retry-btn').classList.toggle('hidden', kyc.status !== 'reupload');
         show('view-status');
     }
 
@@ -258,6 +260,8 @@
             if (r.status === 401) { window.location.href = '/'; return; }
             const me = await r.json();
             $('who').textContent = me.name + ' · ' + me.email;
+            if (me.role === 'admin') { window.location.href = '/admin.html'; return; }
+            if (me.kyc.status === 'approved') { window.location.href = '/dashboard.html'; return; }
             if (me.kyc.status === 'none') showForm(); else renderStatus(me.kyc);
         } catch {
             show('view-loading');

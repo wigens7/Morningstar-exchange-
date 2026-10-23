@@ -31,10 +31,29 @@ function saveUsers(users) {
   fs.writeFileSync(tmp, JSON.stringify(users, null, 2));
   fs.renameSync(tmp, USERS_FILE);
 }
+const round2 = (n) => Math.round(n * 100) / 100;
 const publicUser = (u) => ({
-  id: u.id, name: u.name, email: u.email,
-  kyc: { status: u.kyc.status, idType: u.kyc.idType || null, reason: u.kyc.reason || null }
+  id: u.id, name: u.name, email: u.email, role: u.role || 'user', balance: u.balance || 0,
+  kyc: { status: u.kyc.status, idType: u.kyc.idType || null, reason: u.kyc.reason || null },
+  swaps: (u.swaps || []).slice(-10).reverse()
 });
+
+// Kont admin kreye soti nan Variables (pa janm ekri nan kòd la)
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+if (ADMIN_EMAIL && ADMIN_PASSWORD.length >= 10) {
+  const users = loadUsers();
+  let a = users.find((u) => u.email === ADMIN_EMAIL);
+  if (!a) {
+    a = { id: crypto.randomUUID(), name: 'Admin', email: ADMIN_EMAIL, createdAt: new Date().toISOString(), balance: 0, swaps: [], kyc: { status: 'approved' } };
+    users.push(a);
+  }
+  a.role = 'admin';
+  if (!a.passwordHash || !bcrypt.compareSync(ADMIN_PASSWORD, a.passwordHash)) a.passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 12);
+  saveUsers(users);
+} else {
+  console.warn('Pa gen kont admin: mete ADMIN_EMAIL ak ADMIN_PASSWORD (omwen 10 karaktè) nan Variables.');
+}
 
 // ---------- App ----------
 const app = express();
@@ -107,6 +126,7 @@ app.post('/api/signup', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
     id: crypto.randomUUID(), name, email,
     passwordHash: await bcrypt.hash(password, 12),
     createdAt: new Date().toISOString(),
+    role: 'user', balance: 0, swaps: [],
     kyc: { status: 'none' }
   };
   users.push(user);
@@ -165,7 +185,7 @@ app.post('/api/kyc', auth, (req, res) => {
       return res.status(400).json({ error: msg });
     }
     const user = req.user;
-    if (user.kyc.status === 'pending' || user.kyc.status === 'approved') {
+    if (!['none', 'reupload'].includes(user.kyc.status)) {
       return res.status(409).json({ error: 'KYC ou a deja soumèt.' });
     }
     const idType = String(req.body.idType || '');
@@ -196,43 +216,95 @@ app.post('/api/kyc', auth, (req, res) => {
   });
 });
 
-// ---------- Admin (revizyon KYC) : header x-admin-key ----------
-function adminOnly(req, res, next) {
-  const given = Buffer.from(String(req.get('x-admin-key') || ''));
-  const real = Buffer.from(ADMIN_KEY);
-  if (!ADMIN_KEY || given.length !== real.length || !crypto.timingSafeEqual(given, real)) {
-    return res.status(403).json({ error: 'Pa otorize.' });
-  }
-  next();
-}
+// ---------- Swap ----------
+const METHODS = ['MonCash', 'NatCash', 'Meru', 'USDT', 'Zelle', 'CashApp'];
 
-app.get('/api/admin/kyc', adminOnly, (req, res) => {
-  const status = req.query.status || 'pending';
-  res.json(
-    loadUsers().filter((u) => u.kyc.status === status).map((u) => ({
-      id: u.id, name: u.name, email: u.email, ...u.kyc
-    }))
-  );
+app.post('/api/swap', auth, (req, res) => {
+  const u = req.user;
+  if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
+  const method = String(req.body.method || '');
+  const amount = round2(Number(req.body.amount));
+  const account = String(req.body.account || '').trim();
+  if (!METHODS.includes(method)) return res.status(400).json({ error: 'Metòd la pa valid.' });
+  if (!(amount > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
+  if (amount > (u.balance || 0)) return res.status(400).json({ error: 'Balans ou pa sifi.' });
+  if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
+  u.balance = round2(u.balance - amount);
+  u.swaps = u.swaps || [];
+  u.swaps.push({ id: crypto.randomUUID(), method, amount, account, status: 'pending', createdAt: new Date().toISOString() });
+  saveUsers(req.users);
+  res.status(201).json(publicUser(u));
 });
 
+// ---------- Admin (sesyon + wòl admin) ----------
+function adminOnly(req, res, next) {
+  auth(req, res, () => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Pa otorize.' });
+    next();
+  });
+}
+
+app.get('/api/admin/users', adminOnly, (req, res) =>
+  res.json(req.users.map((u) => ({
+    id: u.id, name: u.name, email: u.email, role: u.role || 'user',
+    balance: u.balance || 0, kycStatus: u.kyc.status, createdAt: u.createdAt
+  })))
+);
+
+app.post('/api/admin/users/:id/balance', adminOnly, (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.id);
+  const delta = round2(Number(req.body.delta));
+  if (!u || !Number.isFinite(delta) || delta === 0) return res.status(400).json({ error: 'Done pa valid.' });
+  if ((u.balance || 0) + delta < 0) return res.status(400).json({ error: 'Balans pa ka negatif.' });
+  u.balance = round2((u.balance || 0) + delta);
+  saveUsers(req.users);
+  res.json({ balance: u.balance });
+});
+
+app.get('/api/admin/kyc', adminOnly, (req, res) =>
+  res.json(req.users.filter((u) => u.kyc.status !== 'none').map((u) => ({
+    id: u.id, name: u.name, email: u.email, ...u.kyc
+  })))
+);
+
 app.get('/api/admin/kyc/:id/:slot', adminOnly, (req, res) => {
-  const user = loadUsers().find((u) => u.id === req.params.id);
+  const user = req.users.find((u) => u.id === req.params.id);
   const file = user && user.kyc.files && user.kyc.files[req.params.slot];
   if (!file) return res.status(404).json({ error: 'Pa jwenn.' });
   res.sendFile(path.join(KYC_DIR, user.id, file));
 });
 
 app.post('/api/admin/kyc/:id/decision', adminOnly, (req, res) => {
-  const users = loadUsers();
-  const user = users.find((u) => u.id === req.params.id);
+  const user = req.users.find((u) => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: 'Pa jwenn.' });
   const { decision, reason } = req.body;
-  if (!['approved', 'rejected'].includes(decision)) return res.status(400).json({ error: 'Desizyon pa valid.' });
+  if (!['approved', 'rejected', 'reupload', 'pending'].includes(decision)) return res.status(400).json({ error: 'Desizyon pa valid.' });
+  const defaults = { rejected: 'KYC ou refize.', reupload: 'Foto yo pa klè. Tanpri re-voye dokiman yo.' };
   user.kyc.status = decision;
-  user.kyc.reason = decision === 'rejected' ? String(reason || 'Foto yo pa klè. Tanpri re-soumèt.') : null;
+  user.kyc.reason = defaults[decision] ? String(reason || '').slice(0, 300) || defaults[decision] : null;
   user.kyc.reviewedAt = new Date().toISOString();
-  saveUsers(users);
+  saveUsers(req.users);
   res.json({ ok: true });
+});
+
+app.get('/api/admin/swaps', adminOnly, (req, res) =>
+  res.json(req.users.flatMap((u) => (u.swaps || []).map((s) => ({ ...s, name: u.name, email: u.email })))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
+);
+
+app.post('/api/admin/swaps/:id/status', adminOnly, (req, res) => {
+  const status = req.body.status;
+  if (!['done', 'rejected'].includes(status)) return res.status(400).json({ error: 'Estati pa valid.' });
+  for (const u of req.users) {
+    const sw = (u.swaps || []).find((x) => x.id === req.params.id);
+    if (!sw) continue;
+    if (sw.status !== 'pending') return res.status(409).json({ error: 'Swap sa deja trete.' });
+    sw.status = status;
+    if (status === 'rejected') u.balance = round2((u.balance || 0) + sw.amount); // ranbouse
+    saveUsers(req.users);
+    return res.json({ ok: true });
+  }
+  res.status(404).json({ error: 'Pa jwenn.' });
 });
 
 // ---------- Paj yo ----------
@@ -241,6 +313,8 @@ const page = (file) => (req, res) => res.sendFile(path.join(__dirname, file));
 app.get('/', page('index.html'));
 app.get('/index.html', page('index.html'));
 app.get('/kyc.html', page('kyc.html'));
+app.get('/dashboard.html', page('dashboard.html'));
+app.get('/admin.html', page('admin.html'));
 app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT}`));
