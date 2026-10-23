@@ -55,6 +55,20 @@ if (ADMIN_EMAIL && ADMIN_PASSWORD.length >= 10) {
   console.warn('Pa gen kont admin: mete ADMIN_EMAIL ak ADMIN_PASSWORD (omwen 10 karaktè) nan Variables.');
 }
 
+// Kont itilizatè tès (opsyonèl) soti nan Variables
+const TEST_EMAIL = (process.env.TEST_USER_EMAIL || '').trim().toLowerCase();
+const TEST_PASSWORD = process.env.TEST_USER_PASSWORD || '';
+if (TEST_EMAIL && TEST_PASSWORD.length >= 10 && TEST_EMAIL !== ADMIN_EMAIL) {
+  const users = loadUsers();
+  let t = users.find((u) => u.email === TEST_EMAIL);
+  if (!t) {
+    t = { id: crypto.randomUUID(), name: 'Test User', email: TEST_EMAIL, createdAt: new Date().toISOString(), role: 'user', balance: 0, swaps: [], kyc: { status: 'none' } };
+    users.push(t);
+  }
+  if (!t.passwordHash || !bcrypt.compareSync(TEST_PASSWORD, t.passwordHash)) t.passwordHash = bcrypt.hashSync(TEST_PASSWORD, 12);
+  saveUsers(users);
+}
+
 // ---------- App ----------
 const app = express();
 app.set('trust proxy', 1);
