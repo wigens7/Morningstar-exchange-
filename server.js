@@ -236,7 +236,11 @@ app.post('/api/admin/kyc/:id/decision', adminOnly, (req, res) => {
 });
 
 // ---------- Paj yo ----------
-app.use(express.static(path.join(__dirname, 'public')));
+// Sèlman 2 paj sa yo ki piblik (server.js ak lòt fichye yo pa janm sèvi)
+const page = (file) => (req, res) => res.sendFile(path.join(__dirname, file));
+app.get('/', page('index.html'));
+app.get('/index.html', page('index.html'));
+app.get('/kyc.html', page('kyc.html'));
 app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT}`));
