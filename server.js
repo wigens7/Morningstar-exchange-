@@ -32,10 +32,15 @@ function saveUsers(users) {
   fs.renameSync(tmp, USERS_FILE);
 }
 const round2 = (n) => Math.round(n * 100) / 100;
+// Balans prensipal = HTG (goud). usd = balans dola (USD/USDT) apre kliyan an fè yon swap.
+const RATE = Number(process.env.HTG_PER_USD) || 0; // egz. HTG_PER_USD=140 vle di 1$ = 140 HTG
+const W_METHODS = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal'] };
+const txOf = (s) => ({ type: 'withdrawal', currency: 'HTG', ...s });
 const publicUser = (u) => ({
-  id: u.id, name: u.name, email: u.email, role: u.role || 'user', balance: u.balance || 0,
+  id: u.id, name: u.name, email: u.email, role: u.role || 'user',
+  balance: u.balance || 0, usd: u.usd || 0, rate: RATE,
   kyc: { status: u.kyc.status, idType: u.kyc.idType || null, reason: u.kyc.reason || null },
-  swaps: (u.swaps || []).slice(-10).reverse()
+  txs: (u.swaps || []).slice(-30).map(txOf).reverse()
 });
 
 // Kont admin kreye soti nan Variables (pa janm ekri nan kòd la)
@@ -230,22 +235,46 @@ app.post('/api/kyc', auth, (req, res) => {
   });
 });
 
-// ---------- Swap ----------
-const METHODS = ['MonCash', 'NatCash', 'Meru', 'USDT', 'Zelle', 'CashApp'];
-
+// ---------- Swap (HTG -> USD/USDT) ----------
 app.post('/api/swap', auth, (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
+  if (!RATE) return res.status(503).json({ error: 'To chanj la poko konfigire. Eseye pita.' });
+  const amount = round2(Number(req.body.amount));
+  if (!(amount > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
+  if (amount > (u.balance || 0)) return res.status(400).json({ error: 'Balans HTG ou pa sifi.' });
+  const usd = Math.floor((amount / RATE) * 100) / 100;
+  if (usd <= 0) return res.status(400).json({ error: 'Montan an twò piti pou yon swap.' });
+  u.balance = round2(u.balance - amount);
+  u.usd = round2((u.usd || 0) + usd);
+  u.swaps = u.swaps || [];
+  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', currency: 'HTG', amount, usd, rate: RATE, status: 'done', createdAt: new Date().toISOString() });
+  saveUsers(req.users);
+  res.status(201).json(publicUser(u));
+});
+
+// ---------- Retrè ----------
+// HTG => sèlman MonCash / NatCash | USD => Meru, Zelle, USDT, CashApp, PayPal
+app.post('/api/withdraw', auth, (req, res) => {
+  const u = req.user;
+  if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon retrè.' });
+  const currency = String(req.body.currency || '');
   const method = String(req.body.method || '');
   const amount = round2(Number(req.body.amount));
   const account = String(req.body.account || '').trim();
-  if (!METHODS.includes(method)) return res.status(400).json({ error: 'Metòd la pa valid.' });
+  if (!Object.prototype.hasOwnProperty.call(W_METHODS, currency)) return res.status(400).json({ error: 'Lajan an pa valid.' });
+  if (!W_METHODS[currency].includes(method)) {
+    return res.status(400).json({ error: currency === 'HTG'
+      ? 'Balans HTG ka retire sèlman sou MonCash oswa NatCash. Pou lòt metòd yo, swap an dola dabò.'
+      : 'Metòd la pa valid.' });
+  }
+  const field = currency === 'HTG' ? 'balance' : 'usd';
   if (!(amount > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
-  if (amount > (u.balance || 0)) return res.status(400).json({ error: 'Balans ou pa sifi.' });
+  if (amount > (u[field] || 0)) return res.status(400).json({ error: 'Balans ou pa sifi.' });
   if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
-  u.balance = round2(u.balance - amount);
+  u[field] = round2(u[field] - amount);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), method, amount, account, status: 'pending', createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account, status: 'pending', createdAt: new Date().toISOString() });
   saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
@@ -261,7 +290,7 @@ function adminOnly(req, res, next) {
 app.get('/api/admin/users', adminOnly, (req, res) =>
   res.json(req.users.map((u) => ({
     id: u.id, name: u.name, email: u.email, role: u.role || 'user',
-    balance: u.balance || 0, kycStatus: u.kyc.status, createdAt: u.createdAt
+    balance: u.balance || 0, usd: u.usd || 0, kycStatus: u.kyc.status, createdAt: u.createdAt
   })))
 );
 
@@ -301,20 +330,25 @@ app.post('/api/admin/kyc/:id/decision', adminOnly, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/swaps', adminOnly, (req, res) =>
-  res.json(req.users.flatMap((u) => (u.swaps || []).map((s) => ({ ...s, name: u.name, email: u.email })))
+app.get('/api/admin/withdrawals', adminOnly, (req, res) =>
+  res.json(req.users.flatMap((u) => (u.swaps || []).map(txOf).filter((t) => t.type === 'withdrawal')
+    .map((t) => ({ ...t, name: u.name, email: u.email })))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
 );
 
-app.post('/api/admin/swaps/:id/status', adminOnly, (req, res) => {
+app.post('/api/admin/withdrawals/:id/status', adminOnly, (req, res) => {
   const status = req.body.status;
   if (!['done', 'rejected'].includes(status)) return res.status(400).json({ error: 'Estati pa valid.' });
   for (const u of req.users) {
-    const sw = (u.swaps || []).find((x) => x.id === req.params.id);
-    if (!sw) continue;
-    if (sw.status !== 'pending') return res.status(409).json({ error: 'Swap sa deja trete.' });
-    sw.status = status;
-    if (status === 'rejected') u.balance = round2((u.balance || 0) + sw.amount); // ranbouse
+    const t = (u.swaps || []).find((x) => x.id === req.params.id);
+    if (!t) continue;
+    if (t.type === 'swap') return res.status(400).json({ error: 'Se pa yon retrè.' });
+    if (t.status !== 'pending') return res.status(409).json({ error: 'Retrè sa deja trete.' });
+    t.status = status;
+    if (status === 'rejected') { // ranbouse nan bon balans lan
+      const field = (t.currency || 'HTG') === 'HTG' ? 'balance' : 'usd';
+      u[field] = round2((u[field] || 0) + t.amount);
+    }
     saveUsers(req.users);
     return res.json({ ok: true });
   }
