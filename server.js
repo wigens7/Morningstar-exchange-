@@ -35,6 +35,13 @@ const round2 = (n) => Math.round(n * 100) / 100;
 // Balans prensipal = HTG (goud). usd = balans dola (USD/USDT) apre kliyan an fè yon swap.
 // To chanj + frè swap: admin kontwole yo (settings.json). Default: 1 USDT = 140 HTG, frè dezaktive.
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+// Aktif ki ka gen pwòp pousantaj frè swap (metòd dola yo)
+const W_ASSETS = ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'];
+// Frè swap pou yon aktif: pousantaj pa aktif la, sinon pousantaj jeneral la. 0 si frè yo dezaktive.
+function feeFor(st, asset) {
+  if (!st.feeActive) return 0;
+  return asset && st.feeByAsset[asset] !== undefined ? st.feeByAsset[asset] : st.feePercent;
+}
 function getSettings() {
   let s = {};
   try { s = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
@@ -42,6 +49,7 @@ function getSettings() {
     rate: Number(s.rate) > 0 ? Number(s.rate) : 140,
     feeActive: !!s.feeActive,
     feePercent: Number(s.feePercent) >= 0 ? Number(s.feePercent) : 0,
+    feeByAsset: Object.fromEntries(Object.entries(s.feeByAsset && typeof s.feeByAsset === 'object' ? s.feeByAsset : {}).filter(([k, v]) => W_ASSETS.includes(k) && v !== null && v !== '' && Number(v) >= 0 && Number(v) <= 50).map(([k, v]) => [k, Number(v)])),
     deposit: s.deposit && typeof s.deposit === 'object' ? s.deposit : {}
   };
 }
@@ -55,7 +63,7 @@ const txOf = (s) => ({ type: 'withdrawal', currency: 'HTG', ...s });
 const publicUser = (u) => ({
   id: u.id, name: u.name, email: u.email, role: u.role || 'user',
   balance: u.balance || 0, usd: u.usd || 0, rate: getSettings().rate,
-  fee: { active: getSettings().feeActive, percent: getSettings().feePercent }, banned: !!u.banned,
+  fee: { active: getSettings().feeActive, percent: getSettings().feePercent, byAsset: getSettings().feeByAsset }, banned: !!u.banned,
   uid: u.uid || null, lang: u.lang || 'ht', profile: u.profile || null, pinActive: !!u.pinActive,
   kyc: { status: u.kyc.status, idType: u.kyc.idType || null, reason: u.kyc.reason || null },
   txs: (u.swaps || []).slice(-30).map(txOf).reverse()
@@ -402,7 +410,8 @@ app.post('/api/swap', auth, notBanned, needProfile, (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
   const st = getSettings();
-  const pct = st.feeActive ? st.feePercent : 0;
+  const asset = W_ASSETS.includes(String(req.body.asset || '')) ? String(req.body.asset) : null;
+  const pct = feeFor(st, asset);
   // Si admin lan chanje to a oswa frè a pandan kliyan an te sou paj la, pa fè swap la ak ansyen valè yo
   if (Number(req.body.rate) !== st.rate || Number(req.body.feePercent) !== pct) {
     return res.status(409).json({ error: 'To oswa frè a fèk chanje. Verifye nouvo valè yo epi eseye ankò.', user: publicUser(u) });
@@ -417,7 +426,7 @@ app.post('/api/swap', auth, notBanned, needProfile, (req, res) => {
   u.balance = round2(u.balance - amount);
   u.usd = round2((u.usd || 0) + usd);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', currency: 'HTG', amount, fee, feePercent: pct, usd, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', currency: 'HTG', amount, fee, feePercent: pct, asset, usd, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
   saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
@@ -509,7 +518,16 @@ app.post('/api/admin/settings', adminOnly, (req, res) => {
   const feePercent = Number(req.body.feePercent);
   if (!(rate > 0) || rate > 100000) return res.status(400).json({ error: 'To chanj la pa valid.' });
   if (!(feePercent >= 0) || feePercent > 50) return res.status(400).json({ error: 'Pousantaj la dwe ant 0 ak 50.' });
-  saveSettings({ ...getSettings(), rate: round2(rate), feeActive: !!req.body.feeActive, feePercent: round2(feePercent) });
+  const byIn = req.body.feeByAsset && typeof req.body.feeByAsset === 'object' ? req.body.feeByAsset : {};
+  const feeByAsset = {};
+  for (const a of W_ASSETS) {
+    const v = byIn[a];
+    if (v === undefined || v === null || String(v).trim() === '') continue; // vid = itilize pousantaj jeneral la
+    const n = Number(v);
+    if (!(n >= 0) || n > 50) return res.status(400).json({ error: `Pousantaj ${a} la dwe ant 0 ak 50.` });
+    feeByAsset[a] = round2(n);
+  }
+  saveSettings({ ...getSettings(), rate: round2(rate), feeActive: !!req.body.feeActive, feePercent: round2(feePercent), feeByAsset });
   res.json(getSettings());
 });
 
