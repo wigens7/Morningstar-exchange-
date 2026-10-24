@@ -42,6 +42,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 #toast{position:fixed;top:.75rem;left:.75rem;right:.75rem;max-width:28rem;margin:auto;z-index:70;transition:all .25s}
 #toast.hidden{display:block;opacity:0;transform:translateY(-12px);pointer-events:none}
 .scroll-none::-webkit-scrollbar{display:none}
+.opacity-35{opacity:.35}
 </style>
 </head>
 <body>
@@ -61,6 +62,10 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <button onclick="toast('Pa gen nouvo notifikasyon.', true)" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Notifikasyon"><i class="fa-regular fa-bell"></i></button>
   </header>
 
+  <div id="ban" class="hidden mb-4 px-3.5 py-3 rounded-xl border border-red-500/40 bg-red-950/60 text-red-300 text-xs leading-snug">
+    <i class="fa-solid fa-ban mr-1.5"></i>Kont ou bani. Ou ka fè depo sèlman. Kontakte sipò a pou plis enfòmasyon.
+  </div>
+
   <!-- Balans -->
   <section class="hero rounded-3xl p-5 mb-5">
     <p class="text-[11px] uppercase tracking-[.14em] text-gray-400 font-medium">Balans disponib</p>
@@ -74,9 +79,9 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   <!-- Aksyon rapid -->
   <section class="grid grid-cols-4 gap-2 mb-6">
     <button class="act flex flex-col items-center gap-1.5" onclick="soon('Depo')"><span class="aico"><i class="fa-solid fa-arrow-down"></i></span><span class="text-[11px] font-medium text-gray-300">Depo</span></button>
-    <button class="act flex flex-col items-center gap-1.5" onclick="openWd()"><span class="aico"><i class="fa-solid fa-arrow-up"></i></span><span class="text-[11px] font-medium text-gray-300">Retrè</span></button>
-    <button class="act flex flex-col items-center gap-1.5" onclick="openSwap()"><span class="aico"><i class="fa-solid fa-arrows-rotate"></i></span><span class="text-[11px] font-medium text-gray-300">Swap</span></button>
-    <button class="act flex flex-col items-center gap-1.5" onclick="soon('Echanj')"><span class="aico"><i class="fa-solid fa-right-left"></i></span><span class="text-[11px] font-medium text-gray-300">Echanj</span></button>
+    <button class="act lock flex flex-col items-center gap-1.5" onclick="openWd()"><span class="aico"><i class="fa-solid fa-arrow-up"></i></span><span class="text-[11px] font-medium text-gray-300">Retrè</span></button>
+    <button class="act lock flex flex-col items-center gap-1.5" onclick="openSwap()"><span class="aico"><i class="fa-solid fa-arrows-rotate"></i></span><span class="text-[11px] font-medium text-gray-300">Swap</span></button>
+    <button class="act lock flex flex-col items-center gap-1.5" onclick="soon('Echanj')"><span class="aico"><i class="fa-solid fa-right-left"></i></span><span class="text-[11px] font-medium text-gray-300">Echanj</span></button>
   </section>
 
   <!-- Istwa -->
@@ -162,7 +167,7 @@ function toast(t, ok) {
   m.className = 'px-4 py-3 rounded-xl text-sm font-medium border ' + (ok ? 'bg-emerald-950 border-emerald-500/40 text-emerald-300' : 'bg-red-950 border-red-500/40 text-red-300');
   m.textContent = t; clearTimeout(tt); tt = setTimeout(() => m.classList.add('hidden'), 4000);
 }
-const soon = (n) => toast(n + ' pa disponib ankò. N ap ajoute l byento.', true);
+const soon = (n) => me && me.banned && n !== 'Depo' ? toast('Kont ou bani. Ou ka fè depo sèlman.', false) : toast(n + ' pa disponib ankò. N ap ajoute l byento.', true);
 async function logout() { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; }
 function closeModals() { document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden')); nav(0, true); }
 function nav(i, quiet) {
@@ -179,6 +184,13 @@ function renderHistory() {
   const rows = me.txs.filter((t) => (!flt || t.status === flt) && (!q || ((t.method || 'swap') + ' ' + t.amount + ' ' + t.type).toLowerCase().includes(q)));
   $('tx').innerHTML = rows.length ? rows.map((t) => {
     const [l, c] = STATUS[t.status] || ['', ''];
+    if (t.type === 'adjustment') {
+      const pos = t.amount > 0;
+      return `<div class="flex items-center gap-3 px-3.5 py-3">
+      <div class="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 text-sm"><i class="fa-solid ${pos ? 'fa-arrow-down text-emerald-400' : 'fa-arrow-up text-gray-300'}"></i></div>
+      <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${pos ? 'Depo' : 'Ajisteman'}${t.note ? ' · ' + esc(t.note) : ''}</p><p class="text-[11px] text-gray-500">${fdate(t.createdAt)}</p></div>
+      <div class="text-right flex-shrink-0"><p class="text-sm font-semibold ${pos ? 'text-emerald-400' : ''}">${pos ? '+' : '-'}${fmt(Math.abs(t.amount), t.currency)}</p><span class="pill bg-emerald-500/15 text-emerald-400">Fini</span></div></div>`;
+    }
     const sw = t.type === 'swap';
     const icon = sw ? 'fa-arrows-rotate text-amber-400' : 'fa-arrow-up text-gray-300';
     const title = sw ? 'Swap HTG → USD' : 'Retrè · ' + esc(t.method);
@@ -197,11 +209,14 @@ function render() {
   $('bal').textContent = num(me.balance);
   $('usd').textContent = '$' + num(me.usd);
   $('rate').textContent = me.rate ? `$1 = ${num(me.rate)} HTG` : 'Poko disponib';
+  $('ban').classList.toggle('hidden', !me.banned);
+  document.querySelectorAll('.lock').forEach((b) => b.classList.toggle('opacity-35', !!me.banned));
   renderHistory();
 }
 
 /* Swap */
 function openSwap() {
+  if (me.banned) return toast('Kont ou bani. Ou ka fè depo sèlman.', false);
   if (me.balance <= 0) return toast('Balans HTG ou se 0.00. Ou pa ka fè swap pou kounye a.', false);
   if (!me.rate) return toast('To chanj la poko disponib. Eseye pita.', false);
   $('s-amount').value = ''; $('s-err').classList.add('hidden'); preview();
@@ -228,6 +243,7 @@ async function doSwap() {
 
 /* Retrè */
 function openWd() {
+  if (me.banned) return toast('Kont ou bani. Ou ka fè depo sèlman.', false);
   if (me.balance <= 0 && me.usd <= 0) return toast('Ou pa gen balans pou retire.', false);
   $('w-amount').value = ''; $('w-account').value = ''; $('w-err').classList.add('hidden');
   setCur(me.balance > 0 ? 'HTG' : 'USD');
@@ -269,7 +285,7 @@ async function doWd() {
   if (r.status === 401) return (location.href = '/');
   me = await r.json();
   if (me.role === 'admin') return (location.href = '/admin.html');
-  if (me.kyc.status !== 'approved') return (location.href = '/kyc.html');
+  if (me.kyc.status !== 'approved' && !me.banned) return (location.href = '/kyc.html');
   render();
 })();
 </script>

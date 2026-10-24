@@ -15,6 +15,13 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 .tab.on{background:#D4AF37;color:#000;font-weight:700}
 .b{padding:.45rem .75rem;border-radius:.6rem;font-size:.75rem;font-weight:600}
 .thumb{height:7rem;width:100%;object-fit:cover;border-radius:.6rem;border:1px solid rgba(255,255,255,.15);background:#000}
+.on{background:#D4AF37;color:#000;font-weight:700}
+.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.75)}
+.modal.hidden{display:none}
+.sheet{width:100%;max-width:28rem;background:#12141d;border:1px solid rgba(212,175,55,.2);border-radius:1.5rem 1.5rem 0 0;padding:1.25rem}
+@media(min-width:640px){.modal{align-items:center}.sheet{border-radius:1.5rem}}
+.inp{width:100%;background:#0a0b10;border:1px solid rgba(255,255,255,.15);border-radius:.8rem;padding:.75rem;color:#fff}
+.inp:focus{outline:2px solid #D4AF37}
 </style>
 </head>
 <body class="p-4 sm:p-6">
@@ -32,6 +39,25 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   <div id="list" class="space-y-3 text-sm"></div>
 </div>
 
+<div id="m-bal" class="modal hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="sheet">
+    <div class="flex justify-between items-center mb-1"><h2 class="font-bold">Mete / retire lajan</h2><button onclick="$('m-bal').classList.add('hidden')" class="text-gray-400 text-2xl leading-none">&times;</button></div>
+    <p id="b-who" class="text-xs text-gray-400 truncate"></p>
+    <p id="b-cur" class="text-xs text-amber-400 mb-3"></p>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <button class="tab b rounded-xl py-2.5" data-c="HTG" onclick="setBal('HTG')">HTG (Goud)</button>
+      <button class="tab b rounded-xl py-2.5" data-c="USD" onclick="setBal('USD')">USD (Dola)</button>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-3">
+      <button class="tab b rounded-xl py-2.5" data-s="1" onclick="setBal(null,1)">+ Ajoute</button>
+      <button class="tab b rounded-xl py-2.5" data-s="-1" onclick="setBal(null,-1)">− Retire</button>
+    </div>
+    <input id="b-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Montan" class="inp mb-2">
+    <input id="b-note" type="text" maxlength="100" placeholder="Nòt (opsyonèl, kliyan an ap wè l)" class="inp mb-3">
+    <p id="b-err" class="text-red-400 text-xs mb-2 hidden"></p>
+    <button onclick="saveBal()" class="w-full py-3 rounded-xl font-bold text-black" style="background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B)">Konfime</button>
+  </div>
+</div>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -40,8 +66,8 @@ const IDT = { national_id: 'Kat Nasyonal', driver_license: 'Pèmi Kondwi', passp
 let tab = 'kyc';
 
 function fail(t) { $('msg').textContent = t; $('msg').classList.remove('hidden'); }
-async function api(url, body) {
-  const r = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+async function api(url, body, method) {
+  const r = await fetch(url, (body || method) ? { method: method || 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined } : {});
   if (r.status === 401) { location.href = '/'; throw new Error('401'); }
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { fail(d.error || 'Erè.'); throw new Error(d.error); }
@@ -77,13 +103,21 @@ async function load() {
     }).join('') : '<p class="text-gray-400">Pa gen KYC ankò.</p>';
   } else if (tab === 'users') {
     const rows = await api('/api/admin/users');
+    users = rows;
     $('list').innerHTML = rows.map((u) => {
       const [l, c] = KYC[u.kycStatus] || ['Pa fè KYC', 'text-gray-400'];
-      return `<div class="card rounded-2xl p-4 flex justify-between items-center gap-2">
-        <div class="min-w-0"><p class="font-semibold truncate">${esc(u.name)} ${u.role === 'admin' ? '<span class="text-amber-400 text-xs">(admin)</span>' : ''}</p>
-        <p class="text-xs text-gray-400 truncate">${esc(u.email)}</p><p class="text-xs ${c}">KYC: ${l}</p></div>
-        <div class="text-right flex-shrink-0"><p class="font-bold">${Number(u.balance).toFixed(2)} HTG</p>${u.usd > 0 ? `<p class="text-xs text-gray-400">$${Number(u.usd).toFixed(2)}</p>` : ''}
-        <button class="b tab mt-1" onclick="balance('${u.id}')">± Balans</button></div></div>`;
+      const isAdmin = u.role === 'admin';
+      return `<div class="card rounded-2xl p-4 ${u.banned ? 'border-red-500/40' : ''}">
+        <div class="flex justify-between items-start gap-2">
+          <div class="min-w-0"><p class="font-semibold truncate">${esc(u.name)} ${isAdmin ? '<span class="text-amber-400 text-xs">(admin)</span>' : ''}${u.banned ? ' <span class="text-red-400 text-xs font-bold">BANNI</span>' : ''}</p>
+          <p class="text-xs text-gray-400 truncate">${esc(u.email)}</p><p class="text-xs ${c}">KYC: ${l}</p></div>
+          <div class="text-right flex-shrink-0"><p class="font-bold">${Number(u.balance).toFixed(2)} HTG</p><p class="text-xs text-gray-400">$${Number(u.usd).toFixed(2)}</p></div>
+        </div>
+        ${isAdmin ? '' : `<div class="flex flex-wrap gap-2 mt-3">
+          <button class="b bg-emerald-600 text-white" onclick="openBal('${u.id}')"><i class="fa-solid fa-plus mr-1"></i>Balans</button>
+          <button class="b ${u.banned ? 'bg-sky-600 text-white' : 'bg-orange-500 text-black'}" onclick="ban('${u.id}', ${!u.banned})">${u.banned ? 'Debani' : 'Bani'}</button>
+          <button class="b bg-red-600 text-white" onclick="delUser('${u.id}')"><i class="fa-solid fa-trash mr-1"></i>Efase</button></div>`}
+      </div>`;
     }).join('');
   } else {
     const rows = await api('/api/admin/withdrawals');
@@ -113,10 +147,36 @@ async function decide(id, decision) {
   await api(`/api/admin/kyc/${id}/decision`, { decision, reason });
   load();
 }
-async function balance(id) {
-  const v = prompt('Montan HTG pou ajoute (egz. 500) oswa retire (egz. -100):');
-  if (v === null || v.trim() === '') return;
-  await api(`/api/admin/users/${id}/balance`, { delta: parseFloat(v) });
+let users = [], balUser = null, balCur = 'HTG', balSign = 1;
+function openBal(id) {
+  balUser = users.find((u) => u.id === id); balCur = 'HTG'; balSign = 1;
+  $('b-who').textContent = balUser.name + ' · ' + balUser.email;
+  $('b-amount').value = ''; $('b-note').value = ''; $('b-err').classList.add('hidden');
+  setBal(); $('m-bal').classList.remove('hidden');
+}
+function setBal(c, sg) {
+  if (c) balCur = c; if (sg) balSign = sg;
+  document.querySelectorAll('[data-c]').forEach((b) => b.classList.toggle('on', b.dataset.c === balCur));
+  document.querySelectorAll('[data-s]').forEach((b) => b.classList.toggle('on', Number(b.dataset.s) === balSign));
+  $('b-cur').textContent = balCur === 'HTG' ? `Balans kounye a: ${Number(balUser.balance).toFixed(2)} HTG` : `Balans kounye a: $${Number(balUser.usd).toFixed(2)}`;
+}
+async function saveBal() {
+  const v = parseFloat($('b-amount').value);
+  if (!(v > 0)) { $('b-err').textContent = 'Antre yon montan valid.'; $('b-err').classList.remove('hidden'); return; }
+  try {
+    await api(`/api/admin/users/${balUser.id}/balance`, { currency: balCur, delta: v * balSign, note: $('b-note').value });
+    $('m-bal').classList.add('hidden'); load();
+  } catch (e) { $('b-err').textContent = e.message; $('b-err').classList.remove('hidden'); }
+}
+async function ban(id, banned) {
+  if (!confirm(banned ? 'Bani kliyan sa a? Li ap ka fè depo sèlman.' : 'Debani kliyan sa a?')) return;
+  await api(`/api/admin/users/${id}/ban`, { banned });
+  load();
+}
+async function delUser(id) {
+  const u = users.find((x) => x.id === id);
+  if (!confirm(`Efase kont ${u.name} (${u.email}) NÈT? Done ak dosye KYC li yo ap disparèt. Aksyon sa a pa ka defèt.`)) return;
+  await api(`/api/admin/users/${id}`, null, 'DELETE');
   load();
 }
 

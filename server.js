@@ -38,7 +38,7 @@ const W_METHODS = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 
 const txOf = (s) => ({ type: 'withdrawal', currency: 'HTG', ...s });
 const publicUser = (u) => ({
   id: u.id, name: u.name, email: u.email, role: u.role || 'user',
-  balance: u.balance || 0, usd: u.usd || 0, rate: RATE,
+  balance: u.balance || 0, usd: u.usd || 0, rate: RATE, banned: !!u.banned,
   kyc: { status: u.kyc.status, idType: u.kyc.idType || null, reason: u.kyc.reason || null },
   txs: (u.swaps || []).slice(-30).map(txOf).reverse()
 });
@@ -127,6 +127,12 @@ function auth(req, res, next) {
   }
 }
 
+// Kont ki bani: sèlman depo. Tout lòt aksyon bloke.
+function notBanned(req, res, next) {
+  if (req.user.banned) return res.status(403).json({ error: 'Kont ou bani. Ou ka fè depo sèlman.' });
+  next();
+}
+
 // ---------- Auth ----------
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -197,7 +203,7 @@ const upload = multer({
   { name: 'selfie', maxCount: 1 }
 ]);
 
-app.post('/api/kyc', auth, (req, res) => {
+app.post('/api/kyc', auth, notBanned, (req, res) => {
   upload(req, res, (err) => {
     if (err) {
       const msg = err.code === 'LIMIT_FILE_SIZE' ? 'Chak foto dwe mwens pase 5 MB.' : 'Pwoblèm ak fichye yo.';
@@ -236,7 +242,7 @@ app.post('/api/kyc', auth, (req, res) => {
 });
 
 // ---------- Swap (HTG -> USD/USDT) ----------
-app.post('/api/swap', auth, (req, res) => {
+app.post('/api/swap', auth, notBanned, (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
   if (!RATE) return res.status(503).json({ error: 'To chanj la poko konfigire. Eseye pita.' });
@@ -255,7 +261,7 @@ app.post('/api/swap', auth, (req, res) => {
 
 // ---------- Retrè ----------
 // HTG => sèlman MonCash / NatCash | USD => Meru, Zelle, USDT, CashApp, PayPal
-app.post('/api/withdraw', auth, (req, res) => {
+app.post('/api/withdraw', auth, notBanned, (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon retrè.' });
   const currency = String(req.body.currency || '');
@@ -290,18 +296,46 @@ function adminOnly(req, res, next) {
 app.get('/api/admin/users', adminOnly, (req, res) =>
   res.json(req.users.map((u) => ({
     id: u.id, name: u.name, email: u.email, role: u.role || 'user',
-    balance: u.balance || 0, usd: u.usd || 0, kycStatus: u.kyc.status, createdAt: u.createdAt
+    balance: u.balance || 0, usd: u.usd || 0, banned: !!u.banned, kycStatus: u.kyc.status, createdAt: u.createdAt
   })))
 );
 
+// Ajoute / retire lajan sou kont yon kliyan (HTG oswa USD). Kliyan an wè l nan istwa li.
 app.post('/api/admin/users/:id/balance', adminOnly, (req, res) => {
   const u = req.users.find((x) => x.id === req.params.id);
   const delta = round2(Number(req.body.delta));
+  const currency = req.body.currency === 'USD' ? 'USD' : 'HTG';
+  const field = currency === 'USD' ? 'usd' : 'balance';
   if (!u || !Number.isFinite(delta) || delta === 0) return res.status(400).json({ error: 'Done pa valid.' });
-  if ((u.balance || 0) + delta < 0) return res.status(400).json({ error: 'Balans pa ka negatif.' });
-  u.balance = round2((u.balance || 0) + delta);
+  if (round2((u[field] || 0) + delta) < 0) return res.status(400).json({ error: 'Balans pa ka negatif.' });
+  u[field] = round2((u[field] || 0) + delta);
+  u.swaps = u.swaps || [];
+  u.swaps.push({
+    id: crypto.randomUUID(), type: 'adjustment', currency, amount: delta,
+    note: String(req.body.note || '').trim().slice(0, 100), status: 'done', createdAt: new Date().toISOString()
+  });
   saveUsers(req.users);
-  res.json({ balance: u.balance });
+  res.json({ balance: u.balance, usd: u.usd || 0 });
+});
+
+// Bani / debani yon kliyan (admin pa ka bani tèt li ni yon lòt admin)
+app.post('/api/admin/users/:id/ban', adminOnly, (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.id);
+  if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
+  if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka bani yon admin.' });
+  u.banned = !!req.body.banned;
+  saveUsers(req.users);
+  res.json({ banned: u.banned });
+});
+
+// Efase yon kont nèt (done + dosye KYC yo). Li pa ka konekte ankò.
+app.delete('/api/admin/users/:id', adminOnly, (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.id);
+  if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
+  if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka efase yon admin.' });
+  fs.rmSync(path.join(KYC_DIR, u.id), { recursive: true, force: true });
+  saveUsers(req.users.filter((x) => x.id !== u.id));
+  res.json({ ok: true });
 });
 
 app.get('/api/admin/kyc', adminOnly, (req, res) =>
@@ -342,7 +376,7 @@ app.post('/api/admin/withdrawals/:id/status', adminOnly, (req, res) => {
   for (const u of req.users) {
     const t = (u.swaps || []).find((x) => x.id === req.params.id);
     if (!t) continue;
-    if (t.type === 'swap') return res.status(400).json({ error: 'Se pa yon retrè.' });
+    if (t.type !== 'withdrawal' && t.type) return res.status(400).json({ error: 'Se pa yon retrè.' });
     if (t.status !== 'pending') return res.status(409).json({ error: 'Retrè sa deja trete.' });
     t.status = status;
     if (status === 'rejected') { // ranbouse nan bon balans lan
