@@ -527,7 +527,7 @@ app.post('/api/admin/deposit-info', adminOnly, (req, res) => {
     dep[m] = { active: !!i.active, account: cut(i.account, 150), name: cut(i.name, 100), note: cut(i.note, 300) };
   }
   saveSettings({ ...getSettings(), deposit: dep });
-  res.json({ ok: true });
+  res.json({ ok: true, visible: Object.keys(D_METHODS).filter((m) => dep[m].active && dep[m].account) });
 });
 
 app.get('/api/admin/deposits', adminOnly, (req, res) =>
