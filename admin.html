@@ -30,11 +30,13 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <h1 class="text-lg font-extrabold tracking-wider gold-text uppercase">Admin Panel</h1>
     <button onclick="logout()" class="text-xs text-amber-400"><i class="fa-solid fa-right-from-bracket mr-1"></i>Dekonekte</button>
   </div>
-  <div class="grid grid-cols-4 gap-2 mb-5 text-xs">
-    <button class="tab on rounded-xl py-2" data-t="kyc" onclick="go('kyc')">KYC</button>
-    <button class="tab rounded-xl py-2" data-t="users" onclick="go('users')">Itilizatè</button>
-    <button class="tab rounded-xl py-2" data-t="wd" onclick="go('wd')">Retrè</button>
-    <button class="tab rounded-xl py-2" data-t="set" onclick="go('set')">To &amp; Frè</button>
+  <div class="flex gap-2 mb-5 text-xs overflow-x-auto pb-1">
+    <button class="tab on rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="kyc" onclick="go('kyc')">KYC</button>
+    <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="users" onclick="go('users')">Itilizatè</button>
+    <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="wd" onclick="go('wd')">Retrè</button>
+    <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="dep" onclick="go('dep')">Depo</button>
+    <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="dinfo" onclick="go('dinfo')">Enfo Depo</button>
+    <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="set" onclick="go('set')">To &amp; Frè</button>
   </div>
   <div id="msg" class="hidden mb-4 p-3 rounded-xl text-sm bg-red-500/10 border border-red-500/30 text-red-400"></div>
   <div id="list" class="space-y-3 text-sm"></div>
@@ -59,6 +61,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <button onclick="saveBal()" class="w-full py-3 rounded-xl font-bold text-black" style="background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B)">Konfime</button>
   </div>
 </div>
+<script src="/logos.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -120,6 +123,10 @@ async function load() {
           <button class="b bg-red-600 text-white" onclick="delUser('${u.id}')"><i class="fa-solid fa-trash mr-1"></i>Efase</button></div>`}
       </div>`;
     }).join('');
+  } else if (tab === 'dep') {
+    await loadDeposits();
+  } else if (tab === 'dinfo') {
+    await loadDInfo();
   } else if (tab === 'set') {
     await loadSettings();
   } else {
@@ -133,6 +140,58 @@ async function load() {
       ${t.status === 'pending' ? `<div class="flex gap-2 mt-2"><button class="b bg-emerald-600 text-white" onclick="wd('${t.id}','done')">Make kòm peye</button><button class="b bg-red-600 text-white" onclick="wd('${t.id}','rejected')">Refize + ranbouse</button></div>` : ''}</div>`;
     }).join('') : '<p class="text-gray-400">Pa gen retrè ankò.</p>';
   }
+}
+
+const DM = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD' };
+const money = (n, c) => (c === 'USD' ? '$' + Number(n).toFixed(2) : Number(n).toFixed(2) + ' HTG');
+
+async function loadDeposits() {
+  const rows = await api('/api/admin/deposits');
+  rows.sort((x, y) => (x.status === 'pending' ? -1 : 1) - (y.status === 'pending' ? -1 : 1));
+  $('list').innerHTML = rows.length ? rows.map((t) => `<div class="card rounded-2xl p-4">
+    <div class="flex justify-between items-start gap-2"><div class="flex items-center gap-2 min-w-0">${logo(t.method, 30)}<div class="min-w-0"><p class="font-semibold">${esc(t.method)} · ${money(t.amount, t.currency)}</p>
+    <p class="text-xs text-gray-400 truncate">${esc(t.name)} · ${esc(t.email)} · ID ${esc(t.uid || '')}</p></div></div>
+    <p class="text-xs font-bold ${t.status === 'pending' ? 'text-amber-400' : t.status === 'done' ? 'text-emerald-400' : 'text-red-400'}">${t.status}</p></div>
+    <p class="text-xs text-gray-400 mt-2 break-all">Referans: <span class="text-gray-200">${esc(t.reference)}</span></p>
+    ${t.requested && t.requested !== t.amount ? `<p class="text-xs text-amber-400">Kliyan te di ${money(t.requested, t.currency)}</p>` : ''}
+    ${t.note ? `<p class="text-xs text-gray-400">Nòt: ${esc(t.note)}</p>` : ''}
+    ${t.status === 'pending' ? `<div class="flex gap-2 mt-3"><button class="b bg-emerald-600 text-white" onclick="depDecide('${t.id}','done',${t.amount})">Konfime + kredite</button><button class="b bg-red-600 text-white" onclick="depDecide('${t.id}','rejected')">Refize</button></div>` : ''}
+  </div>`).join('') : '<p class="text-gray-400">Pa gen depo ankò.</p>';
+}
+async function depDecide(id, decision, amount) {
+  const body = { decision };
+  if (decision === 'done') {
+    const v = prompt('Montan pou kredite (verifye ke ou resevwa l vre):', amount);
+    if (v === null) return;
+    body.amount = parseFloat(v);
+  } else {
+    const v = prompt('Rezon (opsyonèl):', '');
+    if (v === null) return;
+    body.reason = v;
+  }
+  await api(`/api/admin/deposits/${id}/decision`, body);
+  load();
+}
+
+async function loadDInfo() {
+  const info = await api('/api/admin/deposit-info');
+  $('list').innerHTML = `<p class="text-xs text-gray-400">Sa kliyan yo wè lè yo peze Depo. Yon metòd parèt sèlman si li aktif epi li gen yon kont/nimewo.</p>` +
+    Object.keys(DM).map((m) => { const i = info[m]; return `<div class="card rounded-2xl p-4 space-y-2" data-m="${m}">
+      <div class="flex items-center justify-between"><div class="flex items-center gap-2">${logo(m, 30)}<div><p class="font-semibold text-sm">${m}</p><p class="text-[11px] text-gray-400">${DM[m] === 'HTG' ? 'Kredite balans HTG' : 'Kredite balans dola'}</p></div></div>
+      <button class="b tab d-act ${i.active ? 'on' : ''}" onclick="this.classList.toggle('on');this.textContent=this.classList.contains('on')?'Aktif':'Dezaktive'">${i.active ? 'Aktif' : 'Dezaktive'}</button></div>
+      <input class="inp d-acc" placeholder="Kont / nimewo / imèl / $cashtag" value="${esc(i.account)}">
+      <input class="inp d-name" placeholder="Non sou kont lan" value="${esc(i.name)}">
+      <textarea class="inp d-note" rows="2" placeholder="Enstriksyon pou kliyan an (opsyonèl)">${esc(i.note)}</textarea></div>`; }).join('') +
+    `<button onclick="saveDInfo()" class="w-full py-3 rounded-xl font-bold text-black" style="background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B)">Sove</button>
+     <p id="di-ok" class="text-emerald-400 text-xs hidden">Sove! Kliyan yo wè nouvo enfòmasyon yo touswit.</p>`;
+}
+async function saveDInfo() {
+  const out = {};
+  document.querySelectorAll('[data-m]').forEach((c) => {
+    out[c.dataset.m] = { active: c.querySelector('.d-act').classList.contains('on'), account: c.querySelector('.d-acc').value, name: c.querySelector('.d-name').value, note: c.querySelector('.d-note').value };
+  });
+  await api('/api/admin/deposit-info', { info: out });
+  $('di-ok').classList.remove('hidden');
 }
 
 async function loadSettings() {

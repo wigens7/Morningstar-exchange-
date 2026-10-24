@@ -41,7 +41,8 @@ function getSettings() {
   return {
     rate: Number(s.rate) > 0 ? Number(s.rate) : 140,
     feeActive: !!s.feeActive,
-    feePercent: Number(s.feePercent) >= 0 ? Number(s.feePercent) : 0
+    feePercent: Number(s.feePercent) >= 0 ? Number(s.feePercent) : 0,
+    deposit: s.deposit && typeof s.deposit === 'object' ? s.deposit : {}
   };
 }
 function saveSettings(st) {
@@ -364,6 +365,38 @@ app.get('/api/invites', auth, (req, res) =>
   res.json({ uid: req.user.uid, count: req.users.filter((x) => x.referredBy === req.user.uid).length })
 );
 
+// ---------- Depo ----------
+// MonCash/NatCash => HTG | PayPal, Zelle, Meru, CashApp => dola. Admin mete enfo peman yo.
+const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD' };
+
+app.get('/api/deposit-info', auth, (req, res) => {
+  const dep = getSettings().deposit;
+  res.json(Object.keys(D_METHODS).filter((m) => dep[m] && dep[m].active && dep[m].account)
+    .map((m) => ({ method: m, currency: D_METHODS[m], account: dep[m].account, name: dep[m].name || '', note: dep[m].note || '' })));
+});
+
+// Kliyan an di li voye lajan an; admin verifye epi kredite. (Kont bani ka fè depo tou.)
+app.post('/api/deposit', auth, (req, res) => {
+  const u = req.user;
+  const method = String(req.body.method || '');
+  if (!Object.prototype.hasOwnProperty.call(D_METHODS, method)) return res.status(400).json({ error: 'Metòd la pa valid.' });
+  const info = getSettings().deposit[method];
+  if (!info || !info.active || !info.account) return res.status(400).json({ error: 'Metòd sa a pa disponib kounye a.' });
+  const amount = round2(Number(req.body.amount));
+  if (!(amount > 0) || amount > 10000000) return res.status(400).json({ error: 'Montan an pa valid.' });
+  const reference = String(req.body.reference || '').trim();
+  if (reference.length < 3 || reference.length > 100) return res.status(400).json({ error: 'Antre referans tranzaksyon an.' });
+  if ((u.swaps || []).filter((t) => t.type === 'deposit' && t.status === 'pending').length >= 5) {
+    return res.status(429).json({ error: 'Ou gen twòp depo an kou. Tann yo trete.' });
+  }
+  const dup = req.users.some((x) => (x.swaps || []).some((t) => t.type === 'deposit' && t.method === method && t.status !== 'rejected' && String(t.reference).toLowerCase() === reference.toLowerCase()));
+  if (dup) return res.status(409).json({ error: 'Referans sa a deja itilize.' });
+  u.swaps = u.swaps || [];
+  u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, amount, reference, status: 'pending', createdAt: new Date().toISOString() });
+  saveUsers(req.users);
+  res.status(201).json(publicUser(u));
+});
+
 // ---------- Swap (HTG -> USD/USDT) ----------
 app.post('/api/swap', auth, notBanned, needProfile, (req, res) => {
   const u = req.user;
@@ -476,8 +509,53 @@ app.post('/api/admin/settings', adminOnly, (req, res) => {
   const feePercent = Number(req.body.feePercent);
   if (!(rate > 0) || rate > 100000) return res.status(400).json({ error: 'To chanj la pa valid.' });
   if (!(feePercent >= 0) || feePercent > 50) return res.status(400).json({ error: 'Pousantaj la dwe ant 0 ak 50.' });
-  saveSettings({ rate: round2(rate), feeActive: !!req.body.feeActive, feePercent: round2(feePercent) });
+  saveSettings({ ...getSettings(), rate: round2(rate), feeActive: !!req.body.feeActive, feePercent: round2(feePercent) });
   res.json(getSettings());
+});
+
+app.get('/api/admin/deposit-info', adminOnly, (req, res) => {
+  const dep = getSettings().deposit, out = {};
+  for (const m of Object.keys(D_METHODS)) out[m] = { active: !!(dep[m] && dep[m].active), account: (dep[m] && dep[m].account) || '', name: (dep[m] && dep[m].name) || '', note: (dep[m] && dep[m].note) || '' };
+  res.json(out);
+});
+
+app.post('/api/admin/deposit-info', adminOnly, (req, res) => {
+  const inp = req.body.info || {}, dep = {};
+  const cut = (v, n) => String(v || '').trim().slice(0, n);
+  for (const m of Object.keys(D_METHODS)) {
+    const i = inp[m] || {};
+    dep[m] = { active: !!i.active, account: cut(i.account, 150), name: cut(i.name, 100), note: cut(i.note, 300) };
+  }
+  saveSettings({ ...getSettings(), deposit: dep });
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/deposits', adminOnly, (req, res) =>
+  res.json(req.users.flatMap((u) => (u.swaps || []).filter((t) => t.type === 'deposit')
+    .map((t) => ({ ...t, name: u.name, email: u.email, uid: u.uid })))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
+);
+
+app.post('/api/admin/deposits/:id/decision', adminOnly, (req, res) => {
+  const decision = req.body.decision;
+  if (!['done', 'rejected'].includes(decision)) return res.status(400).json({ error: 'Desizyon pa valid.' });
+  for (const u of req.users) {
+    const t = (u.swaps || []).find((x) => x.id === req.params.id && x.type === 'deposit');
+    if (!t) continue;
+    if (t.status !== 'pending') return res.status(409).json({ error: 'Depo sa deja trete.' });
+    if (decision === 'done') {
+      const amt = round2(Number(req.body.amount === undefined || req.body.amount === '' ? t.amount : req.body.amount));
+      if (!(amt > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
+      const field = t.currency === 'USD' ? 'usd' : 'balance';
+      u[field] = round2((u[field] || 0) + amt);
+      t.requested = t.amount; t.amount = amt; t.status = 'done';
+    } else {
+      t.status = 'rejected'; t.note = String(req.body.reason || '').trim().slice(0, 200);
+    }
+    saveUsers(req.users);
+    return res.json({ ok: true });
+  }
+  res.status(404).json({ error: 'Pa jwenn.' });
 });
 
 app.get('/api/admin/kyc', adminOnly, (req, res) =>
@@ -541,6 +619,8 @@ app.get('/dashboard.html', page('dashboard.html'));
 app.get('/admin.html', page('admin.html'));
 app.get('/settings.html', page('settings.html'));
 app.get('/i18n.js', page('i18n.js'));
+app.get('/logos.js', page('logos.js'));
+app.use('/logos', express.static(path.join(__dirname, 'logos'), { index: false }));
 app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT}`));

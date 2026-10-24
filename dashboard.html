@@ -59,7 +59,10 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
         <p id="uname" class="text-sm font-semibold truncate">...</p>
       </div>
     </div>
-    <button onclick="toast(t('noNotif'), true)" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Notifikasyon"><i class="fa-regular fa-bell"></i></button>
+    <div class="flex gap-2">
+      <button onclick="toast(t('noNotif'), true)" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Notifikasyon"><i class="fa-regular fa-bell"></i></button>
+      <button onclick="openMenu()" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Menu"><i class="fa-solid fa-bars"></i></button>
+    </div>
   </header>
 
   <div id="ban" class="hidden mb-4 px-3.5 py-3 rounded-xl border border-red-500/40 bg-red-950/60 text-red-300 text-xs leading-snug">
@@ -83,7 +86,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 
   <!-- Aksyon rapid -->
   <section class="grid grid-cols-4 gap-2 mb-6">
-    <button class="act flex flex-col items-center gap-1.5" onclick="soon('Depo')"><span class="aico"><i class="fa-solid fa-arrow-down"></i></span><span class="text-[11px] font-medium text-gray-300">Depo</span></button>
+    <button class="act flex flex-col items-center gap-1.5" onclick="openDep()"><span class="aico"><i class="fa-solid fa-arrow-down"></i></span><span class="text-[11px] font-medium text-gray-300">Depo</span></button>
     <button class="act lock flex flex-col items-center gap-1.5" onclick="openWd()"><span class="aico"><i class="fa-solid fa-arrow-up"></i></span><span class="text-[11px] font-medium text-gray-300">Retrè</span></button>
     <button class="act lock flex flex-col items-center gap-1.5" onclick="openSwap()"><span class="aico"><i class="fa-solid fa-arrows-rotate"></i></span><span class="text-[11px] font-medium text-gray-300">Swap</span></button>
     <button class="act lock flex flex-col items-center gap-1.5" onclick="soon('Echanj')"><span class="aico"><i class="fa-solid fa-right-left"></i></span><span class="text-[11px] font-medium text-gray-300">Echanj</span></button>
@@ -147,6 +150,22 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   </div>
 </div>
 
+<!-- Menu -->
+<div id="m-menu" class="modal hidden" onclick="if(event.target===this)closeModals()">
+  <div class="sheet"><div class="grab"></div>
+    <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Menu</h2><button onclick="closeModals()" class="text-gray-400 text-xl leading-none px-1" aria-label="Fèmen">&times;</button></div>
+    <div id="menu-items" class="space-y-2"></div>
+  </div>
+</div>
+
+<!-- Depo -->
+<div id="m-dep" class="modal hidden" onclick="if(event.target===this)closeModals()">
+  <div class="sheet"><div class="grab"></div>
+    <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Depo</h2><button onclick="closeModals()" class="text-gray-400 text-xl leading-none px-1" aria-label="Fèmen">&times;</button></div>
+    <div id="dep-body"></div>
+  </div>
+</div>
+
 <!-- Paramèt -->
 <div id="m-set" class="modal hidden" onclick="if(event.target===this)closeModals()">
   <div class="sheet"><div class="grab"></div>
@@ -161,6 +180,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 </div>
 
 <script src="/i18n.js"></script>
+<script src="/logos.js"></script>
 <script>
 const W = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'] };
 const MI = {
@@ -211,6 +231,13 @@ function renderHistory() {
       <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${pos ? t('deposit') : t('txAdjust')}${tx.note ? ' · ' + esc(tx.note) : ''}</p><p class="text-[11px] text-gray-500">${fdate(tx.createdAt)}</p></div>
       <div class="text-right flex-shrink-0"><p class="text-sm font-semibold ${pos ? 'text-emerald-400' : ''}">${pos ? '+' : '-'}${fmt(Math.abs(tx.amount), tx.currency)}</p><span class="pill bg-emerald-500/15 text-emerald-400">${t('st_done')}</span></div></div>`;
     }
+    if (tx.type === 'deposit') {
+      const dl = tx.status === 'rejected' && tx.note ? ` · ${esc(tx.note)}` : '';
+      return `<div class="flex items-center gap-3 px-3.5 py-3">
+      <div class="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 text-sm"><i class="fa-solid fa-arrow-down text-emerald-400"></i></div>
+      <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${t('txDep', { m: esc(tx.method) })}</p><p class="text-[11px] text-gray-500 truncate">${fdate(tx.createdAt)}${dl}</p></div>
+      <div class="text-right flex-shrink-0"><p class="text-sm font-semibold ${tx.status === 'done' ? 'text-emerald-400' : ''}">+${fmt(tx.amount, tx.currency)}</p><span class="pill ${c}">${l}</span></div></div>`;
+    }
     const sw = tx.type === 'swap';
     const icon = sw ? 'fa-arrows-rotate text-amber-400' : 'fa-arrow-up text-gray-300';
     const title = sw ? t('txSwap') : t('txWd', { m: esc(tx.method) });
@@ -235,13 +262,70 @@ function render() {
   renderHistory();
 }
 
+/* Copy */
+async function copy(txt) {
+  try { await navigator.clipboard.writeText(txt); } catch { const i = document.createElement('input'); i.value = txt; document.body.appendChild(i); i.select(); document.execCommand('copy'); i.remove(); }
+  toast(t('copied'), true);
+}
+
+/* Menu */
+const MENU = [['vcard', 'fa-credit-card'], ['p2p', 'fa-people-arrows'], ['topup', 'fa-mobile-screen-button'], ['gift', 'fa-gift']];
+function openMenu() {
+  $('menu-items').innerHTML = MENU.map(([k, ic]) => `<button onclick="toast(t('soon', { n: t('${k}') }), true)" class="panel w-full rounded-xl px-3.5 py-3 flex items-center gap-3 text-left">
+    <span class="aico !w-10 !h-10 !rounded-xl"><i class="fa-solid ${ic}"></i></span>
+    <span class="flex-1 text-sm font-medium">${t(k)}</span><span class="pill bg-amber-500/15 text-amber-400">${t('comingSoon')}</span></button>`).join('');
+  $('m-menu').classList.remove('hidden');
+}
+
+/* Depo */
+let depInfos = [], depM = null;
+async function openDep() {
+  $('dep-body').innerHTML = '<p class="text-gray-400 text-center py-8"><i class="fa-solid fa-circle-notch fa-spin"></i></p>';
+  $('m-dep').classList.remove('hidden');
+  try { const r = await fetch('/api/deposit-info'); depInfos = r.ok ? await r.json() : []; } catch { depInfos = []; }
+  depStep1();
+}
+function depStep1() {
+  depM = null;
+  $('dep-body').innerHTML = depInfos.length
+    ? `<p class="text-xs text-gray-400 mb-3">${t('depChoose')}</p><div class="grid grid-cols-3 gap-2">${depInfos.map((i) =>
+        `<button type="button" onclick="depPick('${i.method}')" class="opt">${logo(i.method, 32)}<span class="text-[11px] font-semibold block mt-1">${i.method}</span><span class="text-[10px] text-gray-500">${i.currency}</span></button>`).join('')}</div>`
+    : `<p class="text-sm text-gray-400 py-8 text-center">${t('depNone')}</p>`;
+}
+function depPick(m) {
+  depM = depInfos.find((i) => i.method === m);
+  const row = (lbl, v) => v ? `<div class="py-2.5 border-b border-white/5 last:border-0"><p class="text-[11px] text-gray-500">${lbl}</p>
+    <div class="flex items-center justify-between gap-2"><p class="text-sm font-semibold break-all">${esc(v)}</p>
+    <button data-copy="${esc(v)}" onclick="copy(this.dataset.copy)" class="text-amber-400 text-xs font-semibold flex-shrink-0"><i class="fa-regular fa-copy mr-1"></i>${t('copy')}</button></div></div>` : '';
+  $('dep-body').innerHTML = `<div class="flex items-center gap-2.5 mb-3">${logo(m, 36)}<div><p class="font-semibold text-sm">${m}</p><p class="text-[11px] text-gray-400">${depM.currency}</p></div>
+      <button onclick="depStep1()" class="ml-auto text-xs text-gray-400 underline">${t('depChange')}</button></div>
+    <p class="text-xs text-gray-300 font-medium mb-1">${t('depSendTo')}</p>
+    <div class="panel rounded-xl px-3.5 mb-3">${row(t('depAccount'), depM.account)}${row(t('depHolder'), depM.name)}${row(t('depNote'), depM.note)}</div>
+    <p class="text-[11px] text-gray-400 mb-3">${t('depPaid')}</p>
+    <label class="text-xs text-gray-300 font-medium block mb-1.5">${t('depAmount')}</label>
+    <div class="field mb-3"><span>${depM.currency}</span><input id="d-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+    <label class="text-xs text-gray-300 font-medium block mb-1.5">${t('depRef')}</label>
+    <div class="field mb-4"><input id="d-ref" type="text" maxlength="100" placeholder="${esc(t('depRefPh'))}"></div>
+    <p id="d-err" class="text-red-400 text-xs mb-3 hidden"></p>
+    <button id="d-go" onclick="doDep()" class="gold-btn w-full py-3.5 rounded-xl font-bold text-sm">${t('depSubmit')}</button>`;
+}
+async function doDep() {
+  const e = (m) => { $('d-err').textContent = m; $('d-err').classList.remove('hidden'); };
+  const amount = parseFloat($('d-amount').value), reference = $('d-ref').value.trim();
+  if (!(amount > 0)) return e(t('errAmt'));
+  if (reference.length < 3) return e(t('errRef'));
+  $('d-go').disabled = true;
+  try { me = await post('/api/deposit', { method: depM.method, amount, reference }); render(); closeModals(); toast(t('depSent'), true); }
+  catch (x) { e(x.message); $('d-go').disabled = false; }
+}
+
 /* Swap */
 function openSwap() {
   if (me.banned) return toast(t('bannedToast'), false);
   if (!me.profile) return toast(t('profileMsg'), false);
   if (me.balance <= 0) return toast(t('errZeroHtg'), false);
   swapM = null;
-  $('s-methods').innerHTML = W.USD.map((k) => `<button type="button" data-m="${k}" onclick="pickS('${k}')" class="opt"><i class="fa-solid ${MI[k][0]} text-amber-400 text-base block mb-1"></i><span class="text-[11px] font-semibold">${k}</span></button>`).join('');
+  $('s-methods').innerHTML = W.USD.map((k) => `<button type="button" data-m="${k}" onclick="pickS('${k}')" class="opt"><span class="block mb-1">${logo(k, 28)}</span><span class="text-[11px] font-semibold">${k}</span></button>`).join('');
   $('s-amount').value = ''; $('s-err').classList.add('hidden'); preview();
   $('m-swap').classList.remove('hidden');
 }
@@ -306,7 +390,7 @@ function setCur(c) {
   $('w-label').textContent = c === 'HTG' ? t('amtHtg') : t('amtUsd');
   $('w-unit').textContent = c === 'HTG' ? 'HTG' : 'USD';
   $('acc-label').textContent = t('destAcc'); $('w-account').placeholder = t('pickFirst');
-  $('methods').innerHTML = W[c].map((k) => `<button type="button" data-m="${k}" onclick="pickM('${k}')" class="opt"><i class="fa-solid ${MI[k][0]} text-amber-400 text-base block mb-1"></i><span class="text-[11px] font-semibold">${k}</span></button>`).join('');
+  $('methods').innerHTML = W[c].map((k) => `<button type="button" data-m="${k}" onclick="pickM('${k}')" class="opt"><span class="block mb-1">${logo(k, 28)}</span><span class="text-[11px] font-semibold">${k}</span></button>`).join('');
 }
 function pickM(k) {
   method = k;
