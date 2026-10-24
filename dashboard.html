@@ -59,11 +59,16 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
         <p id="uname" class="text-sm font-semibold truncate">...</p>
       </div>
     </div>
-    <button onclick="toast('Pa gen nouvo notifikasyon.', true)" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Notifikasyon"><i class="fa-regular fa-bell"></i></button>
+    <button onclick="toast(t('noNotif'), true)" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Notifikasyon"><i class="fa-regular fa-bell"></i></button>
   </header>
 
   <div id="ban" class="hidden mb-4 px-3.5 py-3 rounded-xl border border-red-500/40 bg-red-950/60 text-red-300 text-xs leading-snug">
     <i class="fa-solid fa-ban mr-1.5"></i>Kont ou bani. Ou ka fè depo sèlman. Kontakte sipò a pou plis enfòmasyon.
+  </div>
+
+  <div id="prof" class="hidden mb-4 px-3.5 py-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-200 text-xs leading-snug">
+    <i class="fa-solid fa-id-card mr-1.5"></i><span>Konplete enfòmasyon pèsonèl ou nan Paramèt pou w ka fè swap ak retrè.</span>
+    <a href="/settings.html" class="block mt-1.5 font-semibold text-amber-400 underline">Ale nan Paramèt</a>
   </div>
 
   <!-- Balans -->
@@ -115,7 +120,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <p class="text-[11px] text-gray-500 mb-4">Pou MonCash ak NatCash ou pa bezwen swap: retire dirèkteman an HTG.</p>
     <div class="panel rounded-xl p-3 text-sm space-y-1.5 mb-4">
       <div class="flex justify-between"><span class="text-gray-400">To</span><span id="s-rate"></span></div>
-      <div id="s-fee-row" class="flex justify-between"><span class="text-gray-400">Frè (<span id="s-pct"></span>%)</span><span id="s-fee" class="text-amber-400"></span></div>
+      <div id="s-fee-row" class="flex justify-between"><span class="text-gray-400"><span>Frè</span> (<span id="s-pct"></span>%)</span><span id="s-fee" class="text-amber-400"></span></div>
       <div class="flex justify-between border-t border-white/10 pt-1.5"><span class="text-gray-300">Ou ap resevwa</span><span id="s-prev" class="font-semibold"></span></div>
     </div>
     <p id="s-err" class="text-red-400 text-xs mb-3 hidden"></p>
@@ -133,6 +138,8 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <div id="methods" class="grid grid-cols-3 gap-2 mb-4"></div>
     <div class="flex justify-between text-xs mb-1.5"><label id="w-label" class="text-gray-300 font-medium">Montan</label><button onclick="maxWd()" class="text-amber-400 font-semibold">Tout balans</button></div>
     <div class="field mb-4"><span id="w-unit">HTG</span><input id="w-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+    <div id="w-pin-wrap" class="hidden mb-4"><label class="text-xs text-gray-300 font-medium block mb-1.5">PIN 6 chif</label>
+      <div class="field"><input id="w-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"></div></div>
     <label id="acc-label" class="text-xs text-gray-300 font-medium block mb-1.5">Kont destinasyon</label>
     <div class="field mb-4"><input id="w-account" type="text" maxlength="100" placeholder="Chwazi yon metòd dabò"></div>
     <p id="w-err" class="text-red-400 text-xs mb-3 hidden"></p>
@@ -153,14 +160,15 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   </div>
 </div>
 
+<script src="/i18n.js"></script>
 <script>
 const W = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'] };
 const MI = {
-  MonCash: ['fa-mobile-screen', 'Nimewo MonCash'], NatCash: ['fa-mobile-screen-button', 'Nimewo NatCash'], Meru: ['fa-wallet', 'Kont Meru'],
-  USDT: ['fa-coins', 'Adrès wallet USDT'], Zelle: ['fa-building-columns', 'Imèl oswa telefòn Zelle'], CashApp: ['fa-dollar-sign', '$Cashtag CashApp'], PayPal: ['fa-credit-card', 'Imèl PayPal'], Wise: ['fa-money-bill-transfer', 'Imèl Wise']
+  MonCash: ['fa-mobile-screen', 'accPhone'], NatCash: ['fa-mobile-screen-button', 'accPhone'], Meru: ['fa-wallet', 'accAcc'],
+  USDT: ['fa-coins', 'accWallet'], Zelle: ['fa-building-columns', 'accZelle'], CashApp: ['fa-dollar-sign', 'accCash'], PayPal: ['fa-credit-card', 'accMail'], Wise: ['fa-money-bill-transfer', 'accMail']
 };
-const STATUS = { pending: ['An kou', 'bg-amber-500/15 text-amber-400'], done: ['Fini', 'bg-emerald-500/15 text-emerald-400'], rejected: ['Echwe', 'bg-red-500/15 text-red-400'] };
-const FILTERS = [['', 'Tout'], ['pending', 'An kou'], ['done', 'Fini'], ['rejected', 'Echwe']];
+const STATUS = { pending: ['st_pending', 'bg-amber-500/15 text-amber-400'], done: ['st_done', 'bg-emerald-500/15 text-emerald-400'], rejected: ['st_failed', 'bg-red-500/15 text-red-400'] };
+const FILTERS = [['', 'fAll'], ['pending', 'st_pending'], ['done', 'st_done'], ['rejected', 'st_failed']];
 const rateTxt = () => `1 USDT = ${num(me.rate).replace(/\.00$/, '')} HTG`;
 const feePct = () => (me.fee && me.fee.active ? me.fee.percent : 0);
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -178,7 +186,7 @@ function toast(t, ok) {
   m.className = 'px-4 py-3 rounded-xl text-sm font-medium border ' + (ok ? 'bg-emerald-950 border-emerald-500/40 text-emerald-300' : 'bg-red-950 border-red-500/40 text-red-300');
   m.textContent = t; clearTimeout(tt); tt = setTimeout(() => m.classList.add('hidden'), 4000);
 }
-const soon = (n) => me && me.banned && n !== 'Depo' ? toast('Kont ou bani. Ou ka fè depo sèlman.', false) : toast(n + ' pa disponib ankò. N ap ajoute l byento.', true);
+const soon = (n) => me && me.banned && n !== 'Depo' ? toast(t('bannedToast'), false) : toast(t('soon', { n: t(n === 'Depo' ? 'deposit' : 'exchange') }), true);
 async function logout() { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; }
 function closeModals() { document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden')); nav(0, true); }
 function nav(i, quiet) {
@@ -186,32 +194,33 @@ function nav(i, quiet) {
   if (quiet) return;
   if (i === 0) window.scrollTo({ top: 0, behavior: 'smooth' });
   if (i === 1) $('history').scrollIntoView({ behavior: 'smooth' });
-  if (i === 2) { $('s-name').textContent = me.name; $('s-email').textContent = me.email; $('s-av').textContent = (me.name.trim()[0] || '?').toUpperCase(); $('m-set').classList.remove('hidden'); }
+  if (i === 2) location.href = '/settings.html';
 }
 
 function renderHistory() {
-  $('chips').innerHTML = FILTERS.map(([v, l]) => `<button class="chip ${flt === v ? 'on' : ''}" onclick="flt='${v}';renderHistory()">${l}</button>`).join('');
+  $('chips').innerHTML = FILTERS.map(([v, l]) => `<button class="chip ${flt === v ? 'on' : ''}" onclick="flt='${v}';renderHistory()">${t(l)}</button>`).join('');
   const q = $('search').value.trim().toLowerCase();
-  const rows = me.txs.filter((t) => (!flt || t.status === flt) && (!q || ((t.method || 'swap') + ' ' + t.amount + ' ' + t.type).toLowerCase().includes(q)));
-  $('tx').innerHTML = rows.length ? rows.map((t) => {
-    const [l, c] = STATUS[t.status] || ['', ''];
-    if (t.type === 'adjustment') {
-      const pos = t.amount > 0;
+  const rows = me.txs.filter((tx) => (!flt || tx.status === flt) && (!q || ((tx.method || 'swap') + ' ' + tx.amount + ' ' + tx.type).toLowerCase().includes(q)));
+  $('tx').innerHTML = rows.length ? rows.map((tx) => {
+    const [lk, c] = STATUS[tx.status] || ['', ''];
+    const l = lk ? t(lk) : '';
+    if (tx.type === 'adjustment') {
+      const pos = tx.amount > 0;
       return `<div class="flex items-center gap-3 px-3.5 py-3">
       <div class="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 text-sm"><i class="fa-solid ${pos ? 'fa-arrow-down text-emerald-400' : 'fa-arrow-up text-gray-300'}"></i></div>
-      <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${pos ? 'Depo' : 'Ajisteman'}${t.note ? ' · ' + esc(t.note) : ''}</p><p class="text-[11px] text-gray-500">${fdate(t.createdAt)}</p></div>
-      <div class="text-right flex-shrink-0"><p class="text-sm font-semibold ${pos ? 'text-emerald-400' : ''}">${pos ? '+' : '-'}${fmt(Math.abs(t.amount), t.currency)}</p><span class="pill bg-emerald-500/15 text-emerald-400">Fini</span></div></div>`;
+      <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${pos ? t('deposit') : t('txAdjust')}${tx.note ? ' · ' + esc(tx.note) : ''}</p><p class="text-[11px] text-gray-500">${fdate(tx.createdAt)}</p></div>
+      <div class="text-right flex-shrink-0"><p class="text-sm font-semibold ${pos ? 'text-emerald-400' : ''}">${pos ? '+' : '-'}${fmt(Math.abs(tx.amount), tx.currency)}</p><span class="pill bg-emerald-500/15 text-emerald-400">${t('st_done')}</span></div></div>`;
     }
-    const sw = t.type === 'swap';
+    const sw = tx.type === 'swap';
     const icon = sw ? 'fa-arrows-rotate text-amber-400' : 'fa-arrow-up text-gray-300';
-    const title = sw ? 'Swap HTG → USD' : 'Retrè · ' + esc(t.method);
-    const main = sw ? `<span class="text-emerald-400">+$${num(t.usd)}</span>` : `<span>-${fmt(t.amount, t.currency)}</span>`;
-    const sub = sw ? `-${num(t.amount)} HTG${t.fee > 0 ? ' · frè ' + num(t.fee) : ''}` : '';
+    const title = sw ? t('txSwap') : t('txWd', { m: esc(tx.method) });
+    const main = sw ? `<span class="text-emerald-400">+$${num(tx.usd)}</span>` : `<span>-${fmt(tx.amount, tx.currency)}</span>`;
+    const sub = sw ? `-${num(tx.amount)} HTG${tx.fee > 0 ? ' · ' + t('feeWord') + ' ' + num(tx.fee) : ''}` : '';
     return `<div class="flex items-center gap-3 px-3.5 py-3">
       <div class="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 text-sm"><i class="fa-solid ${icon}"></i></div>
-      <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${title}</p><p class="text-[11px] text-gray-500">${fdate(t.createdAt)}</p></div>
+      <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${title}</p><p class="text-[11px] text-gray-500">${fdate(tx.createdAt)}</p></div>
       <div class="text-right flex-shrink-0"><p class="text-sm font-semibold">${main}</p><p class="text-[11px] text-gray-500 leading-none mb-1">${sub}</p><span class="pill ${c}">${l}</span></div></div>`;
-  }).join('') : `<div class="py-10 text-center text-gray-500"><i class="fa-regular fa-folder-open text-2xl mb-2 block"></i><p class="text-xs">Pa gen tranzaksyon.</p></div>`;
+  }).join('') : `<div class="py-10 text-center text-gray-500"><i class="fa-regular fa-folder-open text-2xl mb-2 block"></i><p class="text-xs">${t('noTx')}</p></div>`;
 }
 
 function render() {
@@ -221,14 +230,16 @@ function render() {
   $('usd').textContent = '$' + num(me.usd);
   $('rate').textContent = rateTxt();
   $('ban').classList.toggle('hidden', !me.banned);
+  $('prof').classList.toggle('hidden', !!me.profile || !!me.banned);
   document.querySelectorAll('.lock').forEach((b) => b.classList.toggle('opacity-35', !!me.banned));
   renderHistory();
 }
 
 /* Swap */
 function openSwap() {
-  if (me.banned) return toast('Kont ou bani. Ou ka fè depo sèlman.', false);
-  if (me.balance <= 0) return toast('Balans HTG ou se 0.00. Ou pa ka fè swap pou kounye a.', false);
+  if (me.banned) return toast(t('bannedToast'), false);
+  if (!me.profile) return toast(t('profileMsg'), false);
+  if (me.balance <= 0) return toast(t('errZeroHtg'), false);
   swapM = null;
   $('s-methods').innerHTML = W.USD.map((k) => `<button type="button" data-m="${k}" onclick="pickS('${k}')" class="opt"><i class="fa-solid ${MI[k][0]} text-amber-400 text-base block mb-1"></i><span class="text-[11px] font-semibold">${k}</span></button>`).join('');
   $('s-amount').value = ''; $('s-err').classList.add('hidden'); preview();
@@ -253,21 +264,21 @@ function preview() {
 async function post(url, body) {
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(d.error || 'Erè. Eseye ankò.'); e.data = d; throw e; }
+  if (!r.ok) { const e = new Error(d.error || t('errGen')); e.data = d; throw e; }
   return d;
 }
 async function doSwap() {
   const e = (t) => { $('s-err').textContent = t; $('s-err').classList.remove('hidden'); };
   const amount = parseFloat($('s-amount').value);
-  if (!(amount > 0)) return e('Antre yon montan valid.');
-  if (amount > me.balance) return e('Balans HTG ou pa sifi.');
-  if (quote(amount).usd <= 0) return e('Montan an twò piti pou yon swap.');
+  if (!(amount > 0)) return e(t('errAmt'));
+  if (amount > me.balance) return e(t('errBalHtg'));
+  if (quote(amount).usd <= 0) return e(t('errSmall'));
   $('s-go').disabled = true;
   try {
     me = await post('/api/swap', { amount, rate: me.rate, feePercent: feePct() });
     render(); closeModals();
-    if (swapM) { openWd(); setCur('USD'); pickM(swapM); toast('Swap fèt! Kounye a fini retrè a sou ' + swapM + '.', true); }
-    else toast('Swap fèt! Dola a nan balans ou.', true);
+    if (swapM) { openWd(); setCur('USD'); pickM(swapM); toast(t('swapDoneWd', { m: swapM }), true); }
+    else toast(t('swapDone'), true);
   } catch (x) {
     if (x.data && x.data.user) { me = x.data.user; render(); preview(); }
     e(x.message);
@@ -277,39 +288,43 @@ async function doSwap() {
 
 /* Retrè */
 function openWd() {
-  if (me.banned) return toast('Kont ou bani. Ou ka fè depo sèlman.', false);
-  if (me.balance <= 0 && me.usd <= 0) return toast('Ou pa gen balans pou retire.', false);
+  if (me.banned) return toast(t('bannedToast'), false);
+  if (!me.profile) return toast(t('profileMsg'), false);
+  if (me.balance <= 0 && me.usd <= 0) return toast(t('errNoBal'), false);
+  $('w-pin-wrap').classList.toggle('hidden', !me.pinActive); $('w-pin').value = '';
   $('w-amount').value = ''; $('w-account').value = ''; $('w-err').classList.add('hidden');
   setCur(me.balance > 0 ? 'HTG' : 'USD');
   $('m-wd').classList.remove('hidden');
 }
 function setCur(c) {
   cur = c; method = null;
-  $('cur-row').innerHTML = [['HTG', 'Goud', me.balance], ['USD', 'Dola', me.usd]].map(([k, l, b]) =>
+  $('cur-row').innerHTML = [['HTG', t('cGoud'), me.balance], ['USD', t('cDola'), me.usd]].map(([k, l, b]) =>
     `<button type="button" ${b > 0 ? '' : 'disabled'} onclick="setCur('${k}')" class="opt ${cur === k ? 'on' : ''}"><span class="text-xs font-semibold block">${l}</span><span class="text-[11px] text-gray-400">${fmt(b, k)}</span></button>`).join('');
   $('wd-hint').textContent = c === 'HTG'
-    ? 'Balans HTG ka retire sèlman sou MonCash ak NatCash. Pou Meru, Zelle, USDT, CashApp, PayPal, Wise, swap an dola dabò.'
-    : 'Retire dola ou sou Meru, Zelle, USDT, CashApp, PayPal oswa Wise.';
-  $('w-label').textContent = c === 'HTG' ? 'Montan an HTG' : 'Montan an dola';
+    ? t('hintHtg')
+    : t('hintUsd');
+  $('w-label').textContent = c === 'HTG' ? t('amtHtg') : t('amtUsd');
   $('w-unit').textContent = c === 'HTG' ? 'HTG' : 'USD';
-  $('acc-label').textContent = 'Kont destinasyon'; $('w-account').placeholder = 'Chwazi yon metòd dabò';
+  $('acc-label').textContent = t('destAcc'); $('w-account').placeholder = t('pickFirst');
   $('methods').innerHTML = W[c].map((k) => `<button type="button" data-m="${k}" onclick="pickM('${k}')" class="opt"><i class="fa-solid ${MI[k][0]} text-amber-400 text-base block mb-1"></i><span class="text-[11px] font-semibold">${k}</span></button>`).join('');
 }
 function pickM(k) {
   method = k;
   document.querySelectorAll('#methods .opt').forEach((b) => b.classList.toggle('on', b.dataset.m === k));
-  $('acc-label').textContent = MI[k][1]; $('w-account').placeholder = MI[k][1];
+  $('acc-label').textContent = t(MI[k][1], { m: k }); $('w-account').placeholder = t(MI[k][1], { m: k });
 }
 const maxWd = () => { $('w-amount').value = cur === 'HTG' ? me.balance : me.usd; };
 async function doWd() {
   const e = (t) => { $('w-err').textContent = t; $('w-err').classList.remove('hidden'); };
   const amount = parseFloat($('w-amount').value), bal = cur === 'HTG' ? me.balance : me.usd;
-  if (!method) return e('Chwazi yon metòd.');
-  if (!(amount > 0)) return e('Antre yon montan valid.');
-  if (amount > bal) return e('Balans ou pa sifi.');
-  if ($('w-account').value.trim().length < 3) return e('Antre kont destinasyon an.');
+  if (!method) return e(t('errMethod'));
+  if (!(amount > 0)) return e(t('errAmt'));
+  if (amount > bal) return e(t('errBal'));
+  const pin = $('w-pin').value;
+  if (me.pinActive && !/^\d{6}$/.test(pin)) return e(t('errPin'));
+  if ($('w-account').value.trim().length < 3) return e(t('errAcc'));
   $('w-go').disabled = true;
-  try { me = await post('/api/withdraw', { currency: cur, method, amount, account: $('w-account').value }); render(); closeModals(); toast('Demann retrè a voye. Ekip nou ap trete l.', true); }
+  try { me = await post('/api/withdraw', { currency: cur, method, amount, account: $('w-account').value, ...(me.pinActive ? { pin } : {}) }); render(); closeModals(); toast(t('wdSent'), true); }
   catch (x) { e(x.message); }
   $('w-go').disabled = false;
 }
@@ -320,6 +335,7 @@ async function doWd() {
   me = await r.json();
   if (me.role === 'admin') return (location.href = '/admin.html');
   if (me.kyc.status !== 'approved' && !me.banned) return (location.href = '/kyc.html');
+  setLang(me.lang || 'ht');
   render();
 })();
 </script>

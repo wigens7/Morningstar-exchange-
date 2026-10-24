@@ -92,7 +92,7 @@ async function load() {
       const imgs = Object.keys(k.files || {}).map((s) =>
         `<a href="/api/admin/kyc/${k.id}/${s}" target="_blank" class="block"><img class="thumb" loading="lazy" src="/api/admin/kyc/${k.id}/${s}" alt="${s}"><span class="text-[11px] text-gray-400">${{front:'Devan',back:'Dèyè',selfie:'Selfie'}[s]}</span></a>`).join('');
       return `<div class="card rounded-2xl p-4">
-        <div class="flex justify-between gap-2"><div class="min-w-0"><p class="font-semibold truncate">${esc(k.name)}</p><p class="text-xs text-gray-400 truncate">${esc(k.email)}</p></div>
+        <div class="flex justify-between gap-2"><div class="min-w-0"><p class="font-semibold truncate">${esc(k.name)}</p><p class="text-xs text-gray-400 truncate">${esc(k.email)} · ID ${esc(k.uid)}</p></div>
         <div class="text-right text-xs flex-shrink-0"><p class="${c} font-bold">${l}</p><p class="text-gray-400">${IDT[k.idType] || ''}</p></div></div>
         <div class="grid grid-cols-3 gap-2 my-3">${imgs}</div>
         ${k.reason ? `<p class="text-xs text-gray-400 mb-2">Nòt: ${esc(k.reason)}</p>` : ''}
@@ -111,7 +111,7 @@ async function load() {
       return `<div class="card rounded-2xl p-4 ${u.banned ? 'border-red-500/40' : ''}">
         <div class="flex justify-between items-start gap-2">
           <div class="min-w-0"><p class="font-semibold truncate">${esc(u.name)} ${isAdmin ? '<span class="text-amber-400 text-xs">(admin)</span>' : ''}${u.banned ? ' <span class="text-red-400 text-xs font-bold">BANNI</span>' : ''}</p>
-          <p class="text-xs text-gray-400 truncate">${esc(u.email)}</p><p class="text-xs ${c}">KYC: ${l}</p></div>
+          <p class="text-xs text-gray-400 truncate">${esc(u.email)}</p><p class="text-xs text-gray-400">ID ${esc(u.uid)}${u.phone ? ' · ' + esc(u.phone) : ''}${u.country ? ' · ' + esc(u.country) : ''}</p><p class="text-xs ${c}">KYC: ${l}</p></div>
           <div class="text-right flex-shrink-0"><p class="font-bold">${Number(u.balance).toFixed(2)} HTG</p><p class="text-xs text-gray-400">$${Number(u.usd).toFixed(2)}</p></div>
         </div>
         ${isAdmin ? '' : `<div class="flex flex-wrap gap-2 mt-3">
