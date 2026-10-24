@@ -107,10 +107,17 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 <div id="m-swap" class="modal hidden" onclick="if(event.target===this)closeModals()">
   <div class="sheet"><div class="grab"></div>
     <div class="flex justify-between items-center mb-1"><h2 class="font-bold">Swap HTG → dola</h2><button onclick="closeModals()" class="text-gray-400 text-xl leading-none px-1" aria-label="Fèmen">&times;</button></div>
-    <p class="text-xs text-gray-400 mb-4">Chanje balans HTG ou an USD/USDT. Dola a antre nan balans ou touswit.</p>
+    <p class="text-xs text-gray-400 mb-4">Chanje balans HTG ou an dola (USD/USDT). Apre sa ou ka retire l sou Meru, PayPal, Wise, Zelle, CashApp oswa USDT.</p>
     <div class="flex justify-between text-xs mb-1.5"><label class="text-gray-300 font-medium">Montan an HTG</label><button onclick="maxSwap()" class="text-amber-400 font-semibold">Tout balans</button></div>
-    <div class="field mb-3"><span>HTG</span><input id="s-amount" oninput="preview()" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
-    <div class="panel rounded-xl p-3 text-sm flex justify-between mb-4"><span class="text-gray-400">Ou ap resevwa</span><span id="s-prev" class="font-semibold">$0.00</span></div>
+    <div class="field mb-4"><span>HTG</span><input id="s-amount" oninput="preview()" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+    <p class="text-xs text-gray-300 font-medium mb-2">Sou ki metòd ou pral retire? <span class="text-gray-500 font-normal">(opsyonèl)</span></p>
+    <div id="s-methods" class="grid grid-cols-3 gap-2 mb-2"></div>
+    <p class="text-[11px] text-gray-500 mb-4">Pou MonCash ak NatCash ou pa bezwen swap: retire dirèkteman an HTG.</p>
+    <div class="panel rounded-xl p-3 text-sm space-y-1.5 mb-4">
+      <div class="flex justify-between"><span class="text-gray-400">To</span><span id="s-rate"></span></div>
+      <div id="s-fee-row" class="flex justify-between"><span class="text-gray-400">Frè (<span id="s-pct"></span>%)</span><span id="s-fee" class="text-amber-400"></span></div>
+      <div class="flex justify-between border-t border-white/10 pt-1.5"><span class="text-gray-300">Ou ap resevwa</span><span id="s-prev" class="font-semibold"></span></div>
+    </div>
     <p id="s-err" class="text-red-400 text-xs mb-3 hidden"></p>
     <button id="s-go" onclick="doSwap()" class="gold-btn w-full py-3.5 rounded-xl font-bold text-sm">Konfime swap</button>
   </div>
@@ -147,13 +154,17 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 </div>
 
 <script>
-const W = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal'] };
+const W = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'] };
 const MI = {
   MonCash: ['fa-mobile-screen', 'Nimewo MonCash'], NatCash: ['fa-mobile-screen-button', 'Nimewo NatCash'], Meru: ['fa-wallet', 'Kont Meru'],
-  USDT: ['fa-coins', 'Adrès wallet USDT'], Zelle: ['fa-building-columns', 'Imèl oswa telefòn Zelle'], CashApp: ['fa-dollar-sign', '$Cashtag CashApp'], PayPal: ['fa-credit-card', 'Imèl PayPal']
+  USDT: ['fa-coins', 'Adrès wallet USDT'], Zelle: ['fa-building-columns', 'Imèl oswa telefòn Zelle'], CashApp: ['fa-dollar-sign', '$Cashtag CashApp'], PayPal: ['fa-credit-card', 'Imèl PayPal'], Wise: ['fa-money-bill-transfer', 'Imèl Wise']
 };
 const STATUS = { pending: ['An kou', 'bg-amber-500/15 text-amber-400'], done: ['Fini', 'bg-emerald-500/15 text-emerald-400'], rejected: ['Echwe', 'bg-red-500/15 text-red-400'] };
 const FILTERS = [['', 'Tout'], ['pending', 'An kou'], ['done', 'Fini'], ['rejected', 'Echwe']];
+const rateTxt = () => `1 USDT = ${num(me.rate).replace(/\.00$/, '')} HTG`;
+const feePct = () => (me.fee && me.fee.active ? me.fee.percent : 0);
+const r2 = (n) => Math.round(n * 100) / 100;
+let swapM = null;
 let me = null, cur = 'HTG', method = null, flt = '';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -195,7 +206,7 @@ function renderHistory() {
     const icon = sw ? 'fa-arrows-rotate text-amber-400' : 'fa-arrow-up text-gray-300';
     const title = sw ? 'Swap HTG → USD' : 'Retrè · ' + esc(t.method);
     const main = sw ? `<span class="text-emerald-400">+$${num(t.usd)}</span>` : `<span>-${fmt(t.amount, t.currency)}</span>`;
-    const sub = sw ? `-${num(t.amount)} HTG` : '';
+    const sub = sw ? `-${num(t.amount)} HTG${t.fee > 0 ? ' · frè ' + num(t.fee) : ''}` : '';
     return `<div class="flex items-center gap-3 px-3.5 py-3">
       <div class="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 text-sm"><i class="fa-solid ${icon}"></i></div>
       <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${title}</p><p class="text-[11px] text-gray-500">${fdate(t.createdAt)}</p></div>
@@ -208,7 +219,7 @@ function render() {
   $('uname').textContent = me.name; $('avatar').textContent = (first[0] || '?').toUpperCase();
   $('bal').textContent = num(me.balance);
   $('usd').textContent = '$' + num(me.usd);
-  $('rate').textContent = me.rate ? `$1 = ${num(me.rate)} HTG` : 'Poko disponib';
+  $('rate').textContent = rateTxt();
   $('ban').classList.toggle('hidden', !me.banned);
   document.querySelectorAll('.lock').forEach((b) => b.classList.toggle('opacity-35', !!me.banned));
   renderHistory();
@@ -218,16 +229,31 @@ function render() {
 function openSwap() {
   if (me.banned) return toast('Kont ou bani. Ou ka fè depo sèlman.', false);
   if (me.balance <= 0) return toast('Balans HTG ou se 0.00. Ou pa ka fè swap pou kounye a.', false);
-  if (!me.rate) return toast('To chanj la poko disponib. Eseye pita.', false);
+  swapM = null;
+  $('s-methods').innerHTML = W.USD.map((k) => `<button type="button" data-m="${k}" onclick="pickS('${k}')" class="opt"><i class="fa-solid ${MI[k][0]} text-amber-400 text-base block mb-1"></i><span class="text-[11px] font-semibold">${k}</span></button>`).join('');
   $('s-amount').value = ''; $('s-err').classList.add('hidden'); preview();
   $('m-swap').classList.remove('hidden');
 }
+function pickS(k) {
+  swapM = swapM === k ? null : k;
+  document.querySelectorAll('#s-methods .opt').forEach((b) => b.classList.toggle('on', b.dataset.m === swapM));
+}
 const maxSwap = () => { $('s-amount').value = me.balance; preview(); };
-function preview() { const a = parseFloat($('s-amount').value) || 0; $('s-prev').textContent = '$' + num(Math.floor((a / (me.rate || 1)) * 100) / 100); }
+function quote(a) {
+  const pct = feePct(), fee = r2((a * pct) / 100), net = r2(a - fee);
+  return { pct, fee, usd: Math.floor((net / me.rate) * 100) / 100 };
+}
+function preview() {
+  const q = quote(parseFloat($('s-amount').value) || 0);
+  $('s-rate').textContent = rateTxt();
+  $('s-fee-row').classList.toggle('hidden', !q.pct);
+  $('s-pct').textContent = q.pct; $('s-fee').textContent = '-' + num(q.fee) + ' HTG';
+  $('s-prev').textContent = '$' + num(q.usd);
+}
 async function post(url, body) {
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Erè. Eseye ankò.');
+  if (!r.ok) { const e = new Error(d.error || 'Erè. Eseye ankò.'); e.data = d; throw e; }
   return d;
 }
 async function doSwap() {
@@ -235,9 +261,17 @@ async function doSwap() {
   const amount = parseFloat($('s-amount').value);
   if (!(amount > 0)) return e('Antre yon montan valid.');
   if (amount > me.balance) return e('Balans HTG ou pa sifi.');
+  if (quote(amount).usd <= 0) return e('Montan an twò piti pou yon swap.');
   $('s-go').disabled = true;
-  try { me = await post('/api/swap', { amount }); render(); closeModals(); toast('Swap fèt! Dola a nan balans ou.', true); }
-  catch (x) { e(x.message); }
+  try {
+    me = await post('/api/swap', { amount, rate: me.rate, feePercent: feePct() });
+    render(); closeModals();
+    if (swapM) { openWd(); setCur('USD'); pickM(swapM); toast('Swap fèt! Kounye a fini retrè a sou ' + swapM + '.', true); }
+    else toast('Swap fèt! Dola a nan balans ou.', true);
+  } catch (x) {
+    if (x.data && x.data.user) { me = x.data.user; render(); preview(); }
+    e(x.message);
+  }
   $('s-go').disabled = false;
 }
 
@@ -254,8 +288,8 @@ function setCur(c) {
   $('cur-row').innerHTML = [['HTG', 'Goud', me.balance], ['USD', 'Dola', me.usd]].map(([k, l, b]) =>
     `<button type="button" ${b > 0 ? '' : 'disabled'} onclick="setCur('${k}')" class="opt ${cur === k ? 'on' : ''}"><span class="text-xs font-semibold block">${l}</span><span class="text-[11px] text-gray-400">${fmt(b, k)}</span></button>`).join('');
   $('wd-hint').textContent = c === 'HTG'
-    ? 'Balans HTG ka retire sèlman sou MonCash ak NatCash. Pou Meru, Zelle, USDT, CashApp, PayPal, swap an dola dabò.'
-    : 'Retire dola ou sou Meru, Zelle, USDT, CashApp oswa PayPal.';
+    ? 'Balans HTG ka retire sèlman sou MonCash ak NatCash. Pou Meru, Zelle, USDT, CashApp, PayPal, Wise, swap an dola dabò.'
+    : 'Retire dola ou sou Meru, Zelle, USDT, CashApp, PayPal oswa Wise.';
   $('w-label').textContent = c === 'HTG' ? 'Montan an HTG' : 'Montan an dola';
   $('w-unit').textContent = c === 'HTG' ? 'HTG' : 'USD';
   $('acc-label').textContent = 'Kont destinasyon'; $('w-account').placeholder = 'Chwazi yon metòd dabò';

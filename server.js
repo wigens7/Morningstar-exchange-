@@ -33,12 +33,28 @@ function saveUsers(users) {
 }
 const round2 = (n) => Math.round(n * 100) / 100;
 // Balans prensipal = HTG (goud). usd = balans dola (USD/USDT) apre kliyan an fè yon swap.
-const RATE = Number(process.env.HTG_PER_USD) || 0; // egz. HTG_PER_USD=140 vle di 1$ = 140 HTG
-const W_METHODS = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal'] };
+// To chanj + frè swap: admin kontwole yo (settings.json). Default: 1 USDT = 140 HTG, frè dezaktive.
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+function getSettings() {
+  let s = {};
+  try { s = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
+  return {
+    rate: Number(s.rate) > 0 ? Number(s.rate) : 140,
+    feeActive: !!s.feeActive,
+    feePercent: Number(s.feePercent) >= 0 ? Number(s.feePercent) : 0
+  };
+}
+function saveSettings(st) {
+  const tmp = SETTINGS_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(st, null, 2));
+  fs.renameSync(tmp, SETTINGS_FILE);
+}
+const W_METHODS = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'] };
 const txOf = (s) => ({ type: 'withdrawal', currency: 'HTG', ...s });
 const publicUser = (u) => ({
   id: u.id, name: u.name, email: u.email, role: u.role || 'user',
-  balance: u.balance || 0, usd: u.usd || 0, rate: RATE, banned: !!u.banned,
+  balance: u.balance || 0, usd: u.usd || 0, rate: getSettings().rate,
+  fee: { active: getSettings().feeActive, percent: getSettings().feePercent }, banned: !!u.banned,
   kyc: { status: u.kyc.status, idType: u.kyc.idType || null, reason: u.kyc.reason || null },
   txs: (u.swaps || []).slice(-30).map(txOf).reverse()
 });
@@ -245,16 +261,23 @@ app.post('/api/kyc', auth, notBanned, (req, res) => {
 app.post('/api/swap', auth, notBanned, (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
-  if (!RATE) return res.status(503).json({ error: 'To chanj la poko konfigire. Eseye pita.' });
+  const st = getSettings();
+  const pct = st.feeActive ? st.feePercent : 0;
+  // Si admin lan chanje to a oswa frè a pandan kliyan an te sou paj la, pa fè swap la ak ansyen valè yo
+  if (Number(req.body.rate) !== st.rate || Number(req.body.feePercent) !== pct) {
+    return res.status(409).json({ error: 'To oswa frè a fèk chanje. Verifye nouvo valè yo epi eseye ankò.', user: publicUser(u) });
+  }
   const amount = round2(Number(req.body.amount));
   if (!(amount > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
   if (amount > (u.balance || 0)) return res.status(400).json({ error: 'Balans HTG ou pa sifi.' });
-  const usd = Math.floor((amount / RATE) * 100) / 100;
+  const fee = round2((amount * pct) / 100);
+  const net = round2(amount - fee);
+  const usd = Math.floor((net / st.rate) * 100) / 100;
   if (usd <= 0) return res.status(400).json({ error: 'Montan an twò piti pou yon swap.' });
   u.balance = round2(u.balance - amount);
   u.usd = round2((u.usd || 0) + usd);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', currency: 'HTG', amount, usd, rate: RATE, status: 'done', createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', currency: 'HTG', amount, fee, feePercent: pct, usd, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
   saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
@@ -336,6 +359,17 @@ app.delete('/api/admin/users/:id', adminOnly, (req, res) => {
   fs.rmSync(path.join(KYC_DIR, u.id), { recursive: true, force: true });
   saveUsers(req.users.filter((x) => x.id !== u.id));
   res.json({ ok: true });
+});
+
+app.get('/api/admin/settings', adminOnly, (req, res) => res.json(getSettings()));
+
+app.post('/api/admin/settings', adminOnly, (req, res) => {
+  const rate = Number(req.body.rate);
+  const feePercent = Number(req.body.feePercent);
+  if (!(rate > 0) || rate > 100000) return res.status(400).json({ error: 'To chanj la pa valid.' });
+  if (!(feePercent >= 0) || feePercent > 50) return res.status(400).json({ error: 'Pousantaj la dwe ant 0 ak 50.' });
+  saveSettings({ rate: round2(rate), feeActive: !!req.body.feeActive, feePercent: round2(feePercent) });
+  res.json(getSettings());
 });
 
 app.get('/api/admin/kyc', adminOnly, (req, res) =>

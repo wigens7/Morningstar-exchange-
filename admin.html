@@ -30,10 +30,11 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <h1 class="text-lg font-extrabold tracking-wider gold-text uppercase">Admin Panel</h1>
     <button onclick="logout()" class="text-xs text-amber-400"><i class="fa-solid fa-right-from-bracket mr-1"></i>Dekonekte</button>
   </div>
-  <div class="grid grid-cols-3 gap-2 mb-5 text-sm">
+  <div class="grid grid-cols-4 gap-2 mb-5 text-xs">
     <button class="tab on rounded-xl py-2" data-t="kyc" onclick="go('kyc')">KYC</button>
     <button class="tab rounded-xl py-2" data-t="users" onclick="go('users')">Itilizatè</button>
     <button class="tab rounded-xl py-2" data-t="wd" onclick="go('wd')">Retrè</button>
+    <button class="tab rounded-xl py-2" data-t="set" onclick="go('set')">To &amp; Frè</button>
   </div>
   <div id="msg" class="hidden mb-4 p-3 rounded-xl text-sm bg-red-500/10 border border-red-500/30 text-red-400"></div>
   <div id="list" class="space-y-3 text-sm"></div>
@@ -119,6 +120,8 @@ async function load() {
           <button class="b bg-red-600 text-white" onclick="delUser('${u.id}')"><i class="fa-solid fa-trash mr-1"></i>Efase</button></div>`}
       </div>`;
     }).join('');
+  } else if (tab === 'set') {
+    await loadSettings();
   } else {
     const rows = await api('/api/admin/withdrawals');
     $('list').innerHTML = rows.length ? rows.map((t) => {
@@ -130,6 +133,22 @@ async function load() {
       ${t.status === 'pending' ? `<div class="flex gap-2 mt-2"><button class="b bg-emerald-600 text-white" onclick="wd('${t.id}','done')">Make kòm peye</button><button class="b bg-red-600 text-white" onclick="wd('${t.id}','rejected')">Refize + ranbouse</button></div>` : ''}</div>`;
     }).join('') : '<p class="text-gray-400">Pa gen retrè ankò.</p>';
   }
+}
+
+async function loadSettings() {
+  const s = await api('/api/admin/settings');
+  $('list').innerHTML = `<div class="card rounded-2xl p-4 space-y-4">
+    <div><p class="text-xs text-gray-400 mb-1">To chanj kliyan yo wè a</p>
+      <div class="flex items-center gap-2"><span class="text-sm whitespace-nowrap">1 USDT =</span><input id="st-rate" type="number" step="0.01" min="0" value="${s.rate}" class="inp"><span class="text-sm">HTG</span></div></div>
+    <div class="flex items-center justify-between gap-3"><div><p class="font-semibold text-sm">Frè swap</p><p class="text-xs text-gray-400">Kliyan peye yon pousantaj sou chak swap HTG → dola</p></div>
+      <button id="st-active" class="b tab ${s.feeActive ? 'on' : ''}" onclick="this.classList.toggle('on');this.textContent=this.classList.contains('on')?'Aktif':'Dezaktive'">${s.feeActive ? 'Aktif' : 'Dezaktive'}</button></div>
+    <div><p class="text-xs text-gray-400 mb-1">Pousantaj frè a (%)</p><input id="st-pct" type="number" step="0.01" min="0" max="50" value="${s.feePercent}" class="inp"></div>
+    <button onclick="saveSettings()" class="w-full py-3 rounded-xl font-bold text-black" style="background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B)">Sove</button>
+    <p id="st-ok" class="text-emerald-400 text-xs hidden">Sove! Nouvo valè yo aktif touswit.</p></div>`;
+}
+async function saveSettings() {
+  await api('/api/admin/settings', { rate: parseFloat($('st-rate').value), feeActive: $('st-active').classList.contains('on'), feePercent: parseFloat($('st-pct').value) || 0 });
+  $('st-ok').classList.remove('hidden');
 }
 
 async function wd(id, status) {
