@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ht">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>MORNINGSTAR EXCHANGE - Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+:root{--gold:#D4AF37}
+*{-webkit-tap-highlight-color:transparent}
+body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0f;background-image:radial-gradient(circle at 10% 0%,rgba(212,175,55,.09),transparent 45%),radial-gradient(circle at 90% 100%,rgba(255,215,0,.04),transparent 40%);min-height:100vh;color:#e5e7eb;padding-bottom:6rem;font-variant-numeric:tabular-nums}
+.gold-text{background:linear-gradient(135deg,#FFF099,#F1C40F 35%,#D4AF37 70%,#996515);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.gold-btn{background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B);color:#000}
+.gold-btn:disabled{opacity:.45}
+.panel{background:rgba(18,20,29,.78);border:1px solid rgba(255,255,255,.07);backdrop-filter:blur(14px)}
+.hero{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(38,33,20,.95),rgba(14,15,22,.98) 60%);border:1px solid rgba(212,175,55,.32);box-shadow:0 16px 40px rgba(0,0,0,.55)}
+.hero::before{content:"";position:absolute;right:-60px;top:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,.22),transparent 70%)}
+.aico{width:3.1rem;height:3.1rem;border-radius:1rem;display:flex;align-items:center;justify-content:center;font-size:1.05rem;color:var(--gold);background:linear-gradient(160deg,rgba(40,38,30,.95),rgba(16,17,24,.95));border:1px solid rgba(212,175,55,.28);transition:all .15s}
+.act:active .aico{transform:scale(.94);border-color:var(--gold)}
+.chip{font-size:.72rem;font-weight:600;padding:.3rem .75rem;border-radius:999px;border:1px solid rgba(255,255,255,.1);color:#9ca3af;white-space:nowrap}
+.chip.on{background:rgba(212,175,55,.15);border-color:rgba(212,175,55,.5);color:#F1C40F}
+.pill{font-size:.65rem;font-weight:600;padding:.12rem .5rem;border-radius:999px;white-space:nowrap}
+.field{display:flex;align-items:center;gap:.5rem;background:rgba(10,11,16,.9);border:1px solid rgba(255,255,255,.14);border-radius:.85rem;padding:0 .85rem}
+.field:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,175,55,.15)}
+.field input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:#fff;padding:.8rem 0;font-size:.95rem}
+.field span{color:#9ca3af;font-size:.8rem;font-weight:600}
+.opt{border:1px solid rgba(255,255,255,.1);background:rgba(10,11,16,.8);border-radius:.85rem;padding:.65rem .25rem;text-align:center;transition:all .15s}
+.opt.on{border-color:var(--gold);background:rgba(212,175,55,.1)}
+.opt:disabled{opacity:.35}
+.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.72);backdrop-filter:blur(3px)}
+.modal.hidden{display:none}
+.sheet{width:100%;max-width:28rem;max-height:92vh;overflow-y:auto;background:#12141d;border:1px solid rgba(212,175,55,.2);border-radius:1.5rem 1.5rem 0 0;padding:.75rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom));animation:up .22s ease-out}
+@media(min-width:640px){.modal{align-items:center}.sheet{border-radius:1.5rem}}
+@keyframes up{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+.grab{width:2.5rem;height:4px;border-radius:4px;background:rgba(255,255,255,.18);margin:0 auto .9rem}
+.nav{background:rgba(14,15,22,.92);backdrop-filter:blur(16px);border:1px solid rgba(212,175,55,.2);box-shadow:0 10px 30px rgba(0,0,0,.6)}
+.nv{color:#6b7280;font-size:.62rem;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:.2rem;padding:.55rem 0}
+.nv.on{color:#F1C40F}
+.nv i{font-size:1.05rem}
+#toast{position:fixed;top:.75rem;left:.75rem;right:.75rem;max-width:28rem;margin:auto;z-index:70;transition:all .25s}
+#toast.hidden{display:block;opacity:0;transform:translateY(-12px);pointer-events:none}
+.scroll-none::-webkit-scrollbar{display:none}
+</style>
+</head>
+<body>
+<div id="toast" class="hidden px-4 py-3 rounded-xl text-sm font-medium border"></div>
+
+<div class="max-w-md mx-auto px-4 pt-4">
+
+  <!-- Header -->
+  <header class="flex items-center justify-between mb-4">
+    <div class="flex items-center gap-2.5 min-w-0">
+      <div id="avatar" class="w-9 h-9 rounded-full gold-btn flex items-center justify-center text-sm font-bold flex-shrink-0">?</div>
+      <div class="min-w-0 leading-tight">
+        <p class="text-[11px] text-gray-400">Bonjou,</p>
+        <p id="uname" class="text-sm font-semibold truncate">...</p>
+      </div>
+    </div>
+    <button onclick="toast('Pa gen nouvo notifikasyon.', true)" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Notifikasyon"><i class="fa-regular fa-bell"></i></button>
+  </header>
+
+  <!-- Balans -->
+  <section class="hero rounded-3xl p-5 mb-5">
+    <p class="text-[11px] uppercase tracking-[.14em] text-gray-400 font-medium">Balans disponib</p>
+    <p class="mt-1 text-[2rem] leading-none font-bold gold-text"><span id="bal">0.00</span> <span class="text-base font-semibold">HTG</span></p>
+    <div class="mt-4 pt-3 border-t border-white/10 grid grid-cols-2 gap-3 text-xs">
+      <div><p class="text-gray-500">Dola (USD / USDT)</p><p id="usd" class="mt-0.5 text-sm font-semibold text-gray-100">$0.00</p></div>
+      <div><p class="text-gray-500">To chanj</p><p id="rate" class="mt-0.5 text-sm font-semibold text-gray-100">—</p></div>
+    </div>
+  </section>
+
+  <!-- Aksyon rapid -->
+  <section class="grid grid-cols-4 gap-2 mb-6">
+    <button class="act flex flex-col items-center gap-1.5" onclick="soon('Depo')"><span class="aico"><i class="fa-solid fa-arrow-down"></i></span><span class="text-[11px] font-medium text-gray-300">Depo</span></button>
+    <button class="act flex flex-col items-center gap-1.5" onclick="openWd()"><span class="aico"><i class="fa-solid fa-arrow-up"></i></span><span class="text-[11px] font-medium text-gray-300">Retrè</span></button>
+    <button class="act flex flex-col items-center gap-1.5" onclick="openSwap()"><span class="aico"><i class="fa-solid fa-arrows-rotate"></i></span><span class="text-[11px] font-medium text-gray-300">Swap</span></button>
+    <button class="act flex flex-col items-center gap-1.5" onclick="soon('Echanj')"><span class="aico"><i class="fa-solid fa-right-left"></i></span><span class="text-[11px] font-medium text-gray-300">Echanj</span></button>
+  </section>
+
+  <!-- Istwa -->
+  <section id="history">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold">Istwa tranzaksyon</h2>
+    </div>
+    <div id="chips" class="flex gap-2 overflow-x-auto scroll-none mb-3"></div>
+    <div class="field mb-3 !py-0"><i class="fa-solid fa-magnifying-glass text-gray-500 text-xs"></i>
+      <input id="search" oninput="renderHistory()" type="search" placeholder="Chèche pa metòd oswa montan" style="padding:.6rem 0;font-size:.8rem"></div>
+    <div id="tx" class="panel rounded-2xl divide-y divide-white/5 overflow-hidden"></div>
+  </section>
+</div>
+
+<!-- Navigasyon -->
+<nav class="nav fixed left-4 right-4 max-w-md mx-auto rounded-2xl grid grid-cols-3 z-40" style="bottom:calc(.75rem + env(safe-area-inset-bottom))">
+  <button id="n0" class="nv on" onclick="nav(0)"><i class="fa-solid fa-house"></i>Akèy</button>
+  <button id="n1" class="nv" onclick="nav(1)"><i class="fa-solid fa-clock-rotate-left"></i>Istwa</button>
+  <button id="n2" class="nv" onclick="nav(2)"><i class="fa-solid fa-gear"></i>Paramèt</button>
+</nav>
+
+<!-- Swap -->
+<div id="m-swap" class="modal hidden" onclick="if(event.target===this)closeModals()">
+  <div class="sheet"><div class="grab"></div>
+    <div class="flex justify-between items-center mb-1"><h2 class="font-bold">Swap HTG → dola</h2><button onclick="closeModals()" class="text-gray-400 text-xl leading-none px-1" aria-label="Fèmen">&times;</button></div>
+    <p class="text-xs text-gray-400 mb-4">Chanje balans HTG ou an USD/USDT. Dola a antre nan balans ou touswit.</p>
+    <div class="flex justify-between text-xs mb-1.5"><label class="text-gray-300 font-medium">Montan an HTG</label><button onclick="maxSwap()" class="text-amber-400 font-semibold">Tout balans</button></div>
+    <div class="field mb-3"><span>HTG</span><input id="s-amount" oninput="preview()" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+    <div class="panel rounded-xl p-3 text-sm flex justify-between mb-4"><span class="text-gray-400">Ou ap resevwa</span><span id="s-prev" class="font-semibold">$0.00</span></div>
+    <p id="s-err" class="text-red-400 text-xs mb-3 hidden"></p>
+    <button id="s-go" onclick="doSwap()" class="gold-btn w-full py-3.5 rounded-xl font-bold text-sm">Konfime swap</button>
+  </div>
+</div>
+
+<!-- Retrè -->
+<div id="m-wd" class="modal hidden" onclick="if(event.target===this)closeModals()">
+  <div class="sheet"><div class="grab"></div>
+    <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Retrè</h2><button onclick="closeModals()" class="text-gray-400 text-xl leading-none px-1" aria-label="Fèmen">&times;</button></div>
+    <div id="cur-row" class="grid grid-cols-2 gap-2 mb-2"></div>
+    <p id="wd-hint" class="text-[11px] leading-snug text-gray-400 mb-4"></p>
+    <p class="text-xs text-gray-300 font-medium mb-2">Metòd</p>
+    <div id="methods" class="grid grid-cols-3 gap-2 mb-4"></div>
+    <div class="flex justify-between text-xs mb-1.5"><label id="w-label" class="text-gray-300 font-medium">Montan</label><button onclick="maxWd()" class="text-amber-400 font-semibold">Tout balans</button></div>
+    <div class="field mb-4"><span id="w-unit">HTG</span><input id="w-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+    <label id="acc-label" class="text-xs text-gray-300 font-medium block mb-1.5">Kont destinasyon</label>
+    <div class="field mb-4"><input id="w-account" type="text" maxlength="100" placeholder="Chwazi yon metòd dabò"></div>
+    <p id="w-err" class="text-red-400 text-xs mb-3 hidden"></p>
+    <button id="w-go" onclick="doWd()" class="gold-btn w-full py-3.5 rounded-xl font-bold text-sm">Konfime retrè</button>
+  </div>
+</div>
+
+<!-- Paramèt -->
+<div id="m-set" class="modal hidden" onclick="if(event.target===this)closeModals()">
+  <div class="sheet"><div class="grab"></div>
+    <div class="flex items-center gap-3 mb-4">
+      <div id="s-av" class="w-12 h-12 rounded-full gold-btn flex items-center justify-center font-bold">?</div>
+      <div class="min-w-0"><p id="s-name" class="font-semibold truncate"></p><p id="s-email" class="text-xs text-gray-400 truncate"></p></div>
+    </div>
+    <div class="panel rounded-xl p-3 flex items-center justify-between text-sm mb-4"><span class="text-gray-400">Verifikasyon idantite</span>
+      <span class="pill bg-emerald-500/15 text-emerald-400"><i class="fa-solid fa-shield-halved mr-1"></i>Verifye</span></div>
+    <button onclick="logout()" class="w-full py-3.5 rounded-xl border border-white/10 text-sm font-semibold text-gray-200"><i class="fa-solid fa-right-from-bracket mr-2 text-amber-400"></i>Dekonekte</button>
+  </div>
+</div>
+
+<script>
+const W = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal'] };
+const MI = {
+  MonCash: ['fa-mobile-screen', 'Nimewo MonCash'], NatCash: ['fa-mobile-screen-button', 'Nimewo NatCash'], Meru: ['fa-wallet', 'Kont Meru'],
+  USDT: ['fa-coins', 'Adrès wallet USDT'], Zelle: ['fa-building-columns', 'Imèl oswa telefòn Zelle'], CashApp: ['fa-dollar-sign', '$Cashtag CashApp'], PayPal: ['fa-credit-card', 'Imèl PayPal']
+};
+const STATUS = { pending: ['An kou', 'bg-amber-500/15 text-amber-400'], done: ['Fini', 'bg-emerald-500/15 text-emerald-400'], rejected: ['Echwe', 'bg-red-500/15 text-red-400'] };
+const FILTERS = [['', 'Tout'], ['pending', 'An kou'], ['done', 'Fini'], ['rejected', 'Echwe']];
+let me = null, cur = 'HTG', method = null, flt = '';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n, c) => (c === 'USD' ? '$' + num(n) : num(n) + ' HTG');
+const fdate = (iso) => { const d = new Date(iso), p = (x) => String(x).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)} · ${p(d.getHours())}:${p(d.getMinutes())}`; };
+
+let tt;
+function toast(t, ok) {
+  const m = $('toast');
+  m.className = 'px-4 py-3 rounded-xl text-sm font-medium border ' + (ok ? 'bg-emerald-950 border-emerald-500/40 text-emerald-300' : 'bg-red-950 border-red-500/40 text-red-300');
+  m.textContent = t; clearTimeout(tt); tt = setTimeout(() => m.classList.add('hidden'), 4000);
+}
+const soon = (n) => toast(n + ' pa disponib ankò. N ap ajoute l byento.', true);
+async function logout() { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; }
+function closeModals() { document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden')); nav(0, true); }
+function nav(i, quiet) {
+  [0, 1, 2].forEach((k) => $('n' + k).classList.toggle('on', k === i));
+  if (quiet) return;
+  if (i === 0) window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (i === 1) $('history').scrollIntoView({ behavior: 'smooth' });
+  if (i === 2) { $('s-name').textContent = me.name; $('s-email').textContent = me.email; $('s-av').textContent = (me.name.trim()[0] || '?').toUpperCase(); $('m-set').classList.remove('hidden'); }
+}
+
+function renderHistory() {
+  $('chips').innerHTML = FILTERS.map(([v, l]) => `<button class="chip ${flt === v ? 'on' : ''}" onclick="flt='${v}';renderHistory()">${l}</button>`).join('');
+  const q = $('search').value.trim().toLowerCase();
+  const rows = me.txs.filter((t) => (!flt || t.status === flt) && (!q || ((t.method || 'swap') + ' ' + t.amount + ' ' + t.type).toLowerCase().includes(q)));
+  $('tx').innerHTML = rows.length ? rows.map((t) => {
+    const [l, c] = STATUS[t.status] || ['', ''];
+    const sw = t.type === 'swap';
+    const icon = sw ? 'fa-arrows-rotate text-amber-400' : 'fa-arrow-up text-gray-300';
+    const title = sw ? 'Swap HTG → USD' : 'Retrè · ' + esc(t.method);
+    const main = sw ? `<span class="text-emerald-400">+$${num(t.usd)}</span>` : `<span>-${fmt(t.amount, t.currency)}</span>`;
+    const sub = sw ? `-${num(t.amount)} HTG` : '';
+    return `<div class="flex items-center gap-3 px-3.5 py-3">
+      <div class="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 text-sm"><i class="fa-solid ${icon}"></i></div>
+      <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${title}</p><p class="text-[11px] text-gray-500">${fdate(t.createdAt)}</p></div>
+      <div class="text-right flex-shrink-0"><p class="text-sm font-semibold">${main}</p><p class="text-[11px] text-gray-500 leading-none mb-1">${sub}</p><span class="pill ${c}">${l}</span></div></div>`;
+  }).join('') : `<div class="py-10 text-center text-gray-500"><i class="fa-regular fa-folder-open text-2xl mb-2 block"></i><p class="text-xs">Pa gen tranzaksyon.</p></div>`;
+}
+
+function render() {
+  const first = me.name.trim().split(/\s+/)[0];
+  $('uname').textContent = me.name; $('avatar').textContent = (first[0] || '?').toUpperCase();
+  $('bal').textContent = num(me.balance);
+  $('usd').textContent = '$' + num(me.usd);
+  $('rate').textContent = me.rate ? `$1 = ${num(me.rate)} HTG` : 'Poko disponib';
+  renderHistory();
+}
+
+/* Swap */
+function openSwap() {
+  if (me.balance <= 0) return toast('Balans HTG ou se 0.00. Ou pa ka fè swap pou kounye a.', false);
+  if (!me.rate) return toast('To chanj la poko disponib. Eseye pita.', false);
+  $('s-amount').value = ''; $('s-err').classList.add('hidden'); preview();
+  $('m-swap').classList.remove('hidden');
+}
+const maxSwap = () => { $('s-amount').value = me.balance; preview(); };
+function preview() { const a = parseFloat($('s-amount').value) || 0; $('s-prev').textContent = '$' + num(Math.floor((a / (me.rate || 1)) * 100) / 100); }
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Erè. Eseye ankò.');
+  return d;
+}
+async function doSwap() {
+  const e = (t) => { $('s-err').textContent = t; $('s-err').classList.remove('hidden'); };
+  const amount = parseFloat($('s-amount').value);
+  if (!(amount > 0)) return e('Antre yon montan valid.');
+  if (amount > me.balance) return e('Balans HTG ou pa sifi.');
+  $('s-go').disabled = true;
+  try { me = await post('/api/swap', { amount }); render(); closeModals(); toast('Swap fèt! Dola a nan balans ou.', true); }
+  catch (x) { e(x.message); }
+  $('s-go').disabled = false;
+}
+
+/* Retrè */
+function openWd() {
+  if (me.balance <= 0 && me.usd <= 0) return toast('Ou pa gen balans pou retire.', false);
+  $('w-amount').value = ''; $('w-account').value = ''; $('w-err').classList.add('hidden');
+  setCur(me.balance > 0 ? 'HTG' : 'USD');
+  $('m-wd').classList.remove('hidden');
+}
+function setCur(c) {
+  cur = c; method = null;
+  $('cur-row').innerHTML = [['HTG', 'Goud', me.balance], ['USD', 'Dola', me.usd]].map(([k, l, b]) =>
+    `<button type="button" ${b > 0 ? '' : 'disabled'} onclick="setCur('${k}')" class="opt ${cur === k ? 'on' : ''}"><span class="text-xs font-semibold block">${l}</span><span class="text-[11px] text-gray-400">${fmt(b, k)}</span></button>`).join('');
+  $('wd-hint').textContent = c === 'HTG'
+    ? 'Balans HTG ka retire sèlman sou MonCash ak NatCash. Pou Meru, Zelle, USDT, CashApp, PayPal, swap an dola dabò.'
+    : 'Retire dola ou sou Meru, Zelle, USDT, CashApp oswa PayPal.';
+  $('w-label').textContent = c === 'HTG' ? 'Montan an HTG' : 'Montan an dola';
+  $('w-unit').textContent = c === 'HTG' ? 'HTG' : 'USD';
+  $('acc-label').textContent = 'Kont destinasyon'; $('w-account').placeholder = 'Chwazi yon metòd dabò';
+  $('methods').innerHTML = W[c].map((k) => `<button type="button" data-m="${k}" onclick="pickM('${k}')" class="opt"><i class="fa-solid ${MI[k][0]} text-amber-400 text-base block mb-1"></i><span class="text-[11px] font-semibold">${k}</span></button>`).join('');
+}
+function pickM(k) {
+  method = k;
+  document.querySelectorAll('#methods .opt').forEach((b) => b.classList.toggle('on', b.dataset.m === k));
+  $('acc-label').textContent = MI[k][1]; $('w-account').placeholder = MI[k][1];
+}
+const maxWd = () => { $('w-amount').value = cur === 'HTG' ? me.balance : me.usd; };
+async function doWd() {
+  const e = (t) => { $('w-err').textContent = t; $('w-err').classList.remove('hidden'); };
+  const amount = parseFloat($('w-amount').value), bal = cur === 'HTG' ? me.balance : me.usd;
+  if (!method) return e('Chwazi yon metòd.');
+  if (!(amount > 0)) return e('Antre yon montan valid.');
+  if (amount > bal) return e('Balans ou pa sifi.');
+  if ($('w-account').value.trim().length < 3) return e('Antre kont destinasyon an.');
+  $('w-go').disabled = true;
+  try { me = await post('/api/withdraw', { currency: cur, method, amount, account: $('w-account').value }); render(); closeModals(); toast('Demann retrè a voye. Ekip nou ap trete l.', true); }
+  catch (x) { e(x.message); }
+  $('w-go').disabled = false;
+}
+
+(async () => {
+  const r = await fetch('/api/me');
+  if (r.status === 401) return (location.href = '/');
+  me = await r.json();
+  if (me.role === 'admin') return (location.href = '/admin.html');
+  if (me.kyc.status !== 'approved') return (location.href = '/kyc.html');
+  render();
+})();
+</script>
+</body>
+</html>
