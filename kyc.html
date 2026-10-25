@@ -260,7 +260,7 @@
             if (r.status === 401) { window.location.href = '/'; return; }
             const me = await r.json();
             $('who').textContent = me.name + ' · ' + me.email;
-            if (me.role === 'admin') { window.location.href = '/admin.html'; return; }
+            if (me.role === 'admin' || me.role === 'support') { window.location.href = '/admin.html'; return; }
             if (me.banned) { window.location.href = '/dashboard.html'; return; }
             if (me.kyc.status === 'approved') { window.location.href = '/dashboard.html'; return; }
             if (me.kyc.status === 'none') showForm(); else renderStatus(me.kyc);

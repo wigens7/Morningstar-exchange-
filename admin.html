@@ -36,6 +36,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="wd" onclick="go('wd')">Retrè</button>
     <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="dep" onclick="go('dep')">Depo</button>
     <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="dinfo" onclick="go('dinfo')">Enfo Depo</button>
+    <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="p2p" onclick="go('p2p')">P2P</button>
     <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="set" onclick="go('set')">To &amp; Frè</button>
   </div>
   <div id="msg" class="hidden mb-4 p-3 rounded-xl text-sm bg-red-500/10 border border-red-500/30 text-red-400"></div>
@@ -62,6 +63,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   </div>
 </div>
 <script src="/logos.js"></script>
+<script src="/admin-p2p.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -120,9 +122,12 @@ async function load() {
         ${isAdmin ? '' : `<div class="flex flex-wrap gap-2 mt-3">
           <button class="b bg-emerald-600 text-white" onclick="openBal('${u.id}')"><i class="fa-solid fa-plus mr-1"></i>Balans</button>
           <button class="b ${u.banned ? 'bg-sky-600 text-white' : 'bg-orange-500 text-black'}" onclick="ban('${u.id}', ${!u.banned})">${u.banned ? 'Debani' : 'Bani'}</button>
-          <button class="b bg-red-600 text-white" onclick="delUser('${u.id}')"><i class="fa-solid fa-trash mr-1"></i>Efase</button></div>`}
+          <button class="b bg-red-600 text-white" onclick="delUser('${u.id}')"><i class="fa-solid fa-trash mr-1"></i>Efase</button>
+          <button class="b tab" onclick="setRole('${u.id}', '${u.role === 'support' ? 'user' : 'support'}')">${u.role === 'support' ? 'Retire Support' : 'Fè Support'}</button></div>`}
       </div>`;
     }).join('');
+  } else if (tab === 'p2p') {
+    await loadP2P(window.ME_ROLE);
   } else if (tab === 'dep') {
     await loadDeposits();
   } else if (tab === 'dinfo') {
@@ -262,6 +267,11 @@ async function ban(id, banned) {
   await api(`/api/admin/users/${id}/ban`, { banned });
   load();
 }
+async function setRole(id, role) {
+  if (!confirm(role === 'support' ? 'Bay kont sa a wòl Support? Li ap ka revize dispit P2P ak chat, men PA ka deplase lajan.' : 'Retire wòl Support?')) return;
+  await api(`/api/admin/users/${id}/role`, { role });
+  load();
+}
 async function delUser(id) {
   const u = users.find((x) => x.id === id);
   if (!confirm(`Efase kont ${u.name} (${u.email}) NÈT? Done ak dosye KYC li yo ap disparèt. Aksyon sa a pa ka defèt.`)) return;
@@ -273,7 +283,12 @@ async function delUser(id) {
   const r = await fetch('/api/me');
   if (r.status === 401) return (location.href = '/');
   const me = await r.json();
-  if (me.role !== 'admin') return (location.href = '/');
+  if (!['admin', 'support'].includes(me.role)) return (location.href = '/');
+  window.ME_ROLE = me.role;
+  if (me.role === 'support') { // support: sèlman P2P (revizyon dispit, chat)
+    document.querySelectorAll('.tab[data-t]').forEach((b) => { if (b.dataset.t !== 'p2p') b.style.display = 'none'; });
+    return go('p2p');
+  }
   load();
 })();
 </script>

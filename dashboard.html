@@ -231,6 +231,12 @@ function renderHistory() {
       <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${pos ? t('deposit') : t('txAdjust')}${tx.note ? ' · ' + esc(tx.note) : ''}</p><p class="text-[11px] text-gray-500">${fdate(tx.createdAt)}</p></div>
       <div class="text-right flex-shrink-0"><p class="text-sm font-semibold ${pos ? 'text-emerald-400' : ''}">${pos ? '+' : '-'}${fmt(Math.abs(tx.amount), tx.currency)}</p><span class="pill bg-emerald-500/15 text-emerald-400">${t('st_done')}</span></div></div>`;
     }
+    if (tx.type === 'p2p_bridge') {
+      const inn = tx.dir === 'from_p2p';
+      return `<div class="flex items-center gap-3 px-3.5 py-3"><div class="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 text-sm"><i class="fa-solid fa-people-arrows text-amber-400"></i></div>
+      <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">P2P · ${inn ? 'Retou nan balans' : 'Voye nan P2P'}</p><p class="text-[11px] text-gray-500">${fdate(tx.createdAt)}</p></div>
+      <div class="text-right flex-shrink-0"><p class="text-sm font-semibold ${inn ? 'text-emerald-400' : ''}">${inn ? '+' : '-'}$${num(tx.amount)}</p><span class="pill ${c}">${l}</span></div></div>`;
+    }
     if (tx.type === 'deposit') {
       const dl = tx.status === 'rejected' && tx.note ? ` · ${esc(tx.note)}` : '';
       return `<div class="flex items-center gap-3 px-3.5 py-3">
@@ -269,9 +275,9 @@ async function copy(txt) {
 }
 
 /* Menu */
-const MENU = [['vcard', 'fa-credit-card'], ['p2p', 'fa-people-arrows'], ['topup', 'fa-mobile-screen-button'], ['gift', 'fa-gift']];
+const MENU = [['p2p', 'fa-people-arrows', '/p2p.html'], ['vcard', 'fa-credit-card'], ['topup', 'fa-mobile-screen-button'], ['gift', 'fa-gift']];
 function openMenu() {
-  $('menu-items').innerHTML = MENU.map(([k, ic]) => `<button onclick="toast(t('soon', { n: t('${k}') }), true)" class="panel w-full rounded-xl px-3.5 py-3 flex items-center gap-3 text-left">
+  $('menu-items').innerHTML = MENU.map(([k, ic, href]) => href ? `<a href="${href}" class="panel w-full rounded-xl px-3.5 py-3 flex items-center gap-3 text-left"><span class="aico !w-10 !h-10 !rounded-xl"><i class="fa-solid ${ic}"></i></span><span class="flex-1 text-sm font-medium">${t(k)}</span><i class="fa-solid fa-chevron-right text-gray-500 text-xs"></i></a>` : `<button onclick="toast(t('soon', { n: t('${k}') }), true)" class="panel w-full rounded-xl px-3.5 py-3 flex items-center gap-3 text-left">
     <span class="aico !w-10 !h-10 !rounded-xl"><i class="fa-solid ${ic}"></i></span>
     <span class="flex-1 text-sm font-medium">${t(k)}</span><span class="pill bg-amber-500/15 text-amber-400">${t('comingSoon')}</span></button>`).join('');
   $('m-menu').classList.remove('hidden');
@@ -418,7 +424,7 @@ async function doWd() {
   const r = await fetch('/api/me');
   if (r.status === 401) return (location.href = '/');
   me = await r.json();
-  if (me.role === 'admin') return (location.href = '/admin.html');
+  if (me.role === 'admin' || me.role === 'support') return (location.href = '/admin.html');
   if (me.kyc.status !== 'approved' && !me.banned) return (location.href = '/kyc.html');
   setLang(me.lang || 'ht');
   render();

@@ -380,7 +380,7 @@
         }
 
         function destFor(u) {
-            if (u.role === 'admin') return '/admin.html';
+            if (u.role === 'admin' || u.role === 'support') return '/admin.html';
             return u.kyc.status === 'approved' ? '/dashboard.html' : '/kyc.html';
         }
 

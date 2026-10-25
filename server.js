@@ -117,7 +117,7 @@ const genUid = (users) => {
 const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
-app.use(express.json({ limit: '20kb' }));
+app.use(express.json({ limit: '20kb', verify: (req, res, buf) => { req.rawBody = buf; } })); // rawBody: pou siyati webhook
 app.use(cookieParser());
 app.use((req, res, next) => {
   res.set({
@@ -627,6 +627,72 @@ app.post('/api/admin/withdrawals/:id/status', adminOnly, (req, res) => {
   res.status(404).json({ error: 'Pa jwenn.' });
 });
 
+// ---------- P2P (escrow, anons, lòd, dispit) ----------
+const { createService } = require('./p2p/service');
+const { mount: mountP2P } = require('./p2p/routes');
+const isStaffRole = (r) => r === 'admin' || r === 'support';
+
+// Adaptè balans prensipal la (users.json). Chak operasyon idempotan pa id transfè a.
+const mainStore = {
+  has(userId, id) { const u = loadUsers().find((x) => x.id === userId); return !!u && (u.swaps || []).some((t) => t.id === id); },
+  debit(userId, amountCents, id) {
+    const users = loadUsers(), u = users.find((x) => x.id === userId);
+    if (!u) return 'INSUFFICIENT';
+    u.swaps = u.swaps || [];
+    if (u.swaps.some((t) => t.id === id)) return 'OK';
+    const have = Math.round((u.usd || 0) * 100);
+    if (have < amountCents) return 'INSUFFICIENT';
+    u.usd = round2((have - amountCents) / 100);
+    u.swaps.push({ id, type: 'p2p_bridge', dir: 'to_p2p', currency: 'USD', amount: amountCents / 100, status: 'done', createdAt: new Date().toISOString() });
+    saveUsers(users);
+    return 'OK';
+  },
+  credit(userId, amountCents, id) {
+    const users = loadUsers(), u = users.find((x) => x.id === userId);
+    if (!u) throw new Error('user missing');
+    u.swaps = u.swaps || [];
+    if (u.swaps.some((t) => t.id === id)) return;
+    u.usd = round2(Math.round((u.usd || 0) * 100) / 100 + amountCents / 100);
+    u.swaps.push({ id, type: 'p2p_bridge', dir: 'from_p2p', currency: 'USD', amount: amountCents / 100, status: 'done', createdAt: new Date().toISOString() });
+    saveUsers(users);
+  }
+};
+const p2pEligible = (userId) => {
+  const u = loadUsers().find((x) => x.id === userId);
+  if (!u) return { ok: false, reason: 'Kont pa jwenn.' };
+  if (isStaffRole(u.role)) return { ok: false, reason: 'Kont staff pa ka fè P2P.' };
+  if (u.banned) return { ok: false, reason: 'Kont ou bani.' };
+  if (u.kyc.status !== 'approved') return { ok: false, reason: 'KYC ou dwe apwouve anvan ou itilize P2P.' };
+  if (!u.profile) return { ok: false, reason: 'Konplete enfòmasyon pèsonèl ou nan Paramèt anvan.' };
+  return { ok: true };
+};
+let nameCache = { t: 0, m: new Map() };
+const p2pName = (id) => {
+  if (Date.now() - nameCache.t > 5000) { nameCache = { t: Date.now(), m: new Map(loadUsers().map((u) => [u.id, u.profile ? `${u.profile.firstName} ${(u.profile.lastName || '')[0] || ''}.` : u.name])) }; }
+  return nameCache.m.get(id) || 'Itilizatè';
+};
+const p2p = createService({ dbPath: path.join(DATA_DIR, 'p2p.sqlite'), eligible: p2pEligible, nameOf: p2pName, main: mainStore });
+mountP2P(app, {
+  auth, rateLimit, service: p2p, detectExt, isStaffRole, pinGuard,
+  upload: multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } }).single('file'),
+  evidenceDir: path.join(DATA_DIR, 'p2p-evidence')
+});
+// Rekiperasyon nan demaraj + travay peryodik (ekspirasyon, rekiperasyon, reconciliation)
+try { p2p.recoverBridge(0); p2p.recoverStuck(); } catch (e) { console.error('[p2p] recovery', e); }
+setInterval(() => { try { p2p.runJobs(); } catch (e) { console.error('[p2p] jobs', e); } }, 30 * 1000).unref();
+
+// Admin bay yon itilizatè wòl "support" (ka revize dispit, pa ka deplase lajan)
+app.post('/api/admin/users/:id/role', adminOnly, (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.id);
+  const role = String(req.body.role || '');
+  if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
+  if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka chanje wòl yon admin.' });
+  if (!['user', 'support'].includes(role)) return res.status(400).json({ error: 'Wòl pa valid.' });
+  u.role = role;
+  saveUsers(req.users);
+  res.json({ role });
+});
+
 // ---------- Paj yo ----------
 // Sèlman 2 paj sa yo ki piblik (server.js ak lòt fichye yo pa janm sèvi)
 const page = (file) => (req, res) => res.sendFile(path.join(__dirname, file));
@@ -636,6 +702,8 @@ app.get('/kyc.html', page('kyc.html'));
 app.get('/dashboard.html', page('dashboard.html'));
 app.get('/admin.html', page('admin.html'));
 app.get('/settings.html', page('settings.html'));
+app.get('/p2p.html', page('p2p.html'));
+app.get('/admin-p2p.js', page('admin-p2p.js'));
 app.get('/i18n.js', page('i18n.js'));
 app.get('/logos.js', page('logos.js'));
 app.use('/logos', express.static(path.join(__dirname, 'logos'), { index: false }));

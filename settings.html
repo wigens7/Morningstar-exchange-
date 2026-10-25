@@ -200,7 +200,7 @@ function renderAll() {
   const r = await fetch('/api/me');
   if (r.status === 401) return (location.href = '/');
   me = await r.json();
-  if (me.role === 'admin') return (location.href = '/admin.html');
+  if (me.role === 'admin' || me.role === 'support') return (location.href = '/admin.html');
   setLang(me.lang || 'ht');
   $('link').value = location.origin + '/?ref=' + me.uid;
   renderAll();
