@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS idempotency (
 );
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY, order_id TEXT NOT NULL, sender_id TEXT, role TEXT NOT NULL CHECK (role IN ('USER','STAFF','SYSTEM')),
-  body TEXT NOT NULL, ts INTEGER NOT NULL, evidence_id TEXT
+  body TEXT NOT NULL, ts INTEGER NOT NULL, evidence_id TEXT, kind TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_msgs_order ON messages(order_id);
 CREATE TABLE IF NOT EXISTS evidence (
@@ -137,6 +137,15 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, ok INTEGER, processed INTEGER, error TEXT
 );
+-- Pwofil machann: non biznis (inik, pa ka chanje) + mesaj otomatik pou tout achtè yo
+CREATE TABLE IF NOT EXISTS merchants (
+  user_id TEXT PRIMARY KEY,
+  business_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  auto_message TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS merchants_name_locked BEFORE UPDATE OF business_name ON merchants
+  WHEN NEW.business_name <> OLD.business_name BEGIN SELECT RAISE(ABORT,'business name is locked'); END;
 CREATE TABLE IF NOT EXISTS bridge_transfers (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL, dir TEXT NOT NULL CHECK (dir IN ('IN','OUT')),
   amount INTEGER NOT NULL CHECK (amount > 0),

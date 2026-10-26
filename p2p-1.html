@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="ht">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>MORNINGSTAR EXCHANGE - Mache P2P</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0f;background-image:radial-gradient(circle at 10% 0%,rgba(212,175,55,.09),transparent 45%);min-height:100vh;color:#e5e7eb;padding-bottom:3rem;font-variant-numeric:tabular-nums}
+.gold-text{background:linear-gradient(135deg,#FFF099,#F1C40F 35%,#D4AF37 70%,#996515);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.gold-btn{background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B);color:#000;font-weight:700}
+.gold-btn:disabled{opacity:.45}
+.panel{background:rgba(18,20,29,.78);border:1px solid rgba(255,255,255,.07)}
+.tab{font-size:.78rem;font-weight:600;padding:.55rem 0;color:#9ca3af;border-bottom:2px solid transparent}
+.tab.on{color:#F1C40F;border-color:#D4AF37}
+.seg button{flex:1;padding:.55rem;font-size:.82rem;font-weight:700;color:#9ca3af;border-radius:.7rem}
+.seg button.on{background:#D4AF37;color:#000}
+.field{display:flex;align-items:center;gap:.5rem;background:rgba(10,11,16,.9);border:1px solid rgba(255,255,255,.14);border-radius:.8rem;padding:0 .8rem}
+.field:focus-within{border-color:#D4AF37;box-shadow:0 0 0 3px rgba(212,175,55,.15)}
+.field input,.field select,.field textarea{flex:1;min-width:0;background:transparent;border:0;outline:0;color:#fff;padding:.7rem 0;font-size:.9rem}
+.field select option{background:#12141d}
+.field span{color:#9ca3af;font-size:.78rem;font-weight:600}
+.lbl{display:block;font-size:.72rem;color:#d1d5db;font-weight:500;margin:.7rem 0 .3rem}
+.pill{font-size:.65rem;font-weight:700;padding:.15rem .55rem;border-radius:999px;white-space:nowrap}
+.chip{font-size:.65rem;padding:.12rem .5rem;border-radius:999px;border:1px solid rgba(255,255,255,.12);color:#9ca3af}
+.modal{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.75)}
+.modal.hidden{display:none}
+.sheet{width:100%;max-width:30rem;max-height:94vh;overflow-y:auto;background:#12141d;border:1px solid rgba(212,175,55,.2);border-radius:1.5rem 1.5rem 0 0;padding:1rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom))}
+@media(min-width:640px){.modal{align-items:center}.sheet{border-radius:1.5rem}}
+.row{display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.85rem}
+.row:last-child{border:0}.row>span:first-child{color:#9ca3af;flex-shrink:0}.row>span:last-child{text-align:right;word-break:break-word}
+.chatpage{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;background:#0b0e14}
+.chatpage.hidden{display:none}
+#chat{background:#0b0e14 radial-gradient(circle at 20% 10%,rgba(212,175,55,.05),transparent 40%);overscroll-behavior:contain}
+.bub{max-width:80%;padding:.4rem .6rem .25rem;border-radius:.85rem;font-size:.9rem;word-break:break-word;display:flex;flex-direction:column;width:fit-content}
+.bub.me{background:#4a3d12;margin-left:auto;border-bottom-right-radius:.2rem}
+.bub.them{background:#1c2030;border-bottom-left-radius:.2rem}
+.bub .tm{align-self:flex-end;font-size:.62rem;color:rgba(255,255,255,.45);margin-top:.1rem}
+.chatimg{max-width:220px;max-height:260px;border-radius:.6rem;margin-bottom:.2rem;cursor:pointer;object-fit:cover}
+.payinfo{align-self:center;width:92%;background:rgba(212,175,55,.08);border:1px solid rgba(212,175,55,.3);border-radius:.9rem;padding:.6rem .8rem;font-size:.85rem;margin:.25rem 0;user-select:text}
+.sysmsg{align-self:center;max-width:90%;text-align:center;font-size:.7rem;color:#9ca3af;background:rgba(255,255,255,.06);padding:.3rem .7rem;border-radius:999px;margin:.25rem auto}
+#c-menu{position:absolute;right:.6rem;top:3.4rem;z-index:5;min-width:12rem;background:#171a24;border:1px solid rgba(255,255,255,.1);border-radius:.8rem;overflow:hidden}
+#c-menu button{display:block;width:100%;text-align:left;padding:.7rem .9rem;font-size:.85rem}
+#c-menu button+button{border-top:1px solid rgba(255,255,255,.06)}
+#toast{position:fixed;top:.75rem;left:.75rem;right:.75rem;max-width:30rem;margin:auto;z-index:99;transition:all .25s}
+#toast.hidden{display:block;opacity:0;transform:translateY(-12px);pointer-events:none}
+</style>
+</head>
+<body>
+<div id="toast" class="hidden px-4 py-3 rounded-xl text-sm font-medium border"></div>
+<div class="max-w-md mx-auto px-4 pt-4">
+  <header class="flex items-center justify-between mb-3">
+    <div class="flex items-center gap-3">
+      <a href="/dashboard.html" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Retounen"><i class="fa-solid fa-arrow-left"></i></a>
+      <h1 class="text-lg font-bold gold-text">Mache P2P</h1>
+    </div>
+    <button onclick="go('wallet')" class="panel rounded-full px-3 py-1.5 text-xs font-semibold"><i class="fa-solid fa-wallet text-amber-400 mr-1"></i><span id="chip">—</span> USDT</button>
+  </header>
+
+  <nav class="grid grid-cols-4 border-b border-white/10 mb-4">
+    <button class="tab on" data-v="market" onclick="go('market')">Mache</button>
+    <button class="tab" data-v="orders" onclick="go('orders')">Lòd mwen</button>
+    <button class="tab" data-v="ads" onclick="go('ads')">Anons mwen</button>
+    <button class="tab" data-v="wallet" onclick="go('wallet')">Pòtfèy</button>
+  </nav>
+  <div id="gate" class="hidden mb-4 px-3.5 py-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-200 text-xs"></div>
+  <main id="view"></main>
+</div>
+
+<!-- Paj lòd = chat plen ekran -->
+<div id="m-order" class="chatpage hidden">
+  <div class="flex items-center gap-2.5 px-3 pb-2.5 border-b border-white/10" style="background:#12141d;padding-top:calc(.6rem + env(safe-area-inset-top))">
+    <button onclick="closeOrder()" class="w-9 h-9 flex items-center justify-center text-gray-200" aria-label="Retounen"><i class="fa-solid fa-arrow-left"></i></button>
+    <div id="c-av" class="w-10 h-10 rounded-full gold-btn flex items-center justify-center font-bold flex-shrink-0">?</div>
+    <div class="flex-1 min-w-0"><p id="c-name" class="font-semibold truncate leading-tight"></p><p id="c-sub" class="text-[11px] mt-0.5"></p></div>
+    <button onclick="$('c-menu').classList.toggle('hidden')" class="w-9 h-9 flex items-center justify-center text-gray-300" aria-label="Plis"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+  </div>
+  <div id="c-menu" class="hidden"></div>
+  <div class="px-3.5 py-2 flex justify-between items-center text-sm" style="background:#171a24">
+    <span><b id="c-usdt"></b> <span class="text-gray-500">≈</span> <b id="c-fiat" class="text-amber-300"></b></span>
+    <span class="text-xs text-amber-300"><i class="fa-regular fa-clock mr-1"></i><span id="c-cd" data-until=""></span></span>
+  </div>
+  <div id="c-act"></div>
+  <div id="chat" class="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-1.5"></div>
+  <div class="flex items-center gap-2 px-2.5 pt-2.5" style="background:#12141d;padding-bottom:calc(.6rem + env(safe-area-inset-bottom))">
+    <button id="c-attach" onclick="$('c-file').click()" class="w-10 h-10 rounded-full flex items-center justify-center text-gray-300 flex-shrink-0" aria-label="Voye foto"><i class="fa-solid fa-paperclip text-lg"></i></button>
+    <input id="c-file" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" onchange="sendFile()">
+    <input id="c-msg" maxlength="1000" placeholder="Ekri yon mesaj" autocomplete="off" onkeydown="if(event.key==='Enter')sendMsg()" class="flex-1 min-w-0 rounded-full px-4 py-2.5 text-sm text-white outline-none" style="background:#1c2030">
+    <button onclick="sendMsg()" class="w-10 h-10 rounded-full gold-btn flex items-center justify-center flex-shrink-0" aria-label="Voye"><i class="fa-solid fa-paper-plane"></i></button>
+  </div>
+</div>
+<!-- Fenèt jenerik (fòm lòd, anons, dispit) -->
+<div id="m-sheet" class="modal hidden" onclick="if(event.target===this)closeSheet()"><div class="sheet" id="sheet"></div></div>
+<!-- PIN -->
+<div id="m-pin" class="modal hidden"><div class="sheet"><p class="font-bold mb-1">Konfime ak PIN ou</p><p class="text-xs text-gray-400 mb-3">Antre PIN 6 chif ou pou lage USDT la.</p>
+  <div class="field"><input id="pin-in" type="password" inputmode="numeric" maxlength="6" placeholder="••••••"></div>
+  <div class="grid grid-cols-2 gap-2 mt-3"><button onclick="pinDone(false)" class="py-2.5 rounded-xl text-sm border border-white/10 text-gray-300">Anile</button><button onclick="pinDone(true)" class="gold-btn py-2.5 rounded-xl text-sm">Konfime</button></div></div></div>
+<!-- Gade foto -->
+<div id="viewer" class="hidden fixed inset-0 flex items-center justify-center bg-black/95" style="z-index:95" onclick="this.classList.add('hidden')"><img id="viewer-img" class="max-w-full max-h-full" alt=""></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const FIATS = { HTG: ['MonCash', 'NatCash'], USD: ['Zelle', 'CashApp', 'PayPal', 'Meru', 'Wise'] };
+const ST = {
+  WAITING_PAYMENT: ['Ap tann peman', 'bg-amber-500/15 text-amber-400'], PAYMENT_MARKED: ['Peman make', 'bg-sky-500/15 text-sky-300'],
+  COMPLETED: ['Fini', 'bg-emerald-500/15 text-emerald-400'], CANCELLED: ['Anile', 'bg-white/10 text-gray-400'], EXPIRED: ['Ekspire', 'bg-white/10 text-gray-400'],
+  DISPUTED: ['Dispit', 'bg-red-500/15 text-red-400'], UNDER_REVIEW: ['Dispit an revizyon', 'bg-red-500/15 text-red-400'], CREATED: ['Kreye', 'bg-white/10 text-gray-400'], ESCROW_LOCKED: ['Escrow bloke', 'bg-amber-500/15 text-amber-400']
+};
+const pill = (s) => { const [l, c] = ST[s] || [s, '']; return `<span class="pill ${c}">${l}</span>`; };
+let ADS = [], me = null, view = 'market', side = 'BUY', fiat = 'HTG', openId = null, pollT = null, lastMsg = 0;
+const KEYS = {};
+const key = (n) => (KEYS[n] ||= crypto.randomUUID());
+
+let tt;
+function toast(msg, ok) {
+  const m = $('toast');
+  m.className = 'px-4 py-3 rounded-xl text-sm font-medium border ' + (ok ? 'bg-emerald-950 border-emerald-500/40 text-emerald-300' : 'bg-red-950 border-red-500/40 text-red-300');
+  m.textContent = msg; clearTimeout(tt); tt = setTimeout(() => m.classList.add('hidden'), 4500);
+}
+async function api(method, url, body, idem) {
+  const h = { 'Content-Type': 'application/json' }; if (idem) h['Idempotency-Key'] = idem;
+  const r = await fetch(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { location.href = '/'; throw new Error('401'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.error || 'Erè. Eseye ankò.'); e.code = d.code; throw e; }
+  return d;
+}
+const act = async (fn) => { try { return await fn(); } catch (e) { if (e.message !== '401') toast(e.message, false); } };
+async function copy(t) { try { await navigator.clipboard.writeText(t); } catch { const i = document.createElement('input'); i.value = t; document.body.appendChild(i); i.select(); document.execCommand('copy'); i.remove(); } toast('Kopye!', true); }
+const fdt = (ms) => new Date(ms).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const num = (s, d = 2) => Number(s).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+// previzyalizasyon san float (sèvè a se otorite a)
+function fiatPreview(cryptoStr, priceStr) {
+  if (!/^\d{1,12}(\.\d{1,6})?$/.test(cryptoStr) || !/^\d{1,12}(\.\d{1,2})?$/.test(priceStr)) return null;
+  const [i, f = ''] = cryptoStr.split('.'), [pi, pf = ''] = priceStr.split('.');
+  const v = (BigInt(i + f.padEnd(6, '0')) * BigInt(pi + pf.padEnd(2, '0')) + 500000n) / 1000000n;
+  const s = String(v).padStart(3, '0'); return s.slice(0, -2) + '.' + s.slice(-2);
+}
+
+function go(v) { view = v; document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('on', b.dataset.v === v)); render(); }
+async function refreshChip() { try { const w = await api('GET', '/api/p2p/wallet'); $('chip').textContent = num(w.availableStr, 2); return w; } catch { } }
+function render() { ({ market: vMarket, orders: vOrders, ads: vAds, wallet: vWallet })[view](); refreshChip(); }
+
+/* ---------- Mache ---------- */
+async function vMarket() {
+  const methods = FIATS[fiat];
+  $('view').innerHTML = `<div class="seg panel rounded-xl p-1 flex mb-3"><button class="${side === 'BUY' ? 'on' : ''}" onclick="side='BUY';vMarket()">Achte USDT</button><button class="${side === 'SELL' ? 'on' : ''}" onclick="side='SELL';vMarket()">Vann USDT</button></div>
+    <div class="grid grid-cols-3 gap-2 mb-3">
+      <div class="field"><select id="f-fiat" onchange="fiat=this.value;vMarket()">${Object.keys(FIATS).map((f) => `<option ${f === fiat ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
+      <div class="field"><select id="f-method" onchange="loadAds()"><option value="">Tout metòd</option>${methods.map((m) => `<option>${m}</option>`).join('')}</select></div>
+      <div class="field"><input id="f-amt" type="number" inputmode="decimal" placeholder="Montan ${fiat}" onchange="loadAds()"></div></div>
+    <div id="ads" class="space-y-3"><p class="text-center text-gray-500 text-sm py-8"><i class="fa-solid fa-circle-notch fa-spin"></i></p></div>`;
+  loadAds();
+}
+async function loadAds() {
+  const q = new URLSearchParams({ type: side === 'BUY' ? 'SELL' : 'BUY', fiat, method: $('f-method').value, amount: $('f-amt').value });
+  const ads = await act(() => api('GET', '/api/p2p/ads?' + q));
+  if (!ads) return;
+  ADS = ads;
+  $('ads').innerHTML = ads.length ? ads.map((a) => `<div class="panel rounded-2xl p-4">
+    <div class="flex justify-between items-start mb-2"><div><p class="text-sm font-semibold">${esc(a.advertiser)}</p>
+      <p class="text-[11px] text-gray-500">${a.completedOrders} lòd · ${a.completionRate == null ? 'Nouvo' : a.completionRate + '% fini'}</p></div>
+      <p class="text-lg font-bold gold-text">${num(a.price)} <span class="text-xs">${a.fiat}</span></p></div>
+    <div class="text-xs text-gray-400 space-y-0.5 mb-2"><p>Disponib: <b class="text-gray-200">${num(a.available, 2)} USDT</b></p><p>Limit: <b class="text-gray-200">${num(a.minFiat)} – ${num(a.maxFiat)} ${a.fiat}</b></p><p>Delè peman: ${a.payWindowMin} min</p></div>
+    <div class="flex flex-wrap gap-1 mb-3">${a.methods.map((m) => `<span class="chip">${esc(m)}</span>`).join('')}</div>
+    <button onclick="openTrade('${a.id}')" class="gold-btn w-full py-2.5 rounded-xl text-sm">${side === 'BUY' ? 'Achte' : 'Vann'} USDT</button></div>`).join('')
+    : '<p class="text-center text-gray-500 text-sm py-10">Pa gen anons ki koresponn.</p>';
+}
+function openTrade(id) {
+  const a = ADS.find((x) => x.id === id); if (!a) return;
+  KEYS.order = null;
+  const buying = a.type === 'SELL';
+  $('sheet').innerHTML = `<div class="flex justify-between items-center mb-2"><h2 class="font-bold">${buying ? 'Achte' : 'Vann'} USDT</h2><button onclick="closeSheet()" class="text-gray-400 text-2xl leading-none">&times;</button></div>
+    <p class="text-xs text-gray-400 mb-1">${esc(a.advertiser)} · <b class="text-gray-200">${num(a.price)} ${a.fiat}</b> / USDT</p>
+    ${a.terms ? `<p class="text-[11px] text-gray-500 mb-2">${esc(a.terms)}</p>` : ''}
+    <label class="lbl">Kantite USDT (disponib ${num(a.available, 2)})</label>
+    <div class="field"><span>USDT</span><input id="t-amt" type="number" inputmode="decimal" step="0.000001" oninput="tPrev(${a.priceCents})" placeholder="0.00"></div>
+    <p class="text-xs mt-1 text-gray-300">${buying ? 'Ou pral peye' : 'Ou pral resevwa'}: <b id="t-fiat">0.00</b> ${a.fiat} <span class="text-gray-500">(limit ${num(a.minFiat)}–${num(a.maxFiat)})</span></p>
+    <label class="lbl">Metòd peman</label>
+    <div class="field"><select id="t-method">${a.methods.map((m) => `<option>${esc(m)}</option>`).join('')}</select></div>
+    ${buying ? '' : `<label class="lbl">Kont kote ou vle resevwa lajan an</label><div class="field"><input id="t-acc" maxlength="100" placeholder="Nimewo / imèl / kont"></div>
+      <label class="lbl">Non sou kont lan</label><div class="field"><input id="t-name" maxlength="80"></div>
+      <p class="text-[11px] text-amber-300 mt-2">USDT ou a ap bloke an escrow touswit. Li lage sèlman lè ou konfime ke lajan an antre.</p>`}
+    <p id="t-err" class="text-red-400 text-xs mt-2 hidden"></p>
+    <button id="t-go" onclick="doTrade('${a.id}')" class="gold-btn w-full py-3 rounded-xl text-sm mt-4">Konfime lòd</button>`;
+  $('m-sheet').classList.remove('hidden');
+}
+function tPrev(pc) { const v = fiatPreview($('t-amt').value, (pc / 100).toFixed(2)); $('t-fiat').textContent = v ? num(v) : '0.00'; }
+async function doTrade(adId) {
+  const err = (m) => { $('t-err').textContent = m; $('t-err').classList.remove('hidden'); };
+  const body = { adId, crypto: $('t-amt').value.trim(), method: $('t-method').value };
+  if ($('t-acc')) body.payDetails = { account: $('t-acc').value, name: $('t-name').value };
+  $('t-go').disabled = true;
+  try {
+    const o = await api('POST', '/api/p2p/orders', body, key('order'));
+    delete KEYS.order; closeSheet(); toast('Lòd kreye.', true); openOrder(o.id);
+  } catch (e) { if (e.code) delete KEYS.order; err(e.message); $('t-go').disabled = false; }
+}
+const closeSheet = () => $('m-sheet').classList.add('hidden');
+
+/* ---------- Lòd mwen ---------- */
+async function vOrders() {
+  $('view').innerHTML = '<div id="olist" class="space-y-2"><p class="text-center text-gray-500 py-8"><i class="fa-solid fa-circle-notch fa-spin"></i></p></div>';
+  const os = await act(() => api('GET', '/api/p2p/orders')); if (!os) return;
+  $('olist').innerHTML = os.length ? os.map((o) => `<button onclick="openOrder('${o.id}')" class="panel rounded-2xl p-3.5 w-full text-left flex justify-between gap-2">
+    <div class="min-w-0"><p class="text-sm font-semibold">${o.role === 'BUYER' ? 'Achte' : 'Vann'} ${num(o.crypto, 2)} USDT</p>
+    <p class="text-[11px] text-gray-500">${esc(o.role === 'BUYER' ? o.seller : o.buyer)} · ${fdt(o.createdAt)}</p></div>
+    <div class="text-right flex-shrink-0"><p class="text-sm font-semibold">${num(o.fiatAmount)} ${o.fiat}</p>${pill(o.status)}</div></button>`).join('')
+    : '<p class="text-center text-gray-500 text-sm py-10">Ou poko gen lòd.</p>';
+}
+
+/* ---------- Paj lòd = chat plen ekran ---------- */
+let curOrder = null;
+async function openOrder(id) {
+  openId = id; lastMsg = 0; curOrder = null; window.__sig = '';
+  $('chat').innerHTML = ''; $('c-menu').classList.add('hidden');
+  $('m-order').classList.remove('hidden'); document.body.style.overflow = 'hidden';
+  await poll();
+  clearInterval(pollT); pollT = setInterval(poll, 3000);
+}
+function closeOrder() {
+  $('m-order').classList.add('hidden'); document.body.style.overflow = ''; clearInterval(pollT); openId = null;
+  if (view === 'orders') vOrders(); refreshChip();
+}
+async function poll() {
+  const id = openId; if (!id) return;
+  let o; try { o = await api('GET', '/api/p2p/orders/' + id); } catch (e) { return; }
+  if (id !== openId) return;
+  curOrder = o;
+  const sig = [o.status, o.actions.join(), o.dispute ? o.dispute.status : '', o.providerVerified].join('|');
+  if (sig !== window.__sig) { window.__sig = sig; drawHead(o); }
+  const msgs = await api('GET', `/api/p2p/orders/${id}/messages?after=${lastMsg}`).catch(() => []);
+  if (id === openId) appendMsgs(msgs);
+}
+function drawHead(o) {
+  const buyer = o.role === 'BUYER', other = buyer ? o.seller : o.buyer, has = (a) => o.actions.includes(a);
+  const [l, c] = ST[o.status] || [o.status, ''];
+  $('c-av').textContent = (other || '?')[0].toUpperCase(); $('c-name').textContent = other;
+  $('c-sub').innerHTML = `<span class="pill ${c}">${l}</span> <span class="text-gray-400">${buyer ? 'Ou achte' : 'Ou vann'} · ${esc(o.method)}</span>`;
+  $('c-usdt').textContent = num(o.crypto, 2) + ' USDT'; $('c-fiat').textContent = num(o.fiatAmount) + ' ' + o.fiat;
+  const t = o.status === 'WAITING_PAYMENT' ? o.expiresAt : o.status === 'PAYMENT_MARKED' ? o.sellerDeadline : 0;
+  $('c-cd').dataset.until = t || ''; $('c-cd').parentElement.classList.toggle('hidden', !t); tick();
+  const pay = o.sellerPay, live = ['WAITING_PAYMENT', 'PAYMENT_MARKED', 'DISPUTED', 'UNDER_REVIEW', 'EXPIRED'].includes(o.status);
+  $('c-attach').classList.toggle('hidden', !live);
+  // ranje aksyon piti anba kontdown lan (pa gen gwo bouton ki ka klike pa erè)
+  const row = (txt, btn = '') => `<div class="flex items-center justify-between gap-3 px-3.5 py-1.5 border-b border-white/5" style="background:#12141d"><span class="text-[11px] leading-tight">${txt}</span>${btn}</div>`;
+  let act = '';
+  if (has('PAY')) act = row('<span class="text-gray-400">Apre ou voye lajan an, peze:</span>', `<button onclick="doPaid()" class="px-3.5 py-1 rounded-md text-xs font-bold text-white flex-shrink-0" style="background:#16a34a">Mwen peye</button>`);
+  else if (has('RELEASE')) act = row('<span class="text-amber-300">Verifye lajan an sou kont ou anvan ou lage.</span>', `<button onclick="doRelease()" class="gold-btn px-3.5 py-1 rounded-md text-xs flex-shrink-0">Lage USDT</button>`);
+  else if (buyer && o.status === 'PAYMENT_MARKED') act = row('<span class="text-gray-400">N ap tann vandè a konfime resepsyon an…</span>');
+  else if (['DISPUTED', 'UNDER_REVIEW'].includes(o.status)) act = row('<span class="text-red-300"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Dispit louvri. Escrow bloke jiskaske yon admin deside.</span>');
+  else if (o.dispute && o.dispute.status === 'RESOLVED') act = row(`<span class="text-emerald-300">Dispit rezoud: ${o.dispute.resolution === 'RELEASE_TO_BUYER' ? 'USDT lage bay achtè a' : 'USDT tounen bay vandè a'}.</span>`);
+  else if (o.status === 'COMPLETED') act = row('<span class="text-emerald-300"><i class="fa-solid fa-circle-check mr-1"></i>Lòd fini. USDT lage bay achtè a.</span>');
+  else if (['CANCELLED', 'EXPIRED'].includes(o.status)) act = row('<span class="text-gray-400">Lòd sa a fèmen.</span>');
+  else if (!buyer && o.status === 'WAITING_PAYMENT') act = row('<span class="text-gray-400">N ap tann achtè a peye. USDT ou an escrow.</span>');
+  $('c-act').innerHTML = act;
+  // meni (⋮)
+  const items = [];
+  if (has('CANCEL')) items.push(['Anile lòd', 'doCancel()']);
+  if (has('DISPUTE') || has('LATE_CLAIM')) items.push(['Louvri yon dispit', 'openDisputeSheet()']);
+  items.push(['Siyale yon pwoblèm', 'reportOrder()']);
+  $('c-menu').innerHTML = items.map(([t, f]) => `<button onclick="$('c-menu').classList.add('hidden');${f}">${t}</button>`).join('');
+}
+function bubble(m) {
+  const time = new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (m.kind === 'PAYINFO') {
+    const L = String(m.body).split('\n'), acc = (L.find((x) => x.startsWith('Kont: ')) || '').slice(6);
+    return `<div class="payinfo"><p class="font-semibold text-amber-300">${esc(L[0] || '')}</p>
+      <p>${esc(L[1] || '')}${acc ? ` <button data-c="${esc(acc)}" onclick="copy(this.dataset.c)" class="text-amber-400 ml-1" aria-label="Kopye"><i class="fa-regular fa-copy"></i></button>` : ''}</p><p class="text-gray-400">${esc(L[2] || '')}</p></div>`;
+  }
+  if (m.role === 'SYSTEM') return `<div class="sysmsg">${esc(m.body)}</div>`;
+  const img = m.evidenceId ? `<img src="/api/p2p/evidence/${m.evidenceId}" class="chatimg" onclick="showImg(this.src)" alt="foto">` : '';
+  const who = m.role === 'STAFF' ? '<span class="text-[10px] font-bold text-red-300">Sipò</span>' : m.kind === 'AUTO' ? '<span class="text-[10px] font-bold text-amber-300">Mesaj machann</span>' : '';
+  return `<div class="bub ${m.mine ? 'me' : 'them'}">${who}${img}${m.body ? `<span>${esc(m.body)}</span>` : ''}<span class="tm">${time}</span></div>`;
+}
+function appendMsgs(ms) {
+  if (!ms.length) return;
+  const c = $('chat'), near = lastMsg === 0 || c.scrollHeight - c.scrollTop - c.clientHeight < 140;
+  ms.forEach((m) => { lastMsg = Math.max(lastMsg, m.id); c.insertAdjacentHTML('beforeend', bubble(m)); });
+  if (near) c.scrollTop = c.scrollHeight;
+}
+function showImg(src) { $('viewer-img').src = src; $('viewer').classList.remove('hidden'); }
+async function sendMsg() { const i = $('c-msg'), t = i.value.trim(); if (!t) return; i.value = ''; await act(() => api('POST', `/api/p2p/orders/${openId}/messages`, { body: t })); poll(); }
+async function shrink(f) { // foto telefòn yo gwo: redui yo anvan voye (tankou WhatsApp)
+  if (f.size < 1.5e6) return f;
+  try { const b = await createImageBitmap(f), k = Math.min(1, 1600 / Math.max(b.width, b.height)), cv = document.createElement('canvas');
+    cv.width = Math.round(b.width * k); cv.height = Math.round(b.height * k); cv.getContext('2d').drawImage(b, 0, 0, cv.width, cv.height);
+    return await new Promise((r) => cv.toBlob((x) => r(x || f), 'image/jpeg', 0.85)); } catch { return f; }
+}
+async function sendFile() {
+  const inp = $('c-file'), f = inp.files[0]; inp.value = ''; if (!f) return;
+  await act(async () => {
+    const fd = new FormData(); fd.append('file', await shrink(f), 'foto.jpg');
+    const r = await fetch(`/api/p2p/orders/${openId}/chat-file`, { method: 'POST', body: fd });
+    const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Pwoblèm ak foto a.');
+    poll();
+  });
+}
+async function doPaid() {
+  if (!confirm('Ou deja voye lajan an?')) return;
+  await act(async () => { await api('POST', `/api/p2p/orders/${openId}/paid`, {}); toast('Peman make. Vandè a ap verifye.', true); poll(); });
+}
+function askPin() { return new Promise((res) => { window.__pinRes = res; $('pin-in').value = ''; $('m-pin').classList.remove('hidden'); setTimeout(() => $('pin-in').focus(), 50); }); }
+function pinDone(ok) { $('m-pin').classList.add('hidden'); const r = window.__pinRes; window.__pinRes = null; if (r) r(ok ? $('pin-in').value : null); }
+async function doRelease() {
+  if (!confirm('Konfime ke lajan an antre sou kont ou? Aksyon sa a pa ka defèt.')) return;
+  let pin; if (me.pinActive) { pin = await askPin(); if (pin === null) return; }
+  await act(async () => { await api('POST', `/api/p2p/orders/${openId}/release`, me.pinActive ? { pin } : {}); toast('USDT lage bay achtè a.', true); refreshChip(); poll(); });
+}
+async function doCancel() { if (!confirm('Anile lòd sa a? Pa anile si ou deja peye.')) return; await act(async () => { await api('POST', `/api/p2p/orders/${openId}/cancel`); toast('Lòd anile.', true); poll(); }); }
+function openDisputeSheet() {
+  $('sheet').innerHTML = `<div class="flex justify-between items-center mb-2"><h2 class="font-bold">Louvri yon dispit</h2><button onclick="closeSheet()" class="text-gray-400 text-2xl leading-none">&times;</button></div>
+    <p class="text-xs text-gray-400 mb-2">Escrow la rete bloke epi yon admin ap revize chat la ak foto yo.</p>
+    <div class="field"><textarea id="d-reason" rows="4" maxlength="500" placeholder="Eksplike pwoblèm lan (omwen 10 karaktè)"></textarea></div>
+    <p id="d-err" class="text-red-400 text-xs mt-2 hidden"></p>
+    <button onclick="doDispute()" class="w-full py-3 rounded-xl text-sm bg-red-600 text-white mt-3">Voye dispit la</button>`;
+  $('m-sheet').classList.remove('hidden');
+}
+async function doDispute() {
+  try { await api('POST', `/api/p2p/orders/${openId}/dispute`, { reason: $('d-reason').value }); closeSheet(); toast('Dispit louvri. Escrow bloke.', true); poll(); }
+  catch (e) { $('d-err').textContent = e.message; $('d-err').classList.remove('hidden'); }
+}
+async function reportOrder() { const r = prompt('Dekri pwoblèm lan (omwen 10 karaktè):'); if (!r) return; await act(async () => { await api('POST', '/api/p2p/reports', { targetType: 'ORDER', targetId: openId, reason: r }); toast('Rapò voye.', true); }); }
+function tick() {
+  const el = $('c-cd'); if (!el || !el.dataset.until) return;
+  const left = Math.max(0, Math.floor((Number(el.dataset.until) - Date.now()) / 1000));
+  el.textContent = String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0');
+}
+setInterval(tick, 1000);
+
+/* ---------- Anons mwen ---------- */
+let MER = null;
+async function vAds() {
+  $('view').innerHTML = '<div id="mer"></div><button id="newad" onclick="openAdForm()" class="gold-btn w-full py-3 rounded-xl text-sm mb-3"><i class="fa-solid fa-plus mr-1"></i>Kreye yon anons</button><div id="alist" class="space-y-2"></div>';
+  MER = await act(() => api('GET', '/api/p2p/merchant')); if (!MER) return;
+  drawMerchant();
+  const ads = await act(() => api('GET', '/api/p2p/my-ads')); if (!ads) return;
+  $('alist').innerHTML = ads.length ? ads.map((a) => `<div class="panel rounded-2xl p-3.5"><div class="flex justify-between"><p class="text-sm font-semibold">${a.type === 'SELL' ? 'Vann' : 'Achte'} USDT · ${num(a.price)} ${a.fiat}</p><span class="pill ${a.status === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/10 text-gray-400'}">${a.status}</span></div>
+    <p class="text-[11px] text-gray-500 mt-1">Rete ${num(a.available, 2)} USDT · ${num(a.minFiat)}–${num(a.maxFiat)} ${a.fiat} · ${a.methods.map(esc).join(', ')}</p>
+    ${['ACTIVE', 'PAUSED'].includes(a.status) ? `<div class="flex gap-2 mt-2"><button onclick="adStatus('${a.id}','${a.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'}')" class="chip">${a.status === 'ACTIVE' ? 'Poze' : 'Aktive'}</button><button onclick="adStatus('${a.id}','CLOSED')" class="chip text-red-300">Fèmen</button></div>` : ''}</div>`).join('')
+    : '<p class="text-center text-gray-500 text-sm py-8">Ou poko gen anons.</p>';
+}
+function drawMerchant() {
+  $('newad').classList.toggle('opacity-50', !MER.locked);
+  $('mer').innerHTML = `<div class="panel rounded-2xl p-4 mb-3"><p class="text-sm font-semibold mb-2"><i class="fa-solid fa-store text-amber-400 mr-1"></i>Pwofil machann</p>
+    ${MER.locked
+      ? `<p class="text-xs text-gray-400 mb-2">Non biznis ou: <b class="text-gray-100 text-sm">${esc(MER.businessName)}</b> <i class="fa-solid fa-lock text-[10px] text-gray-500 ml-1" title="Pa ka chanje"></i></p>`
+      : `<label class="lbl" style="margin-top:0">Non biznis ou (kliyan yo ap wè non sa a)</label><div class="field"><input id="m-name" maxlength="30" placeholder="Egz: Chez Marie"></div>
+         <p class="text-[11px] text-amber-300 mt-1">Li pa bezwen menm ak non sistèm lan. Men ou PA ka chanje l apre ou sove l.</p>`}
+    <label class="lbl">Mesaj otomatik pou tout achtè yo <span class="text-gray-500">(ou ka chanje l nenpòt lè)</span></label>
+    <div class="field"><textarea id="m-auto" rows="3" maxlength="500" placeholder="Egz: Bonjou! Peye sou MonCash sèlman, pa gen 3yèm moun. Voye foto prèv la nan chat la.">${esc(MER.autoMessage)}</textarea></div>
+    <p class="text-[11px] text-gray-500 mt-1">Achtè a wè mesaj sa a depi li antre nan chat la. Chanjman an aplike sou nouvo lòd yo.</p>
+    <button onclick="saveMerchant()" class="gold-btn w-full py-2.5 rounded-xl text-sm mt-3">${MER.locked ? 'Sove mesaj la' : 'Kreye pwofil machann'}</button></div>`;
+}
+async function saveMerchant() {
+  const body = { autoMessage: $('m-auto').value };
+  if (!MER.locked) {
+    body.businessName = $('m-name').value.trim();
+    if (!confirm(`Non biznis "${body.businessName}" pa ka chanje ankò apre ou sove l. Kontinye?`)) return;
+  }
+  await act(async () => { MER = await api('POST', '/api/p2p/merchant', body); toast(MER.locked ? 'Pwofil machann sove.' : 'Sove.', true); vAds(); });
+}
+async function adStatus(id, s) { await act(async () => { await api('POST', `/api/p2p/ads/${id}/status`, { status: s }); vAds(); }); }
+function openAdForm() {
+  if (!MER || !MER.locked) return toast('Kreye pwofil machann ou dabò (non biznis) anvan ou piblye yon anons.', false);
+  KEYS.ad = null;
+  $('sheet').innerHTML = `<div class="flex justify-between items-center mb-2"><h2 class="font-bold">Nouvo anons</h2><button onclick="closeSheet()" class="text-gray-400 text-2xl leading-none">&times;</button></div>
+    <div class="seg panel rounded-xl p-1 flex"><button id="a-sell" class="on" onclick="adType('SELL')">Mwen vann USDT</button><button id="a-buy" onclick="adType('BUY')">Mwen achte USDT</button></div>
+    <label class="lbl">Lajan fiat</label><div class="field"><select id="a-fiat" onchange="adFiat()">${Object.keys(FIATS).map((f) => `<option>${f}</option>`).join('')}</select></div>
+    <div class="grid grid-cols-2 gap-2"><div><label class="lbl">Pri (1 USDT)</label><div class="field"><input id="a-price" type="number" inputmode="decimal" step="0.01"></div></div>
+      <div><label class="lbl">Total USDT</label><div class="field"><input id="a-total" type="number" inputmode="decimal" step="0.000001"></div></div>
+      <div><label class="lbl">Minimòm (fiat)</label><div class="field"><input id="a-min" type="number" inputmode="decimal" step="0.01"></div></div>
+      <div><label class="lbl">Maksimòm (fiat)</label><div class="field"><input id="a-max" type="number" inputmode="decimal" step="0.01"></div></div></div>
+    <label class="lbl">Metòd peman</label><div id="a-methods" class="flex flex-wrap gap-2"></div><div id="a-pay"></div>
+    <label class="lbl">Delè peman (5–60 min)</label><div class="field"><input id="a-win" type="number" value="15" min="5" max="60"></div>
+    <label class="lbl">Kondisyon (opsyonèl)</label><div class="field"><input id="a-terms" maxlength="300"></div>
+    <p id="a-note" class="text-[11px] text-amber-300 mt-2"></p><p id="a-err" class="text-red-400 text-xs mt-2 hidden"></p>
+    <button id="a-go" onclick="doAd()" class="gold-btn w-full py-3 rounded-xl text-sm mt-4">Piblye anons lan</button>`;
+  window.adT = 'SELL'; adFiat(); $('m-sheet').classList.remove('hidden');
+}
+function adType(t) { window.adT = t; $('a-sell').classList.toggle('on', t === 'SELL'); $('a-buy').classList.toggle('on', t === 'BUY'); adFiat(); }
+function adFiat() {
+  const f = $('a-fiat').value;
+  $('a-methods').innerHTML = FIATS[f].map((m) => `<label class="chip flex items-center gap-1"><input type="checkbox" value="${m}" onchange="adPay()"> ${m}</label>`).join('');
+  $('a-note').textContent = adT === 'SELL' ? 'USDT ou a pa bloke kounye a: li bloke an escrow sèlman lè yon achtè kreye yon lòd.' : 'Lè yon vandè pran anons lan, li ap bloke USDT li an escrow epi ou peye l an fiat.';
+  adPay();
+}
+function adPay() {
+  const ms = [...document.querySelectorAll('#a-methods input:checked')].map((i) => i.value);
+  $('a-pay').innerHTML = adT === 'SELL' ? ms.map((m) => `<p class="lbl">${m}: kont kote achtè a ap voye lajan an</p><div class="grid grid-cols-2 gap-2"><div class="field"><input data-m="${m}" data-k="account" placeholder="Kont / nimewo" maxlength="100"></div><div class="field"><input data-m="${m}" data-k="name" placeholder="Non sou kont lan" maxlength="80"></div></div>`).join('') : '';
+}
+async function doAd() {
+  const err = (m) => { $('a-err').textContent = m; $('a-err').classList.remove('hidden'); };
+  const methods = [...document.querySelectorAll('#a-methods input:checked')].map((i) => i.value);
+  const payDetails = {}; document.querySelectorAll('#a-pay input').forEach((i) => { (payDetails[i.dataset.m] ||= {})[i.dataset.k] = i.value; });
+  const body = { type: adT, fiat: $('a-fiat').value, price: $('a-price').value, total: $('a-total').value, minFiat: $('a-min').value, maxFiat: $('a-max').value, methods, payDetails, payWindowMin: Number($('a-win').value), terms: $('a-terms').value };
+  $('a-go').disabled = true;
+  try { await api('POST', '/api/p2p/ads', body, key('ad')); delete KEYS.ad; closeSheet(); toast('Anons piblye.', true); vAds(); }
+  catch (e) { if (e.code) delete KEYS.ad; err(e.message); $('a-go').disabled = false; }
+}
+
+/* ---------- Pòtfèy ---------- */
+async function vWallet() {
+  const w = await act(() => api('GET', '/api/p2p/wallet')); if (!w) return;
+  const pin = me.pinActive ? `<div class="field mt-2"><span>PIN</span><input id="w-pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••"></div>` : '';
+  $('view').innerHTML = `<div class="grid grid-cols-2 gap-3 mb-4"><div class="panel rounded-2xl p-4"><p class="text-[11px] text-gray-400">Disponib</p><p class="text-xl font-bold gold-text">${num(w.availableStr, 2)}</p><p class="text-[11px] text-gray-500">USDT</p></div>
+    <div class="panel rounded-2xl p-4"><p class="text-[11px] text-gray-400">Rezève (escrow)</p><p class="text-xl font-bold">${num(w.reservedStr, 2)}</p><p class="text-[11px] text-gray-500">USDT</p></div></div>
+    <div class="panel rounded-2xl p-4 mb-3"><p class="text-sm font-semibold mb-1">Mete lajan nan P2P</p><p class="text-[11px] text-gray-400 mb-2">Pran nan balans dola prensipal ou (1 $ = 1 USDT).</p>
+      <div class="field"><span>$</span><input id="w-in" type="number" inputmode="decimal" step="0.01" placeholder="0.00"></div><button onclick="bridge('deposit')" class="gold-btn w-full py-2.5 rounded-xl text-sm mt-2">Mete nan P2P</button></div>
+    <div class="panel rounded-2xl p-4"><p class="text-sm font-semibold mb-1">Retounen nan balans prensipal</p><p class="text-[11px] text-gray-400 mb-2">Sèlman lajan ki disponib (pa an escrow).</p>
+      <div class="field"><span>USDT</span><input id="w-out" type="number" inputmode="decimal" step="0.01" placeholder="0.00"></div>${pin}<button onclick="bridge('withdraw')" class="w-full py-2.5 rounded-xl text-sm border border-white/10 mt-2">Retounen</button></div>`;
+}
+async function bridge(dir) {
+  const v = $(dir === 'deposit' ? 'w-in' : 'w-out').value.trim();
+  const k = 'br:' + dir + ':' + v;   // menm kle pou menm demann: yon retry apre timeout pa double transfè a
+  try {
+    const body = { amount: v }; if (dir === 'withdraw' && me.pinActive) body.pin = $('w-pin').value;
+    await api('POST', '/api/p2p/wallet/' + dir, body, key(k)); delete KEYS[k];
+    toast('Transfè fèt.', true); vWallet(); refreshChip();
+  } catch (e) { if (e.code) delete KEYS[k]; if (e.message !== '401') toast(e.message, false); }
+}
+
+(async () => {
+  me = await api('GET', '/api/me');
+  if (me.role === 'admin' || me.role === 'support') return (location.href = '/admin.html');
+  const g = $('gate');
+  if (me.kyc.status !== 'approved') { g.textContent = 'KYC ou dwe apwouve anvan ou fè lòd P2P.'; g.classList.remove('hidden'); }
+  else if (!me.profile) { g.innerHTML = 'Konplete enfòmasyon pèsonèl ou nan <a href="/settings.html" class="underline font-semibold">Paramèt</a> anvan ou fè lòd P2P.'; g.classList.remove('hidden'); }
+  render();
+})();
+</script>
+</body>
+</html>

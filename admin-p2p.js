@@ -66,12 +66,17 @@
   async function pAds() {
     const rows = await api('/api/p2p/admin/ads');
     body(rows.map((a) => card(`<div class="flex justify-between"><span class="font-semibold">${a.type === 'SELL' ? 'Vann' : 'Achte'} · ${esc(a.price)} ${esc(a.fiat)}</span><span class="text-xs font-bold ${a.status === 'ACTIVE' ? 'text-emerald-400' : 'text-gray-400'}">${esc(a.status)}</span></div>
-      <p class="text-xs text-gray-400">${esc(a.advertiser)} · rete ${esc(a.available)} USDT · ${esc(a.methods.join(', '))}</p>
-      ${role === 'admin' && a.status !== 'SUSPENDED' && a.status !== 'CLOSED' ? `<button class="b bg-red-600 text-white mt-2" onclick="p2pSuspend('${a.id}')">Sispann anons lan</button>` : ''}`)).join(''));
+      <p class="text-xs text-gray-400">${esc(a.advertiser)}${a.realName && a.realName !== a.advertiser ? ' (reyèl: ' + esc(a.realName) + ')' : ''} · rete ${esc(a.available)} USDT · ${esc(a.methods.join(', '))}</p>
+      ${role === 'admin' && a.status !== 'SUSPENDED' && a.status !== 'CLOSED' ? `<button class="b bg-red-600 text-white mt-2" onclick="p2pSuspend('${a.id}')">Sispann anons lan</button>` : ''}
+      ${role === 'admin' ? `<button class="b tab mt-2 ml-1" onclick="p2pResetMerchant('${a.userId}')">Reyinisyalize non machann</button>` : ''}`)).join(''));
   }
   window.p2pSuspend = async (id) => {
     const reason = prompt('Rezon pou sispann anons lan (omwen 10 karaktè):'); if (!reason) return;
     try { await api(`/api/p2p/admin/ads/${id}/suspend`, { reason }); loadP2P(); } catch (e) { /* api() montre erè a */ }
+  };
+  window.p2pResetMerchant = async (uid) => {
+    const reason = prompt('Rezon pou efase non biznis machann sa a (omwen 10 karaktè). Anons li yo ap poze:'); if (!reason) return;
+    try { await api(`/api/p2p/admin/merchants/${uid}/reset`, { reason }); loadP2P(); } catch (e) { /* api() montre erè a */ }
   };
   async function pJobs() {
     const rows = await api('/api/p2p/admin/jobs');
@@ -87,7 +92,7 @@
     const canResolve = role === 'admin' && d && d.status === 'UNDER_REVIEW';
     box.innerHTML = `<div class="sheet" style="max-height:92vh;overflow-y:auto"><div class="flex justify-between items-center mb-2"><h2 class="font-bold">Lòd ${esc(short(o.id))}</h2><button onclick="this.closest('.modal').classList.add('hidden')" class="text-gray-400 text-2xl leading-none">&times;</button></div>
       <p>${st(o.status)} <span class="text-xs text-gray-400">escrow: ${esc(o.escrow || '—')}</span></p>
-      <div class="text-xs text-gray-300 mt-2 space-y-0.5"><p>Achtè: ${esc(o.buyer)} (${esc(short(o.buyerId))}) · Vandè: ${esc(o.seller)} (${esc(short(o.sellerId))})</p>
+      <div class="text-xs text-gray-300 mt-2 space-y-0.5"><p>Achtè: ${esc(o.buyer)}${o.buyerReal !== o.buyer ? ' [reyèl: ' + esc(o.buyerReal) + ']' : ''} (${esc(short(o.buyerId))}) · Vandè: ${esc(o.seller)}${o.sellerReal !== o.seller ? ' [reyèl: ' + esc(o.sellerReal) + ']' : ''} (${esc(short(o.sellerId))})</p>
         <p>${esc(o.crypto)} USDT ↔ ${esc(o.fiatAmount)} ${esc(o.fiat)} (${esc(o.price)}) · ${esc(o.method)} · ref ${esc(o.payRef)}</p>
         <p>Kont vandè: ${esc(o.sellerPay.account)} (${esc(o.sellerPay.name)})</p><p>Referans achtè: ${esc(o.paymentNote || '—')} ${o.providerVerified ? '· <b class="text-emerald-400">pwovizè ✔</b>' : ''}</p></div>
       ${d ? `<div class="mt-3 p-3 rounded-xl border border-red-500/30"><p class="text-xs font-bold text-red-300">Dispit #${d.id} · ${esc(d.status)}</p><p class="text-xs mt-1">${esc(d.reason)}</p>
