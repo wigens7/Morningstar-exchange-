@@ -35,6 +35,10 @@ function mount(app, deps) {
   app.post('/api/p2p/wallet/deposit', auth, tight, h((req) => { S.bridgeIn(req.user.id, cents(req.body.amount), idemKey(req)); return S.wallet(req.user.id); }));
   app.post('/api/p2p/wallet/withdraw', auth, tight, pin, h((req) => { S.bridgeOut(req.user.id, cents(req.body.amount), idemKey(req)); return S.wallet(req.user.id); }));
 
+  // ----- pwofil machann (non biznis = yon sèl fwa; mesaj otomatik = modifye nenpòt lè) -----
+  app.get('/api/p2p/merchant', auth, loose, h((req) => S.getMerchant(req.user.id)));
+  app.post('/api/p2p/merchant', auth, tight, h((req) => S.saveMerchant(req.user.id, req.body, ip(req))));
+
   // ----- anons -----
   app.get('/api/p2p/ads', auth, loose, h((req) => S.listAds({ type: req.query.type, fiat: req.query.fiat, method: req.query.method || '', amount: req.query.amount || '', viewerId: req.user.id })));
   app.get('/api/p2p/my-ads', auth, loose, h((req) => S.myAds(req.user.id)));
@@ -55,7 +59,7 @@ function mount(app, deps) {
   app.post('/api/p2p/orders/:id/messages', auth, tight, h((req) => S.postMessage(viewerOf(req), req.params.id, req.body.body)));
 
   // ----- prèv (foto) -----
-  app.post('/api/p2p/orders/:id/evidence', auth, tight, (req, res) => {
+  const uploadRoute = (chat) => (req, res) => {
     upload(req, res, (err) => {
       try {
         if (err) throw new P2PError('UPLOAD', 400, err.code === 'LIMIT_FILE_SIZE' ? 'Foto a twò gwo (maks 5 MB).' : 'Pwoblèm ak fichye a.');
@@ -69,12 +73,15 @@ function mount(app, deps) {
         fs.mkdirSync(path.dirname(abs), { recursive: true, mode: 0o700 });
         fs.writeFileSync(abs, f.buffer, { mode: 0o600 });
         try {
-          const r = S.addEvidence(viewerOf(req), req.params.id, String(req.body.kind || ''), rel, crypto.createHash('sha256').update(f.buffer).digest('hex'));
+          const sha = crypto.createHash('sha256').update(f.buffer).digest('hex');
+          const r = S.addEvidence(viewerOf(req), req.params.id, chat ? 'CHAT' : String(req.body.kind || ''), rel, sha, chat ? { chat: true, caption: req.body.caption } : {});
           res.status(201).json(r);
         } catch (e) { fs.rmSync(abs, { force: true }); throw e; }
       } catch (e) { fail(res, e); }
     });
-  });
+  };
+  app.post('/api/p2p/orders/:id/evidence', auth, tight, uploadRoute(false));
+  app.post('/api/p2p/orders/:id/chat-file', auth, tight, uploadRoute(true));
   app.get('/api/p2p/evidence/:id', auth, loose, (req, res) => {
     try { const ev = S.evidenceFile(viewerOf(req), req.params.id); res.sendFile(path.join(evidenceDir, ev.file)); } catch (e) { fail(res, e); }
   });
@@ -109,6 +116,7 @@ function mount(app, deps) {
   app.get('/api/p2p/admin/reports', staffOnly, h((req) => A.reports(st(req))));
   app.get('/api/p2p/admin/ads', staffOnly, h((req) => A.ads(st(req))));
   app.post('/api/p2p/admin/ads/:id/suspend', staffOnly, h((req) => S.setAdStatus(st(req), req.params.id, 'SUSPENDED', req.body.reason, ip(req))));
+  app.post('/api/p2p/admin/merchants/:userId/reset', staffOnly, h((req) => A.resetMerchant(st(req), req.params.userId, req.body.reason, ip(req))));
   app.get('/api/p2p/admin/jobs', staffOnly, h((req) => A.jobs(st(req))));
   app.post('/api/p2p/admin/reconcile', staffOnly, h((req) => A.reconcile(st(req))));
   app.post('/api/p2p/admin/run-jobs', staffOnly, h((req) => A.runJobs(st(req))));

@@ -28,10 +28,11 @@ function setup(extra = {}) {
   return { S, clock, main };
 }
 const fund = (ctx, user, usdt) => { ctx.main.set(user, ctx.main.get(user) + usdt * 100); ctx.S.bridgeIn(user, usdt * 100, 'fund-' + user + '-' + crypto.randomUUID()); };
-const sellAd = (S, user, over = {}) => S.createAd(user, {
+const merch = (S, u) => { if (!S.getMerchant(u).businessName) S.saveMerchant(u, { businessName: 'Biz ' + u, autoMessage: '' }); };
+const sellAd = (S, user, over = {}) => (merch(S, user), S.createAd(user, {
   type: 'SELL', fiat: 'HTG', price: '140.00', total: '100', minFiat: '100', maxFiat: '20000', methods: ['MonCash'],
   payDetails: { MonCash: { account: '50937000000', name: 'Vandè Test' } }, payWindowMin: 15, ...over
-});
+}));
 const order = (S, buyer, ad, crypto = '10', over = {}) => S.createOrder(buyer, { adId: ad.id, crypto, method: 'MonCash', ...over });
 const throwsCode = (fn, code) => assert.throws(fn, (e) => { assert.equal(e.code, code, `got ${e.code}: ${e.message}`); return true; });
 const clean = (S) => { const r = S.reconcile(); assert.deepEqual(r.issues, [], JSON.stringify(r.issues)); };
@@ -94,7 +95,7 @@ test('2. achtè klike "mwen peye" plizyè fwa: yon sèl tranzisyon, pa gen lage'
   assert.equal(v.status, 'PAYMENT_MARKED'); assert.equal(v.escrow, 'LOCKED');
   assert.equal(bal(c.S, 'buyer').available, 0);                 // pa gen USDT lage sèlman paske li klike
   throwsCode(() => c.S.markPaid('seller', o.id, 'TX12345'), 'FORBIDDEN');
-  throwsCode(() => c.S.markPaid('buyer', o.id, 'x'), 'BAD_INPUT');
+  throwsCode(() => c.S.markPaid('buyer', o.id, 'x'.repeat(121)), 'BAD_INPUT');
   clean(c.S);
 });
 
@@ -291,6 +292,7 @@ test('8b. limit, metòd, pwòp anons, eligibilite', () => {
 });
 test('8c. anons AWAT (BUY): vandè se moun k pran an; escrow soti nan li', () => {
   const c = setup(); fund(c, 'taker', 50);
+  merch(c.S, 'adv');
   const ad = c.S.createAd('adv', { type: 'BUY', fiat: 'HTG', price: '139.00', total: '50', minFiat: '100', maxFiat: '20000', methods: ['MonCash'], payWindowMin: 15 });
   throwsCode(() => c.S.createOrder('taker', { adId: ad.id, crypto: '10', method: 'MonCash' }), 'BAD_INPUT'); // bezwen enfo kont vandè a
   const o = c.S.createOrder('taker', { adId: ad.id, crypto: '10', method: 'MonCash', payDetails: { account: '50937111111', name: 'Taker' } });
@@ -442,5 +444,94 @@ test('machin eta: pa gen chemen ilegal', () => {
   throwsCode(() => c.S.openDispute('buyer', o.id, 'Mwen vle yon dispit san peman'), 'ILLEGAL_TRANSITION'); // WAITING_PAYMENT -> DISPUTED
   throwsCode(() => c.S.cancel('seller', o.id), 'FORBIDDEN');                       // vandè pa ka anile
   throwsCode(() => c.S.takeDispute(ADMIN, 999), 'NOT_FOUND');
+  clean(c.S);
+});
+
+test('peman san ID tranzaksyon: referans opsyonèl, escrow rete bloke jiskaske vandè lage', () => {
+  const c = setup(); fund(c, 'seller', 100);
+  const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '12');
+  const v = c.S.markPaid('buyer', o.id);                       // pa gen referans
+  assert.equal(v.status, 'PAYMENT_MARKED'); assert.equal(v.paymentNote, null); assert.equal(v.escrow, 'LOCKED');
+  assert.equal(bal(c.S, 'buyer').available, 0);
+  c.S.release('seller', o.id); assert.equal(bal(c.S, 'buyer').available, 12_000_000);
+  clean(c.S);
+});
+test('chat: foto nan konvèsasyon (tou de moun), pa staff/etranje, pa apre fèmen; migrasyon baz ki egziste', () => {
+  const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'p2p-')), 'old.sqlite');
+  const { DatabaseSync } = require('node:sqlite');
+  const old = new DatabaseSync(dbPath);                       // baz ansyen: messages SAN evidence_id
+  old.exec("CREATE TABLE messages (id INTEGER PRIMARY KEY, order_id TEXT NOT NULL, sender_id TEXT, role TEXT NOT NULL CHECK (role IN ('USER','STAFF','SYSTEM')), body TEXT NOT NULL, ts INTEGER NOT NULL)");
+  old.close();
+  const c = setup({ dbPath }); fund(c, 'seller', 100);
+  assert.ok(c.S.db.prepare('PRAGMA table_info(messages)').all().some((x) => x.name === 'evidence_id'));
+  const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '10');
+  c.S.addEvidence({ id: 'buyer' }, o.id, 'CHAT', 'x/a.jpg', 'h1', { chat: true });
+  c.S.markPaid('buyer', o.id);
+  c.S.addEvidence({ id: 'seller' }, o.id, 'CHAT', 'x/b.jpg', 'h2', { chat: true, caption: 'Mwen pa wè li' });
+  const m = c.S.listMessages({ id: 'buyer' }, o.id).filter((x) => x.evidenceId);
+  assert.equal(m.length, 2); assert.equal(m[1].body, 'Mwen pa wè li'); assert.equal(m[0].from, 'BUYER'); assert.equal(m[1].from, 'SELLER');
+  throwsCode(() => c.S.addEvidence({ id: 'stranger' }, o.id, 'CHAT', 'x/c.jpg', 'h3', { chat: true }), 'FORBIDDEN');
+  throwsCode(() => c.S.addEvidence({ ...SUPPORT, staff: true }, o.id, 'CHAT', 'x/c.jpg', 'h3', { chat: true }), 'FORBIDDEN');
+  c.S.release('seller', o.id);
+  throwsCode(() => c.S.addEvidence({ id: 'buyer' }, o.id, 'CHAT', 'x/d.jpg', 'h4', { chat: true }), 'ILLEGAL_TRANSITION'); // lòd fini
+  assert.equal(c.S.listMessages({ id: 'buyer' }, o.id).filter((x) => x.evidenceId).length, 2);
+  clean(c.S);
+});
+
+// ---------- machann: non biznis + mesaj otomatik ----------
+test('machann: non biznis inik, valid, pa ka chanje; mesaj otomatik ka chanje nenpòt lè', () => {
+  const c = setup();
+  throwsCode(() => c.S.createAd('m1', { type: 'SELL' }), 'MERCHANT_REQUIRED');            // dwe gen non biznis anvan
+  throwsCode(() => c.S.saveMerchant('m1', { businessName: 'ab' }), 'BAD_NAME');            // twò kout
+  throwsCode(() => c.S.saveMerchant('m1', { businessName: '<script>x</script>' }), 'BAD_NAME');
+  throwsCode(() => c.S.saveMerchant('m1', { businessName: 'Morningstar Official' }), 'BAD_NAME'); // enpèsonasyon
+  throwsCode(() => c.S.saveMerchant('m1', { businessName: 'Admin Pwo' }), 'BAD_NAME');
+  throwsCode(() => c.S.saveMerchant('m1', { businessName: 'Bon Biznis', autoMessage: 'x'.repeat(501) }), 'BAD_INPUT');
+  const v = c.S.saveMerchant('m1', { businessName: 'Bon  Biznis', autoMessage: 'Bonjou!' });
+  assert.equal(v.businessName, 'Bon Biznis'); assert.equal(v.locked, true);                // espas double nòmalize
+  throwsCode(() => c.S.saveMerchant('m2', { businessName: 'bon biznis' }), 'NAME_TAKEN'); // inik (pa sansib a majiskil)
+  throwsCode(() => c.S.saveMerchant('m1', { businessName: 'Lòt Non' }), 'NAME_LOCKED');   // pa ka chanje
+  assert.equal(c.S.saveMerchant('m1', { businessName: 'BON BIZNIS', autoMessage: 'Nouvo mesaj' }).autoMessage, 'Nouvo mesaj'); // menm non + mesaj nouvo = OK
+  assert.equal(c.S.saveMerchant('m1', { autoMessage: 'Twazyèm mesaj' }).businessName, 'Bon Biznis');
+  assert.throws(() => c.S.db.prepare("UPDATE merchants SET business_name='Hack' WHERE user_id='m1'").run(), /locked/); // baz la refize tou
+  assert.equal(c.S.getMerchant('m1').autoMessage, 'Twazyèm mesaj');
+});
+test('mesaj otomatik: achtè wè enfo peman + mesaj machann lan depi li antre; chanjman aplike sou nouvo lòd', () => {
+  const c = setup(); fund(c, 'seller', 100);
+  c.S.saveMerchant('seller', { businessName: 'Chez Marie', autoMessage: 'Peye sou MonCash sèlman. Pa gen 3yèm moun!' });
+  const ad = sellAd(c.S, 'seller');
+  const o1 = order(c.S, 'buyer', ad, '10');
+  const m1 = c.S.listMessages({ id: 'buyer' }, o1.id);
+  const pay = m1.find((m) => m.kind === 'PAYINFO'), auto = m1.find((m) => m.kind === 'AUTO');
+  assert.ok(pay && pay.role === 'SYSTEM' && pay.body.includes('1400.00 HTG') && pay.body.includes('50937000000') && pay.body.includes('Vandè Test'));
+  assert.equal(auto.body, 'Peye sou MonCash sèlman. Pa gen 3yèm moun!'); assert.equal(auto.from, 'SELLER'); assert.equal(auto.mine, false);
+  assert.equal(c.S.listMessages({ id: 'seller' }, o1.id).find((m) => m.kind === 'AUTO').mine, true);   // vandè a wè l kòm pa li
+  c.S.saveMerchant('seller', { autoMessage: 'Nouvo kondisyon: foto prèv obligatwa.' });                // chanje nenpòt lè
+  const o2 = order(c.S, 'buyer2', ad, '5');
+  assert.equal(c.S.listMessages({ id: 'buyer2' }, o2.id).find((m) => m.kind === 'AUTO').body, 'Nouvo kondisyon: foto prèv obligatwa.');
+  assert.equal(c.S.listMessages({ id: 'buyer' }, o1.id).find((m) => m.kind === 'AUTO').body, 'Peye sou MonCash sèlman. Pa gen 3yèm moun!'); // lòd ansyen an pa chanje
+  c.S.saveMerchant('seller', { autoMessage: '' });
+  const o3 = order(c.S, 'buyer3', ad, '5');
+  assert.equal(c.S.listMessages({ id: 'buyer3' }, o3.id).filter((m) => m.kind === 'AUTO').length, 0); // san mesaj = pa gen mesaj
+  clean(c.S);
+});
+test('non biznis parèt kote non reyèl la ta dwe: anons, lòd; staff wè non reyèl tou; admin ka reyinisyalize', () => {
+  const c = setup({ nameOf: (id) => 'Real ' + id }); fund(c, 'seller', 100);
+  c.S.saveMerchant('seller', { businessName: 'Chez Marie' });
+  const ad = sellAd(c.S, 'seller');
+  assert.equal(c.S.listAds({ type: 'SELL', fiat: 'HTG', viewerId: 'buyer' })[0].advertiser, 'Chez Marie');
+  const o = order(c.S, 'buyer', ad, '10');
+  const v = c.S.getOrderFor({ id: 'buyer' }, o.id);
+  assert.equal(v.seller, 'Chez Marie'); assert.equal(v.buyer, 'Real buyer'); assert.equal(v.sellerReal, undefined);   // kliyan pa wè non reyèl vandè a
+  const sv = c.S.admin.order(SUPPORT, o.id);
+  assert.equal(sv.sellerReal, 'Real seller'); assert.equal(sv.seller, 'Chez Marie');                              // staff wè tou de
+  throwsCode(() => c.S.admin.resetMerchant(SUPPORT, 'seller', 'Non ofansif, rapò kliyan yo.'), 'FORBIDDEN');
+  throwsCode(() => c.S.admin.resetMerchant(ADMIN, 'seller', 'kout'), 'REASON_REQUIRED');
+  c.S.admin.resetMerchant(ADMIN, 'seller', 'Non ofansif, rapò kliyan yo.');
+  assert.equal(c.S.getMerchant('seller').businessName, null);
+  assert.equal(c.S.q1('SELECT status s FROM ads WHERE id=?', ad.id).s, 'PAUSED');                                 // anons yo poze
+  throwsCode(() => c.S.createAd('seller', {}), 'MERCHANT_REQUIRED');
+  c.S.saveMerchant('seller', { businessName: 'Marie Shop' });                                                      // li ka chwazi yon lòt non
+  assert.ok(c.S.admin.audit(ADMIN).some((a) => a.action === 'MERCHANT_RESET'));
   clean(c.S);
 });

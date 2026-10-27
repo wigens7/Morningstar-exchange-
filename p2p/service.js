@@ -54,6 +54,9 @@ function createService(opts = {}) {
   const db = new DatabaseSync(opts.dbPath || ':memory:');
   db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=8000; PRAGMA foreign_keys=ON;');
   db.exec(SCHEMA);
+  // migrasyon: baz ki te egziste deja pa gen kolòn evidence_id (foto nan chat)
+  const addCol = (t, c, d) => { if (!db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); };
+  addCol('messages', 'evidence_id', 'TEXT'); addCol('messages', 'kind', 'TEXT');
 
   const q = (sql, ...p) => db.prepare(sql).all(...p);
   const q1 = (sql, ...p) => db.prepare(sql).get(...p);
@@ -71,7 +74,7 @@ function createService(opts = {}) {
       now(), actor || null, role || null, action, entity || null, id == null ? null : String(id), details ? JSON.stringify(details) : null, ip || null);
   const alert = (userId, kind, details) =>
     run('INSERT INTO alerts(ts,user_id,kind,details) VALUES(?,?,?,?)', now(), userId || null, kind, JSON.stringify(details || {}));
-  const sysMsg = (orderId, body) => run('INSERT INTO messages(order_id,sender_id,role,body,ts) VALUES(?,?,?,?,?)', orderId, null, 'SYSTEM', body, now());
+  const sysMsg = (orderId, body, kind) => run('INSERT INTO messages(order_id,sender_id,role,body,ts,kind) VALUES(?,?,?,?,?,?)', orderId, null, 'SYSTEM', body, now(), kind || null);
   const requirePerm = (staff, perm) => { if (!staff || !can(staff.role, perm)) throw E('FORBIDDEN', 403, 'Ou pa gen pèmisyon pou aksyon sa a.'); };
   const needReason = (r) => { const s = String(r || '').trim(); if (s.length < 10) throw E('REASON_REQUIRED', 400, 'Yon rezon (omwen 10 karaktè) obligatwa.'); return s.slice(0, 500); };
 
@@ -165,11 +168,49 @@ function createService(opts = {}) {
     return rows.length;
   }
 
+  // ---------- machann (non biznis + mesaj otomatik) ----------
+  const merchantRow = (uid) => q1('SELECT * FROM merchants WHERE user_id=?', String(uid));
+  const displayName = (uid) => { const m = merchantRow(uid); return m ? m.business_name : nameOf(uid); };
+  const merchantView = (uid) => { const m = merchantRow(uid); return { businessName: m ? m.business_name : null, autoMessage: m ? m.auto_message : '', locked: !!m }; };
+  const RESERVED_NAME = /(admin|support|staff|moderat|morningstar|official|sipo)/i;
+  function saveMerchant(userId, input, ip) {
+    const el = eligible(userId); if (!el.ok) throw E('NOT_ELIGIBLE', 403, el.reason);
+    const auto = String(input.autoMessage || '').trim();
+    if (auto.length > 500) throw E('BAD_INPUT', 400, 'Mesaj la twò long (maks 500 karaktè).');
+    const nameIn = String(input.businessName == null ? '' : input.businessName).trim().replace(/\s+/g, ' ');
+    return tx(() => {
+      const cur = merchantRow(userId);
+      if (cur) {
+        if (nameIn && nameIn.toLowerCase() !== cur.business_name.toLowerCase()) throw E('NAME_LOCKED', 409, 'Non biznis la pa ka chanje ankò.');
+        run('UPDATE merchants SET auto_message=? WHERE user_id=?', auto, userId);
+      } else {
+        if (!/^[\p{L}\p{N}][\p{L}\p{N} .&'_-]{2,29}$/u.test(nameIn)) throw E('BAD_NAME', 400, "Non biznis la dwe gen 3 a 30 karaktè (lèt, chif, espas, . & ' _ -).");
+        if (RESERVED_NAME.test(nameIn)) throw E('BAD_NAME', 400, 'Non sa a pa otorize.');
+        try { run('INSERT INTO merchants(user_id,business_name,auto_message,created_at) VALUES(?,?,?,?)', userId, nameIn, auto, now()); }
+        catch (e) { if (/UNIQUE/.test(e.message)) throw E('NAME_TAKEN', 409, 'Non sa a deja pran. Chwazi yon lòt.'); throw e; }
+      }
+      audit(userId, 'USER', 'MERCHANT_SAVE', 'merchant', userId, { created: !cur }, ip);
+      return merchantView(userId);
+    });
+  }
+  // Admin ka efase non yon machann (non ofansif, enpèsonasyon). Anons li yo poze jiskaske li chwazi yon lòt non.
+  function resetMerchant(staff, userId, reason, ip) {
+    requirePerm(staff, 'p2p.merchant.manage');
+    const why = needReason(reason);
+    return tx(() => {
+      const m = merchantRow(userId); if (!m) throw E('NOT_FOUND', 404, 'Machann pa jwenn.');
+      run('DELETE FROM merchants WHERE user_id=?', String(userId));
+      run("UPDATE ads SET status='PAUSED', updated_at=? WHERE user_id=? AND status='ACTIVE'", now(), String(userId));
+      audit(staff.id, staff.role, 'MERCHANT_RESET', 'merchant', userId, { oldName: m.business_name, reason: why }, ip);
+      return { ok: true };
+    });
+  }
+
   // ---------- anons ----------
   const adView = (a, stats) => ({
     id: a.id, type: a.type, asset: a.asset, fiat: a.fiat, price: cents(a.price_cents), priceCents: a.price_cents,
     available: micro(a.available_micro), availableMicro: a.available_micro, minFiat: cents(a.min_fiat_cents), maxFiat: cents(a.max_fiat_cents),
-    methods: JSON.parse(a.methods), payWindowMin: a.pay_window_min, status: a.status, advertiser: a.advertiser_name, terms: a.terms, userId: undefined,
+    methods: JSON.parse(a.methods), payWindowMin: a.pay_window_min, status: a.status, advertiser: displayName(a.user_id), terms: a.terms, userId: undefined,
     ...(stats || {})
   });
   function userStats(userId) {
@@ -179,6 +220,7 @@ function createService(opts = {}) {
   }
   function createAd(userId, input, idemKey, ip) {
     const el = eligible(userId); if (!el.ok) throw E('NOT_ELIGIBLE', 403, el.reason);
+    if (!merchantRow(userId)) throw E('MERCHANT_REQUIRED', 400, 'Kreye pwofil machann ou (non biznis) anvan ou piblye yon anons.');
     const type = String(input.type), fiat = String(input.fiat);
     if (!['BUY', 'SELL'].includes(type)) throw E('BAD_INPUT', 400, 'Tip anons lan pa valid.');
     if (!FIATS[fiat]) throw E('BAD_INPUT', 400, 'Lajan fiat la pa valid.');
@@ -207,7 +249,7 @@ function createService(opts = {}) {
       if (type === 'SELL' && wallet(userId).available < total) throw E('INSUFFICIENT_FUNDS', 400, 'Balans USDT disponib ou pa sifi pou anons sa a.');
       const id = crypto.randomUUID();
       run(`INSERT INTO ads(id,user_id,type,asset,fiat,price_cents,total_micro,available_micro,min_fiat_cents,max_fiat_cents,methods,pay_details,pay_window_min,status,advertiser_name,terms,idem,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, userId, type, ASSET, fiat, price, total, total, minF, maxF, JSON.stringify(methods), pay ? JSON.stringify(pay) : null, win, 'ACTIVE', nameOf(userId), String(input.terms || '').slice(0, 300), idem, now(), now());
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, userId, type, ASSET, fiat, price, total, total, minF, maxF, JSON.stringify(methods), pay ? JSON.stringify(pay) : null, win, 'ACTIVE', displayName(userId), String(input.terms || '').slice(0, 300), idem, now(), now());
       audit(userId, 'USER', 'AD_CREATE', 'ad', id, { type, fiat, price, total }, ip);
       return adView(q1('SELECT * FROM ads WHERE id=?', id));
     });
@@ -312,7 +354,9 @@ function createService(opts = {}) {
       crash('createOrder.afterLock');
       o = transition(o, 'ESCROW_LOCKED', ['SYSTEM'], 'ESCROW_LOCKED', userId);
       o = transition(o, 'WAITING_PAYMENT', ['SYSTEM'], 'AWAIT_PAYMENT', userId);
-      sysMsg(id, `Lòd kreye. Achtè a dwe peye ${cents(fiatCents)} ${ad.fiat} sou ${method} avan delè a fini epi mete referans ${payRef} nan peman an.`);
+      sysMsg(id, `Voye ${cents(fiatCents)} ${ad.fiat} sou ${method}\nKont: ${pay.account}\nNon: ${pay.name}`, 'PAYINFO');
+      const mer = merchantRow(ad.user_id);
+      if (mer && mer.auto_message) run('INSERT INTO messages(order_id,sender_id,role,body,ts,kind) VALUES(?,?,?,?,?,?)', id, ad.user_id, 'USER', mer.auto_message, now(), 'AUTO'); // mesaj machann lan (kopi nan moman lòd la)
       audit(userId, 'USER', 'ORDER_CREATE', 'order', id, { adId: ad.id, crypto: cryptoMicro, fiat: fiatCents }, ip);
       if (q1('SELECT COUNT(*) c FROM orders WHERE (buyer_id=? OR seller_id=?) AND created_at>?', userId, userId, t - 10 * 60e3).c >= 5) alert(userId, 'RAPID_ORDERS', { orderId: id });
       if (cryptoMicro >= 5000e6) alert(userId, 'LARGE_ORDER', { orderId: id, crypto: cryptoMicro });
@@ -323,15 +367,15 @@ function createService(opts = {}) {
   }
 
   function markPaid(userId, orderId, reference, ip) {
-    const ref = String(reference || '').trim();
-    if (ref.length < 3 || ref.length > 120) throw E('BAD_INPUT', 400, 'Antre referans peman an (omwen 3 karaktè).');
+    const ref = String(reference || '').trim();            // referans/ID tranzaksyon se OPSYONÈL
+    if (ref.length > 120) throw E('BAD_INPUT', 400, 'Referans lan twò long.');
     return tx(() => {
       let o = mustOrder(orderId);
       if (roleOf(o, userId) !== 'BUYER') throw E('FORBIDDEN', 403, 'Se sèlman achtè a ki ka make peman an.');
       if (o.status === 'PAYMENT_MARKED') return orderView(o, { id: userId }); // klike repete = menm rezilta
       if (o.status !== 'WAITING_PAYMENT') throw E('ILLEGAL_TRANSITION', 409, `Ou pa ka make peman sou yon lòd ${o.status}.`);
       if (now() > o.expires_at) throw E('PAYMENT_WINDOW_CLOSED', 409, 'Delè peman an fini.');
-      run('UPDATE orders SET paid_at=?, seller_deadline=?, payment_note=? WHERE id=?', now(), now() + SELLER_WINDOW, ref, o.id);
+      run('UPDATE orders SET paid_at=?, seller_deadline=?, payment_note=? WHERE id=?', now(), now() + SELLER_WINDOW, ref || null, o.id);
       o = transition(getOrder(o.id), 'PAYMENT_MARKED', ['BUYER'], 'PAYMENT_MARKED', userId, { reference: ref });
       sysMsg(o.id, 'Achtè a make peman an voye. Vandè a dwe verifye ke lajan an antre vre anvan li lage USDT la.');
       audit(userId, 'USER', 'ORDER_PAID', 'order', o.id, { reference: ref }, ip);
@@ -463,18 +507,21 @@ function createService(opts = {}) {
   }
   function listMessages(viewer, orderId, afterId = 0) {
     const o = mustOrder(orderId), role = access(o, viewer);
-    return q('SELECT id,sender_id,role,body,ts FROM messages WHERE order_id=? AND id>? ORDER BY id LIMIT 300', o.id, Number(afterId) || 0)
-      .map((m) => ({ id: m.id, role: m.role, mine: m.sender_id === viewer.id, from: m.role === 'USER' ? (m.sender_id === o.buyer_id ? 'BUYER' : 'SELLER') : m.role, body: m.body, ts: m.ts }));
+    return q('SELECT id,sender_id,role,body,ts,evidence_id,kind FROM messages WHERE order_id=? AND id>? ORDER BY id LIMIT 300', o.id, Number(afterId) || 0)
+      .map((m) => ({ id: m.id, evidenceId: m.evidence_id || null, kind: m.kind || null, role: m.role, mine: m.sender_id === viewer.id, from: m.role === 'USER' ? (m.sender_id === o.buyer_id ? 'BUYER' : 'SELLER') : m.role, body: m.body, ts: m.ts }));
   }
   const EVIDENCE_STATES = ['WAITING_PAYMENT', 'PAYMENT_MARKED', 'DISPUTED', 'UNDER_REVIEW', 'EXPIRED'];
-  function addEvidence(viewer, orderId, kind, file, sha256) {
+  function addEvidence(viewer, orderId, kind, file, sha256, opts = {}) {
     return tx(() => {
       const o = mustOrder(orderId), role = access(o, viewer);
       if (role === 'STAFF') throw E('FORBIDDEN', 403, 'Staff pa voye prèv.');
       if (!EVIDENCE_STATES.includes(o.status)) throw E('ILLEGAL_TRANSITION', 409, 'Ou pa ka ajoute prèv sou lòd sa a ankò.');
-      if (q1('SELECT COUNT(*) c FROM evidence WHERE order_id=? AND uploader_id=?', o.id, viewer.id).c >= 10) throw E('LIMIT', 429, 'Twòp prèv (maks 10).');
+      if (q1('SELECT COUNT(*) c FROM evidence WHERE order_id=? AND uploader_id=?', o.id, viewer.id).c >= 30) throw E('LIMIT', 429, 'Twòp foto (maks 30).');
       const id = crypto.randomUUID();
-      run('INSERT INTO evidence(id,order_id,uploader_id,kind,file,sha256,ts) VALUES(?,?,?,?,?,?,?)', id, o.id, viewer.id, kind === 'DISPUTE' ? 'DISPUTE' : 'PAYMENT_PROOF', file, sha256, now());
+      const k = kind === 'DISPUTE' ? 'DISPUTE' : kind === 'CHAT' ? 'CHAT' : 'PAYMENT_PROOF';
+      run('INSERT INTO evidence(id,order_id,uploader_id,kind,file,sha256,ts) VALUES(?,?,?,?,?,?,?)', id, o.id, viewer.id, k, file, sha256, now());
+      // foto a parèt tou nan chat la (tankou WhatsApp); li rete prèv ki ka revize nan yon dispit
+      if (opts.chat) run('INSERT INTO messages(order_id,sender_id,role,body,ts,evidence_id) VALUES(?,?,?,?,?,?)', o.id, viewer.id, 'USER', String(opts.caption || '').slice(0, 500), now(), id);
       audit(viewer.id, role, 'EVIDENCE_ADD', 'order', o.id, { id, kind }, null);
       return { id };
     });
@@ -504,8 +551,8 @@ function createService(opts = {}) {
       createdAt: o.created_at, expiresAt: o.expires_at, paidAt: o.paid_at, sellerDeadline: o.seller_deadline, completedAt: o.completed_at,
       paymentNote: o.payment_note, providerVerified: !!o.provider_verified, lateClaim: !!o.late_claim, closedReason: o.closed_reason,
       escrow: e ? e.status : null, dispute: d || null, sellerPay: JSON.parse(o.seller_pay),
-      buyer: nameOf(o.buyer_id), seller: nameOf(o.seller_id), actions,
-      ...(viewer.staff ? { buyerId: o.buyer_id, sellerId: o.seller_id, adId: o.ad_id, version: o.version } : {}),
+      buyer: displayName(o.buyer_id), seller: displayName(o.seller_id), actions,
+      ...(viewer.staff ? { buyerId: o.buyer_id, sellerId: o.seller_id, buyerReal: nameOf(o.buyer_id), sellerReal: nameOf(o.seller_id), adId: o.ad_id, version: o.version } : {}),
       evidence: q('SELECT id,kind,ts,uploader_id FROM evidence WHERE order_id=? ORDER BY ts', o.id).map((x) => ({ id: x.id, kind: x.kind, ts: x.ts, by: x.uploader_id === o.buyer_id ? 'BUYER' : 'SELLER' })),
       events: q('SELECT ts,actor_role,from_status,to_status,action FROM order_events WHERE order_id=? ORDER BY id', o.id)
     };
@@ -546,6 +593,7 @@ function createService(opts = {}) {
         run("INSERT INTO disputes(order_id,opened_by,reason,status,opened_at) VALUES(?,?,?,'OPEN',?)", o.id, 'SYSTEM', 'Peman verifye pa pwovizè a rive apre delè a fini.', now());
         sysMsg(o.id, 'Yon peman verifye rive apre delè a. Yon dispit louvri otomatikman.');
       }
+      sysMsg(o.id, 'Pwovizè peman an verifye yon peman ki koresponn ak lòd sa a.');
       rec('VERIFIED');
       audit('system', 'SYSTEM', 'WEBHOOK_VERIFIED', 'order', o.id, { provider, eventId });
       return { outcome: 'VERIFIED' };
@@ -655,15 +703,16 @@ function createService(opts = {}) {
     audit(staff, { limit } = {}) { requirePerm(staff, 'p2p.audit.view'); return q(`SELECT * FROM audit_log ORDER BY id DESC LIMIT ${lim(limit)}`); },
     alerts(staff) { requirePerm(staff, 'p2p.view'); return q('SELECT * FROM alerts ORDER BY id DESC LIMIT 100'); },
     reports(staff) { requirePerm(staff, 'p2p.view'); return q('SELECT * FROM reports ORDER BY id DESC LIMIT 100'); },
-    ads(staff) { requirePerm(staff, 'p2p.view'); return q('SELECT * FROM ads ORDER BY created_at DESC LIMIT 200').map((a) => ({ ...adView(a), userId: a.user_id })); },
+    ads(staff) { requirePerm(staff, 'p2p.view'); return q('SELECT * FROM ads ORDER BY created_at DESC LIMIT 200').map((a) => ({ ...adView(a), userId: a.user_id, realName: nameOf(a.user_id) })); },
     jobs(staff) { requirePerm(staff, 'p2p.view'); return q('SELECT * FROM jobs ORDER BY id DESC LIMIT 50'); },
+    resetMerchant,
     reconcile(staff) { requirePerm(staff, 'p2p.reconcile'); return reconcile(); },
     runJobs(staff) { requirePerm(staff, 'p2p.reconcile'); return runJobs(); }
   };
 
   return {
     db, tx, q, q1, P2PError, can, parseUnits, fmtUnits, fiatFor, wallet, bridgeIn, bridgeOut, finishBridge, recoverBridge,
-    createAd, setAdStatus, listAds, myAds, createOrder, markPaid, release, cancel, openDispute, takeDispute, resolveDispute,
+    getMerchant: merchantView, saveMerchant, createAd, setAdStatus, listAds, myAds, createOrder, markPaid, release, cancel, openDispute, takeDispute, resolveDispute,
     postMessage, listMessages, addEvidence, evidenceFile, getOrderFor, myOrders, processProviderEvent,
     expireDue, recoverStuck, runJobs, reconcile, report, admin, close: () => db.close()
   };
