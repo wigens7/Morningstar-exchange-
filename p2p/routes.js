@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { P2PError, parseUnits } = require('./service');
+const { sendImage } = require('../filestore');
 
 // Siyati HMAC-SHA256 (hex) sou kò brit demann lan. Konparezon an tan konstan.
 function verifySignature(secret, rawBody, signature) {
@@ -14,6 +15,7 @@ function verifySignature(secret, rawBody, signature) {
 
 function mount(app, deps) {
   const { auth, rateLimit, service: S, upload, detectExt, evidenceDir, isStaffRole } = deps;
+  const files = deps.files || null; // filestore.js (Supabase Storage + ansyen disk). Si pa bay, konpòtman ansyen an sou disk.
   const pin = deps.pinGuard || ((q, s, n) => n()); // si kliyan an gen PIN, li mande l sou lage USDT ak retrè
   fs.mkdirSync(evidenceDir, { recursive: true });
 
@@ -60,7 +62,8 @@ function mount(app, deps) {
 
   // ----- prèv (foto) -----
   const uploadRoute = (chat) => (req, res) => {
-    upload(req, res, (err) => {
+    upload(req, res, async (err) => {
+      let saved = null;
       try {
         if (err) throw new P2PError('UPLOAD', 400, err.code === 'LIMIT_FILE_SIZE' ? 'Foto a twò gwo (maks 5 MB).' : 'Pwoblèm ak fichye a.');
         const f = req.file;
@@ -68,22 +71,43 @@ function mount(app, deps) {
         const ext = detectExt(f.buffer);
         if (!ext) throw new P2PError('UPLOAD', 400, 'Sèlman foto JPG, PNG oswa WEBP.');
         const orderId = String(req.params.id).replace(/[^\w-]/g, '');
-        const rel = path.join(orderId, crypto.randomUUID() + '.' + ext);
-        const abs = path.join(evidenceDir, rel);
-        fs.mkdirSync(path.dirname(abs), { recursive: true, mode: 0o700 });
-        fs.writeFileSync(abs, f.buffer, { mode: 0o600 });
-        try {
-          const sha = crypto.createHash('sha256').update(f.buffer).digest('hex');
-          const r = S.addEvidence(viewerOf(req), req.params.id, chat ? 'CHAT' : String(req.body.kind || ''), rel, sha, chat ? { chat: true, caption: req.body.caption } : {});
-          res.status(201).json(r);
-        } catch (e) { fs.rmSync(abs, { force: true }); throw e; }
-      } catch (e) { fail(res, e); }
+        if (files) saved = await files.saveEvidence(orderId, ext, f.buffer); // Supabase (prive) oswa disk, selon konfigirasyon
+        else {
+          const rel = path.join(orderId, crypto.randomUUID() + '.' + ext), abs = path.join(evidenceDir, rel);
+          fs.mkdirSync(path.dirname(abs), { recursive: true, mode: 0o700 });
+          fs.writeFileSync(abs, f.buffer, { mode: 0o600 });
+          saved = { ref: rel, undo: async () => fs.rmSync(abs, { force: true }) };
+        }
+        const sha = crypto.createHash('sha256').update(f.buffer).digest('hex');
+        const r = S.addEvidence(viewerOf(req), req.params.id, chat ? 'CHAT' : String(req.body.kind || ''), saved.ref, sha, chat ? { chat: true, caption: req.body.caption } : {});
+        res.status(201).json(r);
+      } catch (e) {
+        if (saved) { try { await saved.undo(); } catch (u) { console.error('[p2p] pa ka efase fichye apre erè', u.message); } }
+        if (e && e.code === 'STORAGE') {
+          console.error('[p2p] estokaj', e.message);
+          return res.status(e.status === 400 ? 400 : 503).json({ error: e.status === 400 ? e.message : 'Pa ka sove foto a kounye a. Eseye ankò.' });
+        }
+        fail(res, e);
+      }
     });
   };
   app.post('/api/p2p/orders/:id/evidence', auth, tight, uploadRoute(false));
   app.post('/api/p2p/orders/:id/chat-file', auth, tight, uploadRoute(true));
-  app.get('/api/p2p/evidence/:id', auth, loose, (req, res) => {
-    try { const ev = S.evidenceFile(viewerOf(req), req.params.id); res.sendFile(path.join(evidenceDir, ev.file)); } catch (e) { fail(res, e); }
+  app.get('/api/p2p/evidence/:id', auth, loose, async (req, res) => {
+    try {
+      const ev = S.evidenceFile(viewerOf(req), req.params.id); // otorizasyon (achtè/vandè/staff) fèt la a, anvan nenpòt lekti
+      const out = files ? await files.readEvidence(ev.file) : null;
+      if (files) {
+        if (!out) return res.status(404).json({ error: 'Foto a pa jwenn (fichye a pa egziste ankò).' });
+        return sendImage(res, out, { download: req.query.download === '1' });
+      }
+      const abs = path.resolve(evidenceDir, ev.file);
+      if (!abs.startsWith(path.resolve(evidenceDir) + path.sep) || !fs.existsSync(abs)) return res.status(404).json({ error: 'Foto a pa jwenn.' });
+      res.sendFile(abs);
+    } catch (e) {
+      if (e && e.code === 'STORAGE') { console.error('[p2p] estokaj', e.message); return res.status(503).json({ error: 'Pa ka li foto a kounye a. Eseye ankò.' }); }
+      fail(res, e);
+    }
   });
 
   app.post('/api/p2p/reports', auth, tight, h((req) => S.report(req.user.id, String(req.body.targetType), String(req.body.targetId), req.body.reason)));
