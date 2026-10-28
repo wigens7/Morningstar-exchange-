@@ -22,15 +22,20 @@ if (!JWT_SECRET) {
 }
 fs.mkdirSync(KYC_DIR, { recursive: true });
 
-// ---------- Stockage senp (fichye JSON) ----------
-function loadUsers() {
-  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch { return []; }
-}
-function saveUsers(users) {
-  const tmp = USERS_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(users, null, 2));
-  fs.renameSync(tmp, USERS_FILE);
-}
+// ---------- Stockage itilizatè: Supabase (si Variables yo la), sinon users.json ----------
+const { createStore, supabaseBackend, fileBackend, ConflictError } = require('./userstore');
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
+const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const useSupabase = !!(SUPABASE_URL && SUPABASE_KEY);
+if (isProd && !useSupabase) console.warn('ATANSYON: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manke. Itilizatè yo ap sove nan users.json, PA nan Supabase.');
+const store = createStore({
+  backend: useSupabase ? supabaseBackend({ url: SUPABASE_URL, key: SUPABASE_KEY }) : fileBackend(USERS_FILE),
+  pendingFile: useSupabase ? path.join(DATA_DIR, 'users-pending.json') : null,
+  legacyFile: USERS_FILE,
+  autoMigrate: process.env.MIGRATE_USERS_ON_BOOT === 'true'
+});
+const loadUsers = store.loadUsers;
+const saveUsers = store.saveUsers; // asynchrone: toujou "await saveUsers(...)"
 const round2 = (n) => Math.round(n * 100) / 100;
 // Balans prensipal = HTG (goud). usd = balans dola (USD/USDT) apre kliyan an fè yon swap.
 // To chanj + frè swap: admin kontwole yo (settings.json). Default: 1 USDT = 140 HTG, frè dezaktive.
@@ -72,6 +77,14 @@ const publicUser = (u) => ({
 // Kont admin kreye soti nan Variables (pa janm ekri nan kòd la)
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+// ID 7 chif inik pou chak itilizatè
+const genUid = (users) => {
+  let id;
+  do { id = String(crypto.randomInt(1000000, 10000000)); } while (users.some((u) => u.uid === id));
+  return id;
+};
+// Kreye kont admin / tès + ID 7 chif, apre itilizatè yo chaje nan Supabase
+async function seedAccounts() {
 if (ADMIN_EMAIL && ADMIN_PASSWORD.length >= 10) {
   const users = loadUsers();
   let a = users.find((u) => u.email === ADMIN_EMAIL);
@@ -81,7 +94,7 @@ if (ADMIN_EMAIL && ADMIN_PASSWORD.length >= 10) {
   }
   a.role = 'admin';
   if (!a.passwordHash || !bcrypt.compareSync(ADMIN_PASSWORD, a.passwordHash)) a.passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 12);
-  saveUsers(users);
+  await saveUsers(users);
 } else {
   console.warn('Pa gen kont admin: mete ADMIN_EMAIL ak ADMIN_PASSWORD (omwen 10 karaktè) nan Variables.');
 }
@@ -97,24 +110,27 @@ if (TEST_EMAIL && TEST_PASSWORD.length >= 10 && TEST_EMAIL !== ADMIN_EMAIL) {
     users.push(t);
   }
   if (!t.passwordHash || !bcrypt.compareSync(TEST_PASSWORD, t.passwordHash)) t.passwordHash = bcrypt.hashSync(TEST_PASSWORD, 12);
-  saveUsers(users);
+  await saveUsers(users);
 }
 
-// ID 7 chif inik pou chak itilizatè
-const genUid = (users) => {
-  let id;
-  do { id = String(crypto.randomInt(1000000, 10000000)); } while (users.some((u) => u.uid === id));
-  return id;
-};
 {
   const us = loadUsers();
   let changed = false;
   for (const u of us) if (!u.uid) { u.uid = genUid(us); changed = true; }
-  if (changed) saveUsers(us);
+  if (changed) await saveUsers(us);
 }
+}
+const ready = (async () => { await store.init(); await seedAccounts(); })();
 
 // ---------- App ----------
 const app = express();
+// Express 4 pa trape erè handler asynchrone: nou voye yo bay middleware erè a
+for (const m of ['get', 'post', 'put', 'delete']) {
+  const orig = app[m].bind(app);
+  app[m] = (p, ...hs) => hs.length === 0 ? orig(p) : orig(p, ...hs.map((fn) => (typeof fn !== 'function' || fn.length > 3) ? fn : (req, res, next) => {
+    try { const r = fn(req, res, next); if (r && typeof r.catch === 'function') r.catch(next); } catch (e) { next(e); }
+  }));
+}
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '20kb', verify: (req, res, buf) => { req.rawBody = buf; } })); // rawBody: pou siyati webhook
@@ -225,7 +241,10 @@ app.post('/api/signup', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
     kyc: { status: 'none' }
   };
   users.push(user);
-  saveUsers(users);
+  try { await saveUsers(users); } catch (e) {
+    if (e instanceof ConflictError) return res.status(409).json({ error: 'Imèl sa a deja itilize.' });
+    throw e;
+  }
   setSession(res, user, false);
   res.status(201).json(publicUser(user));
 });
@@ -246,7 +265,7 @@ app.post('/api/login', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
   res.json(publicUser(user));
 });
 
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', async (req, res) => {
   res.clearCookie('token');
   res.json({ ok: true });
 });
@@ -279,13 +298,16 @@ const upload = multer({
   { name: 'selfie', maxCount: 1 }
 ]);
 
-app.post('/api/kyc', auth, notBanned, (req, res) => {
-  upload(req, res, (err) => {
+app.post('/api/kyc', auth, notBanned, async (req, res, next) => {
+  upload(req, res, async (err) => {
+   try {
     if (err) {
       const msg = err.code === 'LIMIT_FILE_SIZE' ? 'Chak foto dwe mwens pase 5 MB.' : 'Pwoblèm ak fichye yo.';
       return res.status(400).json({ error: msg });
     }
-    const user = req.user;
+    const users = loadUsers(); // re-li apre multer (li asynchrone) pou pa pèdi chanjman lòt moun
+    const user = users.find((x) => x.id === req.user.id);
+    if (!user) return res.status(401).json({ error: 'Ou pa konekte.' });
     if (!['none', 'reupload'].includes(user.kyc.status)) {
       return res.status(409).json({ error: 'KYC ou a deja soumèt.' });
     }
@@ -312,13 +334,14 @@ app.post('/api/kyc', auth, notBanned, (req, res) => {
     }
 
     user.kyc = { status: 'pending', idType, files, submittedAt: new Date().toISOString() };
-    saveUsers(req.users);
+    await saveUsers(users);
     res.json(publicUser(user));
+   } catch (e) { next(e); }
   });
 });
 
 // ---------- Pwofil, lang, PIN, envitasyon ----------
-app.post('/api/profile', auth, (req, res) => {
+app.post('/api/profile', auth, async (req, res) => {
   const u = req.user;
   if (u.profile) return res.status(409).json({ error: 'Enfòmasyon sa yo pa ka chanje ankò.' });
   const clean = (v, min, max) => { const s = String(v || '').trim().replace(/\s+/g, ' '); return s.length >= min && s.length <= max ? s : null; };
@@ -334,14 +357,14 @@ app.post('/api/profile', auth, (req, res) => {
   const eighteen = new Date(Date.UTC(now.getUTCFullYear() - 18, now.getUTCMonth(), now.getUTCDate()));
   if (d > eighteen) return res.status(400).json({ error: 'Ou dwe gen omwen 18 an.' });
   u.profile = { firstName, lastName, dob, country, phone, address, savedAt: new Date().toISOString() };
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.json(publicUser(u));
 });
 
-app.post('/api/lang', auth, (req, res) => {
+app.post('/api/lang', auth, async (req, res) => {
   if (!['ht', 'fr', 'en', 'es'].includes(req.body.lang)) return res.status(400).json({ error: 'Lang pa valid.' });
   req.user.lang = req.body.lang;
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.json({ lang: req.user.lang });
 });
 
@@ -356,7 +379,7 @@ app.post('/api/pin/set', auth, async (req, res) => {
   const users = loadUsers();
   const u = users.find((x) => x.id === req.user.id);
   u.pinHash = pinHash; u.pinActive = true;
-  saveUsers(users);
+  await saveUsers(users);
   res.json(publicUser(u));
 });
 
@@ -365,7 +388,7 @@ app.post('/api/pin/disable', auth, async (req, res) => {
   const users = loadUsers();
   const u = users.find((x) => x.id === req.user.id);
   u.pinActive = false; delete u.pinHash;
-  saveUsers(users);
+  await saveUsers(users);
   res.json(publicUser(u));
 });
 
@@ -377,14 +400,14 @@ app.get('/api/invites', auth, (req, res) =>
 // MonCash/NatCash => HTG | PayPal, Zelle, Meru, CashApp => dola. Admin mete enfo peman yo.
 const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD' };
 
-app.get('/api/deposit-info', auth, (req, res) => {
+app.get('/api/deposit-info', auth, async (req, res) => {
   const dep = getSettings().deposit;
   res.json(Object.keys(D_METHODS).filter((m) => dep[m] && dep[m].active && dep[m].account)
     .map((m) => ({ method: m, currency: D_METHODS[m], account: dep[m].account, name: dep[m].name || '', note: dep[m].note || '' })));
 });
 
 // Kliyan an di li voye lajan an; admin verifye epi kredite. (Kont bani ka fè depo tou.)
-app.post('/api/deposit', auth, (req, res) => {
+app.post('/api/deposit', auth, async (req, res) => {
   const u = req.user;
   const method = String(req.body.method || '');
   if (!Object.prototype.hasOwnProperty.call(D_METHODS, method)) return res.status(400).json({ error: 'Metòd la pa valid.' });
@@ -401,12 +424,12 @@ app.post('/api/deposit', auth, (req, res) => {
   if (dup) return res.status(409).json({ error: 'Referans sa a deja itilize.' });
   u.swaps = u.swaps || [];
   u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, amount, reference, status: 'pending', createdAt: new Date().toISOString() });
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
 
 // ---------- Swap (HTG -> USD/USDT) ----------
-app.post('/api/swap', auth, notBanned, needProfile, (req, res) => {
+app.post('/api/swap', auth, notBanned, needProfile, async (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
   const st = getSettings();
@@ -427,13 +450,13 @@ app.post('/api/swap', auth, notBanned, needProfile, (req, res) => {
   u.usd = round2((u.usd || 0) + usd);
   u.swaps = u.swaps || [];
   u.swaps.push({ id: crypto.randomUUID(), type: 'swap', currency: 'HTG', amount, fee, feePercent: pct, asset, usd, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
 
 // ---------- Retrè ----------
 // HTG => sèlman MonCash / NatCash | USD => Meru, Zelle, USDT, CashApp, PayPal
-app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, (req, res) => {
+app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon retrè.' });
   const currency = String(req.body.currency || '');
@@ -453,7 +476,7 @@ app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, (req, res) => 
   u[field] = round2(u[field] - amount);
   u.swaps = u.swaps || [];
   u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account, status: 'pending', createdAt: new Date().toISOString() });
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
 
@@ -474,7 +497,7 @@ app.get('/api/admin/users', adminOnly, (req, res) =>
 );
 
 // Ajoute / retire lajan sou kont yon kliyan (HTG oswa USD). Kliyan an wè l nan istwa li.
-app.post('/api/admin/users/:id/balance', adminOnly, (req, res) => {
+app.post('/api/admin/users/:id/balance', adminOnly, async (req, res) => {
   const u = req.users.find((x) => x.id === req.params.id);
   const delta = round2(Number(req.body.delta));
   const currency = req.body.currency === 'USD' ? 'USD' : 'HTG';
@@ -487,33 +510,33 @@ app.post('/api/admin/users/:id/balance', adminOnly, (req, res) => {
     id: crypto.randomUUID(), type: 'adjustment', currency, amount: delta,
     note: String(req.body.note || '').trim().slice(0, 100), status: 'done', createdAt: new Date().toISOString()
   });
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.json({ balance: u.balance, usd: u.usd || 0 });
 });
 
 // Bani / debani yon kliyan (admin pa ka bani tèt li ni yon lòt admin)
-app.post('/api/admin/users/:id/ban', adminOnly, (req, res) => {
+app.post('/api/admin/users/:id/ban', adminOnly, async (req, res) => {
   const u = req.users.find((x) => x.id === req.params.id);
   if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka bani yon admin.' });
   u.banned = !!req.body.banned;
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.json({ banned: u.banned });
 });
 
 // Efase yon kont nèt (done + dosye KYC yo). Li pa ka konekte ankò.
-app.delete('/api/admin/users/:id', adminOnly, (req, res) => {
+app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
   const u = req.users.find((x) => x.id === req.params.id);
   if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka efase yon admin.' });
   fs.rmSync(path.join(KYC_DIR, u.id), { recursive: true, force: true });
-  saveUsers(req.users.filter((x) => x.id !== u.id));
+  await store.removeUser(u.id);
   res.json({ ok: true });
 });
 
 app.get('/api/admin/settings', adminOnly, (req, res) => res.json(getSettings()));
 
-app.post('/api/admin/settings', adminOnly, (req, res) => {
+app.post('/api/admin/settings', adminOnly, async (req, res) => {
   const rate = Number(req.body.rate);
   const feePercent = Number(req.body.feePercent);
   if (!(rate > 0) || rate > 100000) return res.status(400).json({ error: 'To chanj la pa valid.' });
@@ -531,13 +554,13 @@ app.post('/api/admin/settings', adminOnly, (req, res) => {
   res.json(getSettings());
 });
 
-app.get('/api/admin/deposit-info', adminOnly, (req, res) => {
+app.get('/api/admin/deposit-info', adminOnly, async (req, res) => {
   const dep = getSettings().deposit, out = {};
   for (const m of Object.keys(D_METHODS)) out[m] = { active: !!(dep[m] && dep[m].active), account: (dep[m] && dep[m].account) || '', name: (dep[m] && dep[m].name) || '', note: (dep[m] && dep[m].note) || '' };
   res.json(out);
 });
 
-app.post('/api/admin/deposit-info', adminOnly, (req, res) => {
+app.post('/api/admin/deposit-info', adminOnly, async (req, res) => {
   const inp = req.body.info || {}, dep = {};
   const cut = (v, n) => String(v || '').trim().slice(0, n);
   for (const m of Object.keys(D_METHODS)) {
@@ -554,7 +577,7 @@ app.get('/api/admin/deposits', adminOnly, (req, res) =>
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
 );
 
-app.post('/api/admin/deposits/:id/decision', adminOnly, (req, res) => {
+app.post('/api/admin/deposits/:id/decision', adminOnly, async (req, res) => {
   const decision = req.body.decision;
   if (!['done', 'rejected'].includes(decision)) return res.status(400).json({ error: 'Desizyon pa valid.' });
   for (const u of req.users) {
@@ -570,7 +593,7 @@ app.post('/api/admin/deposits/:id/decision', adminOnly, (req, res) => {
     } else {
       t.status = 'rejected'; t.note = String(req.body.reason || '').trim().slice(0, 200);
     }
-    saveUsers(req.users);
+    await saveUsers(req.users);
     return res.json({ ok: true });
   }
   res.status(404).json({ error: 'Pa jwenn.' });
@@ -582,14 +605,14 @@ app.get('/api/admin/kyc', adminOnly, (req, res) =>
   })))
 );
 
-app.get('/api/admin/kyc/:id/:slot', adminOnly, (req, res) => {
+app.get('/api/admin/kyc/:id/:slot', adminOnly, async (req, res) => {
   const user = req.users.find((u) => u.id === req.params.id);
   const file = user && user.kyc.files && user.kyc.files[req.params.slot];
   if (!file) return res.status(404).json({ error: 'Pa jwenn.' });
   res.sendFile(path.join(KYC_DIR, user.id, file));
 });
 
-app.post('/api/admin/kyc/:id/decision', adminOnly, (req, res) => {
+app.post('/api/admin/kyc/:id/decision', adminOnly, async (req, res) => {
   const user = req.users.find((u) => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: 'Pa jwenn.' });
   const { decision, reason } = req.body;
@@ -598,7 +621,7 @@ app.post('/api/admin/kyc/:id/decision', adminOnly, (req, res) => {
   user.kyc.status = decision;
   user.kyc.reason = defaults[decision] ? String(reason || '').slice(0, 300) || defaults[decision] : null;
   user.kyc.reviewedAt = new Date().toISOString();
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.json({ ok: true });
 });
 
@@ -608,7 +631,7 @@ app.get('/api/admin/withdrawals', adminOnly, (req, res) =>
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
 );
 
-app.post('/api/admin/withdrawals/:id/status', adminOnly, (req, res) => {
+app.post('/api/admin/withdrawals/:id/status', adminOnly, async (req, res) => {
   const status = req.body.status;
   if (!['done', 'rejected'].includes(status)) return res.status(400).json({ error: 'Estati pa valid.' });
   for (const u of req.users) {
@@ -621,7 +644,7 @@ app.post('/api/admin/withdrawals/:id/status', adminOnly, (req, res) => {
       const field = (t.currency || 'HTG') === 'HTG' ? 'balance' : 'usd';
       u[field] = round2((u[field] || 0) + t.amount);
     }
-    saveUsers(req.users);
+    await saveUsers(req.users);
     return res.json({ ok: true });
   }
   res.status(404).json({ error: 'Pa jwenn.' });
@@ -632,29 +655,30 @@ const { createService } = require('./p2p/service');
 const { mount: mountP2P } = require('./p2p/routes');
 const isStaffRole = (r) => r === 'admin' || r === 'support';
 
-// Adaptè balans prensipal la (users.json). Chak operasyon idempotan pa id transfè a.
+// Adaptè balans prensipal la (itilizatè yo nan Supabase). Operasyon senkron: jounal lokal + Supabase an background. Chak operasyon idempotan pa id transfè a.
 const mainStore = {
-  has(userId, id) { const u = loadUsers().find((x) => x.id === userId); return !!u && (u.swaps || []).some((t) => t.id === id); },
+  has(userId, id) { const u = store.getUser(userId); return !!u && (u.swaps || []).some((t) => t.id === id); },
   debit(userId, amountCents, id) {
-    const users = loadUsers(), u = users.find((x) => x.id === userId);
-    if (!u) return 'INSUFFICIENT';
-    u.swaps = u.swaps || [];
-    if (u.swaps.some((t) => t.id === id)) return 'OK';
-    const have = Math.round((u.usd || 0) * 100);
-    if (have < amountCents) return 'INSUFFICIENT';
-    u.usd = round2((have - amountCents) / 100);
-    u.swaps.push({ id, type: 'p2p_bridge', dir: 'to_p2p', currency: 'USD', amount: amountCents / 100, status: 'done', createdAt: new Date().toISOString() });
-    saveUsers(users);
-    return 'OK';
+    return store.applySync(userId, (u) => {
+      if (!u) return { result: 'INSUFFICIENT' };
+      u.swaps = u.swaps || [];
+      if (u.swaps.some((t) => t.id === id)) return { result: 'OK' };
+      const have = Math.round((u.usd || 0) * 100);
+      if (have < amountCents) return { result: 'INSUFFICIENT' };
+      u.usd = round2((have - amountCents) / 100);
+      u.swaps.push({ id, type: 'p2p_bridge', dir: 'to_p2p', currency: 'USD', amount: amountCents / 100, status: 'done', createdAt: new Date().toISOString() });
+      return { result: 'OK', changed: true };
+    });
   },
   credit(userId, amountCents, id) {
-    const users = loadUsers(), u = users.find((x) => x.id === userId);
-    if (!u) throw new Error('user missing');
-    u.swaps = u.swaps || [];
-    if (u.swaps.some((t) => t.id === id)) return;
-    u.usd = round2(Math.round((u.usd || 0) * 100) / 100 + amountCents / 100);
-    u.swaps.push({ id, type: 'p2p_bridge', dir: 'from_p2p', currency: 'USD', amount: amountCents / 100, status: 'done', createdAt: new Date().toISOString() });
-    saveUsers(users);
+    if (!store.getUser(userId)) throw new Error('user missing');
+    store.applySync(userId, (u) => {
+      u.swaps = u.swaps || [];
+      if (u.swaps.some((t) => t.id === id)) return { result: undefined };
+      u.usd = round2(Math.round((u.usd || 0) * 100) / 100 + amountCents / 100);
+      u.swaps.push({ id, type: 'p2p_bridge', dir: 'from_p2p', currency: 'USD', amount: amountCents / 100, status: 'done', createdAt: new Date().toISOString() });
+      return { result: undefined, changed: true };
+    });
   }
 };
 const p2pEligible = (userId) => {
@@ -678,18 +702,17 @@ mountP2P(app, {
   evidenceDir: path.join(DATA_DIR, 'p2p-evidence')
 });
 // Rekiperasyon nan demaraj + travay peryodik (ekspirasyon, rekiperasyon, reconciliation)
-try { p2p.recoverBridge(0); p2p.recoverStuck(); } catch (e) { console.error('[p2p] recovery', e); }
-setInterval(() => { try { p2p.runJobs(); } catch (e) { console.error('[p2p] jobs', e); } }, 30 * 1000).unref();
+// (rekiperasyon + travay peryodik P2P yo kòmanse nan ready.then(...) anba a, apre itilizatè yo chaje)
 
 // Admin bay yon itilizatè wòl "support" (ka revize dispit, pa ka deplase lajan)
-app.post('/api/admin/users/:id/role', adminOnly, (req, res) => {
+app.post('/api/admin/users/:id/role', adminOnly, async (req, res) => {
   const u = req.users.find((x) => x.id === req.params.id);
   const role = String(req.body.role || '');
   if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka chanje wòl yon admin.' });
   if (!['user', 'support'].includes(role)) return res.status(400).json({ error: 'Wòl pa valid.' });
   u.role = role;
-  saveUsers(req.users);
+  await saveUsers(req.users);
   res.json({ role });
 });
 
@@ -709,4 +732,21 @@ app.get('/logos.js', page('logos.js'));
 app.use('/logos', express.static(path.join(__dirname, 'logos'), { index: false }));
 app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT}`));
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  if (err instanceof ConflictError) return res.status(409).json({ error: 'Done yo fèk chanje. Eseye ankò.' });
+  console.error('[erè]', req.method, req.path, err && err.message);
+  res.status(503).json({ error: 'Pwoblèm ak baz done a. Eseye ankò nan kèk segonn.' });
+});
+
+ready.then(() => {
+  try { p2p.recoverBridge(0); p2p.recoverStuck(); } catch (e) { console.error('[p2p] recovery', e); }
+  setInterval(() => { try { p2p.runJobs(); } catch (e) { console.error('[p2p] jobs', e); } }, 30 * 1000).unref();
+  app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT} (itilizatè: ${useSupabase ? 'Supabase' : 'users.json'})`));
+}).catch((e) => { console.error('Pa ka demare:', e.message); process.exit(1); });
+
+// Railway voye SIGTERM pandan redeploy: eseye fini sove sa ki rete anvan sèvè a fèmen
+process.on('SIGTERM', () => {
+  const t = setTimeout(() => process.exit(0), 8000); t.unref();
+  store.flushAll().finally(() => process.exit(0));
+});
