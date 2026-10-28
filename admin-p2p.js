@@ -71,11 +71,11 @@
       ${role === 'admin' ? `<button class="b tab mt-2 ml-1" onclick="p2pResetMerchant('${a.userId}')">Reyinisyalize non machann</button>` : ''}`)).join(''));
   }
   window.p2pSuspend = async (id) => {
-    const reason = prompt('Rezon pou sispann anons lan (omwen 10 karaktè):'); if (!reason) return;
+    const reason = await uiPrompt('Rezon pou sispann anons lan (omwen 10 karaktè):', '', { min: 10, max: 500, multiline: true, ok: 'Sispann anons lan', danger: true }); if (!reason) return;
     try { await api(`/api/p2p/admin/ads/${id}/suspend`, { reason }); loadP2P(); } catch (e) { /* api() montre erè a */ }
   };
   window.p2pResetMerchant = async (uid) => {
-    const reason = prompt('Rezon pou efase non biznis machann sa a (omwen 10 karaktè). Anons li yo ap poze:'); if (!reason) return;
+    const reason = await uiPrompt('Rezon pou efase non biznis machann sa a (omwen 10 karaktè). Anons li yo ap poze:', '', { min: 10, max: 500, multiline: true, ok: 'Efase non an', danger: true }); if (!reason) return;
     try { await api(`/api/p2p/admin/merchants/${uid}/reset`, { reason }); loadP2P(); } catch (e) { /* api() montre erè a */ }
   };
   async function pJobs() {
@@ -111,8 +111,8 @@
   window.p2pTake = async (did, oid) => { await api(`/api/p2p/admin/disputes/${did}/take`, {}); p2pOrder(oid); };
   window.p2pResolve = async (did, oid) => {
     const dec = $('p2p-dec').value, why = $('p2p-why').value.trim();
-    if (why.length < 10) return alert('Ekri yon rezon (omwen 10 karaktè).');
-    if (!confirm(`Konfime: ${dec === 'RELEASE_TO_BUYER' ? 'LAGE USDT bay achtè a' : 'RETOUNEN USDT bay vandè a'}?\nAksyon sa a pa ka defèt.`)) return;
+    if (why.length < 10) return uiAlert('Ekri yon rezon (omwen 10 karaktè).');
+    if (!(await uiConfirm(`Konfime: ${dec === 'RELEASE_TO_BUYER' ? 'LAGE USDT bay achtè a' : 'RETOUNEN USDT bay vandè a'}?\nAksyon sa a pa ka defèt.`, { ok: 'Konfime', danger: true }))) return;
     await api(`/api/p2p/admin/disputes/${did}/resolve`, { decision: dec, reason: why });
     p2pOrder(oid); if (sub === 'disputes') loadP2P();
   };

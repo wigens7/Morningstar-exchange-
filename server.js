@@ -728,6 +728,7 @@ app.get('/settings.html', page('settings.html'));
 app.get('/p2p.html', page('p2p.html'));
 app.get('/admin-p2p.js', page('admin-p2p.js'));
 app.get('/i18n.js', page('i18n.js'));
+app.get('/dialogs.js', page('dialogs.js'));
 app.get('/logos.js', page('logos.js'));
 app.use('/logos', express.static(path.join(__dirname, 'logos'), { index: false }));
 app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
