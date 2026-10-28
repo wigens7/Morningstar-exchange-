@@ -34,6 +34,18 @@ const store = createStore({
   legacyFile: USERS_FILE,
   autoMigrate: process.env.MIGRATE_USERS_ON_BOOT === 'true'
 });
+// ---------- Foto KYC + prèv P2P: Supabase Storage (buckets prive) ----------
+const { supabaseStorage, createFiles, sendImage, StorageError } = require('./filestore');
+const fileStore = createFiles({
+  storage: useSupabase ? supabaseStorage({ url: SUPABASE_URL, key: SUPABASE_KEY }) : null,
+  // FILE_STORE=disk = kill-switch: nouvo foto yo tounen sou disk la (foto ki deja nan Supabase yo rete li)
+  writeToStorage: useSupabase && (process.env.FILE_STORE || '').trim().toLowerCase() !== 'disk',
+  kycBucket: (process.env.SUPABASE_KYC_BUCKET || 'kyc-documents').trim(),
+  p2pBucket: (process.env.SUPABASE_P2P_BUCKET || 'p2p-evidence').trim(),
+  kycDir: KYC_DIR,
+  p2pDir: path.join(DATA_DIR, 'p2p-evidence')
+});
+if (isProd && !fileStore.canWrite) console.warn('ATANSYON: nouvo foto KYC/P2P ap sove sou disk lokal (Supabase Storage pa aktif).');
 const loadUsers = store.loadUsers;
 const saveUsers = store.saveUsers; // asynchrone: toujou "await saveUsers(...)"
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -315,7 +327,6 @@ app.post('/api/kyc', auth, notBanned, async (req, res, next) => {
     const needed = ID_TYPES[idType];
     if (!needed) return res.status(400).json({ error: 'Tip dokiman an pa valid.' });
 
-    const dir = path.join(KYC_DIR, user.id);
     const saved = {};
     for (const slot of needed) {
       const f = req.files && req.files[slot] && req.files[slot][0];
@@ -325,16 +336,12 @@ app.post('/api/kyc', auth, notBanned, async (req, res, next) => {
       saved[slot] = { ext, buffer: f.buffer };
     }
 
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const files = {};
-    for (const [slot, { ext, buffer }] of Object.entries(saved)) {
-      files[slot] = `${slot}.${ext}`;
-      fs.writeFileSync(path.join(dir, files[slot]), buffer, { mode: 0o600 });
-    }
-
-    user.kyc = { status: 'pending', idType, files, submittedAt: new Date().toISOString() };
-    await saveUsers(users);
+    const previous = user.kyc; // pou nou ka efase ansyen foto yo apre nouvo a fin sove
+    const stored = await fileStore.saveKyc(user.id, saved);
+    user.kyc = { status: 'pending', idType, files: stored.files, ...(stored.store ? { store: stored.store } : {}), submittedAt: new Date().toISOString() };
+    try { await saveUsers(users); } catch (e) { await stored.undo(); throw e; }
+    // efase ansyen foto yo. Dosye disk la efase sèlman si nouvo foto yo nan Supabase (sinon se li menm ki gen nouvo yo).
+    await fileStore.removeKyc(user.id, previous, { disk: !!stored.store });
     res.json(publicUser(user));
    } catch (e) { next(e); }
   });
@@ -529,8 +536,8 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
   const u = req.users.find((x) => x.id === req.params.id);
   if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka efase yon admin.' });
-  fs.rmSync(path.join(KYC_DIR, u.id), { recursive: true, force: true });
   await store.removeUser(u.id);
+  await fileStore.removeKyc(u.id, u.kyc); // foto yo (Supabase + disk). Si efasman an echwe, li ekri nan logs.
   res.json({ ok: true });
 });
 
@@ -605,11 +612,35 @@ app.get('/api/admin/kyc', adminOnly, (req, res) =>
   })))
 );
 
-app.get('/api/admin/kyc/:id/:slot', adminOnly, async (req, res) => {
-  const user = req.users.find((u) => u.id === req.params.id);
-  const file = user && user.kyc.files && user.kyc.files[req.params.slot];
-  if (!file) return res.status(404).json({ error: 'Pa jwenn.' });
-  res.sendFile(path.join(KYC_DIR, user.id, file));
+app.get('/api/admin/kyc/:id/:slot', adminOnly, async (req, res, next) => {
+  try {
+    const slot = String(req.params.slot);
+    if (!['front', 'back', 'selfie'].includes(slot)) return res.status(404).json({ error: 'Pa jwenn.' });
+    const user = req.users.find((u) => u.id === req.params.id);
+    if (!user) return res.status(404).json({ error: 'Pa jwenn.' });
+    const f = await fileStore.readKyc(user, slot);
+    if (!f) return res.status(404).json({ error: 'Foto a pa jwenn (fichye a pa egziste ankò).' });
+    sendImage(res, f, { download: req.query.download === '1', filename: `kyc-${user.uid || user.id}-${slot}.${fileStore.ext(f.name)}` });
+  } catch (e) { next(e); }
+});
+
+// Tès sante estokaj (admin sèlman): monte, li, konpare epi efase yon ti PNG nan chak bucket. Pa montre kle ni done kliyan.
+app.get('/api/admin/storage-check', adminOnly, async (req, res) => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const out = { configured: fileStore.canRead, writeToSupabase: fileStore.canWrite, buckets: {} };
+  for (const [kind, bucket] of [['kyc', fileStore.kycBucket], ['p2p', fileStore.p2pBucket]]) {
+    const r = { bucket, upload: false, download: false, identical: false, missingReturnsNull: false, cleanup: false };
+    const p = `healthcheck/${crypto.randomUUID()}.png`;
+    try {
+      await fileStore.put(kind, p, png, 'png'); r.upload = true;
+      const g = await fileStore.get(kind, p); r.download = !!g; r.identical = !!g && g.buffer.equals(png);
+      await fileStore.remove(kind, p); r.cleanup = true;
+      r.missingReturnsNull = (await fileStore.get(kind, p)) === null;
+    } catch (e) { r.error = String(e.message).slice(0, 200); await fileStore.removeQuiet(kind, p); }
+    out.buckets[kind] = r;
+  }
+  out.ok = Object.values(out.buckets).every((b) => b.upload && b.download && b.identical && b.cleanup && b.missingReturnsNull);
+  res.status(out.ok ? 200 : 503).json(out);
 });
 
 app.post('/api/admin/kyc/:id/decision', adminOnly, async (req, res) => {
@@ -699,7 +730,8 @@ const p2p = createService({ dbPath: path.join(DATA_DIR, 'p2p.sqlite'), eligible:
 mountP2P(app, {
   auth, rateLimit, service: p2p, detectExt, isStaffRole, pinGuard,
   upload: multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } }).single('file'),
-  evidenceDir: path.join(DATA_DIR, 'p2p-evidence')
+  evidenceDir: path.join(DATA_DIR, 'p2p-evidence'),
+  files: fileStore
 });
 // Rekiperasyon nan demaraj + travay peryodik (ekspirasyon, rekiperasyon, reconciliation)
 // (rekiperasyon + travay peryodik P2P yo kòmanse nan ready.then(...) anba a, apre itilizatè yo chaje)
@@ -736,6 +768,10 @@ app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   if (err instanceof ConflictError) return res.status(409).json({ error: 'Done yo fèk chanje. Eseye ankò.' });
+  if (err instanceof StorageError) {
+    console.error('[estokaj]', req.method, req.path, err.message);
+    return res.status(err.status === 400 ? 400 : 503).json({ error: err.status === 400 ? err.message : 'Estokaj foto a pa disponib kounye a. Eseye ankò nan kèk segonn.' });
+  }
   console.error('[erè]', req.method, req.path, err && err.message);
   res.status(503).json({ error: 'Pwoblèm ak baz done a. Eseye ankò nan kèk segonn.' });
 });
