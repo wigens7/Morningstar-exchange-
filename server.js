@@ -75,7 +75,30 @@ function saveSettings(st) {
   fs.writeFileSync(tmp, JSON.stringify(st, null, 2));
   fs.renameSync(tmp, SETTINGS_FILE);
 }
+// Retrè: balans HTG => sèlman MonCash / NatCash. Balans dola (USD/USDT) => Meru, Zelle, USDT, CashApp, PayPal, Wise.
+// Dola pa ka ale sou MonCash/NatCash dirèkteman: swap an HTG dabò.
 const W_METHODS = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'] };
+const USDT_NETWORKS = { TRC20: /^T[1-9A-HJ-NP-Za-km-z]{33}$/, BEP20: /^0x[a-fA-F0-9]{40}$/ };
+// USDT: Binance (ID oswa imèl) oswa wallet crypto (rezo TRC20/BEP20). Retounen { account, extra } oswa { error }
+function usdtDestination(b) {
+  const dest = String(b.dest || '');
+  const val = String(b.account || '').trim();
+  if (dest === 'binance') {
+    const idType = String(b.idType || '');
+    if (idType === 'id') return /^\d{5,20}$/.test(val) ? { account: val, extra: { dest, idType } } : { error: 'Binance ID pa valid (chif sèlman).' };
+    if (idType === 'email') return /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/.test(val) && val.length <= 100 ? { account: val, extra: { dest, idType } } : { error: 'Imèl Binance pa valid.' };
+    return { error: 'Chwazi si se Binance ID oswa imèl Binance.' };
+  }
+  if (dest === 'wallet') {
+    const network = String(b.network || '');
+    if (!USDT_NETWORKS[network]) return { error: 'Chwazi rezo a: TRC20 oswa BEP20.' };
+    return USDT_NETWORKS[network].test(val) ? { account: val, extra: { dest, network } } : { error: 'Adrès wallet la pa valid pou rezo ' + network + '.' };
+  }
+  return { error: 'Chwazi Binance oswa wallet crypto.' };
+}
+// Checkbox obligatwa (depo + retrè): kliyan an dakò validasyon pran 24-48 èdtan
+const ackOk = (req) => req.body && req.body.ack === true;
+const ACK_ERR = 'Ou dwe make kazye a pou konfime depo/retrè a ka pran 24 a 48 èdtan pou valide.';
 const txOf = (s) => ({ type: 'withdrawal', currency: 'HTG', ...s });
 const publicUser = (u) => ({
   id: u.id, name: u.name, email: u.email, role: u.role || 'user',
@@ -404,8 +427,8 @@ app.get('/api/invites', auth, (req, res) =>
 );
 
 // ---------- Depo ----------
-// MonCash/NatCash => HTG | PayPal, Zelle, Meru, CashApp => dola. Admin mete enfo peman yo.
-const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD' };
+// MonCash/NatCash => HTG | PayPal, Zelle, Meru, CashApp, Wise, USDT => dola. Admin mete direksyon (kont/adrès) kote kliyan yo voye lajan an.
+const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD', Wise: 'USD', USDT: 'USD' };
 
 app.get('/api/deposit-info', auth, async (req, res) => {
   const dep = getSettings().deposit;
@@ -424,13 +447,14 @@ app.post('/api/deposit', auth, async (req, res) => {
   if (!(amount > 0) || amount > 10000000) return res.status(400).json({ error: 'Montan an pa valid.' });
   const reference = String(req.body.reference || '').trim();
   if (reference.length < 3 || reference.length > 100) return res.status(400).json({ error: 'Antre referans tranzaksyon an.' });
+  if (!ackOk(req)) return res.status(400).json({ error: ACK_ERR });
   if ((u.swaps || []).filter((t) => t.type === 'deposit' && t.status === 'pending').length >= 5) {
     return res.status(429).json({ error: 'Ou gen twòp depo an kou. Tann yo trete.' });
   }
   const dup = req.users.some((x) => (x.swaps || []).some((t) => t.type === 'deposit' && t.method === method && t.status !== 'rejected' && String(t.reference).toLowerCase() === reference.toLowerCase()));
   if (dup) return res.status(409).json({ error: 'Referans sa a deja itilize.' });
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, amount, reference, status: 'pending', createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, amount, reference, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
@@ -461,8 +485,32 @@ app.post('/api/swap', auth, notBanned, needProfile, async (req, res) => {
   res.status(201).json(publicUser(u));
 });
 
+// ---------- Swap (dola USD/USDT/fiat -> HTG) ----------
+app.post('/api/swap/to-htg', auth, notBanned, needProfile, async (req, res) => {
+  const u = req.user;
+  if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
+  const st = getSettings();
+  const asset = W_ASSETS.includes(String(req.body.asset || '')) ? String(req.body.asset) : null;
+  const pct = feeFor(st, asset);
+  if (Number(req.body.rate) !== st.rate || Number(req.body.feePercent) !== pct) {
+    return res.status(409).json({ error: 'To oswa frè a fèk chanje. Verifye nouvo valè yo epi eseye ankò.', user: publicUser(u) });
+  }
+  const usd = round2(Number(req.body.amount));
+  if (!(usd > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
+  if (usd > (u.usd || 0)) return res.status(400).json({ error: 'Balans dola ou pa sifi.' });
+  const feeUsd = round2((usd * pct) / 100);
+  const htg = Math.floor((usd - feeUsd) * st.rate * 100) / 100;
+  if (htg <= 0) return res.status(400).json({ error: 'Montan an twò piti pou yon swap.' });
+  u.usd = round2(u.usd - usd);
+  u.balance = round2((u.balance || 0) + htg);
+  u.swaps = u.swaps || [];
+  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', dir: 'to_htg', currency: 'USD', amount: usd, fee: feeUsd, feePercent: pct, asset, htg, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
+  await saveUsers(req.users);
+  res.status(201).json(publicUser(u));
+});
+
 // ---------- Retrè ----------
-// HTG => sèlman MonCash / NatCash | USD => Meru, Zelle, USDT, CashApp, PayPal
+// HTG => MonCash / NatCash | USD => Meru, Zelle, USDT (Binance/wallet), CashApp, PayPal, Wise
 app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon retrè.' });
@@ -474,15 +522,21 @@ app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, re
   if (!W_METHODS[currency].includes(method)) {
     return res.status(400).json({ error: currency === 'HTG'
       ? 'Balans HTG ka retire sèlman sou MonCash oswa NatCash. Pou lòt metòd yo, swap an dola dabò.'
-      : 'Metòd la pa valid.' });
+      : 'Balans dola pa ka retire sou MonCash/NatCash. Swap li an HTG dabò.' });
   }
+  if (!ackOk(req)) return res.status(400).json({ error: ACK_ERR });
   const field = currency === 'HTG' ? 'balance' : 'usd';
   if (!(amount > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
   if (amount > (u[field] || 0)) return res.status(400).json({ error: 'Balans ou pa sifi.' });
-  if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
+  let destAccount = account, extra = {};
+  if (method === 'USDT') {
+    const d = usdtDestination(req.body);
+    if (d.error) return res.status(400).json({ error: d.error });
+    destAccount = d.account; extra = d.extra;
+  } else if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
   u[field] = round2(u[field] - amount);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account, status: 'pending', createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account: destAccount, ...extra, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
