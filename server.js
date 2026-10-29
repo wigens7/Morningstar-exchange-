@@ -46,6 +46,11 @@ const fileStore = createFiles({
   p2pDir: path.join(DATA_DIR, 'p2p-evidence')
 });
 if (isProd && !fileStore.canWrite) console.warn('ATANSYON: nouvo foto KYC/P2P ap sove sou disk lokal (Supabase Storage pa aktif).');
+// ---------- Chat support (live chat, sèlman tèks) ----------
+const { cleanBody, createSupport, supabaseSupport, fileSupport, SupportError } = require('./supportstore');
+const support = createSupport(useSupabase
+  ? supabaseSupport({ url: SUPABASE_URL, key: SUPABASE_KEY })
+  : fileSupport(path.join(DATA_DIR, 'support-messages.json')));
 const loadUsers = store.loadUsers;
 const saveUsers = store.saveUsers; // asynchrone: toujou "await saveUsers(...)"
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -75,30 +80,7 @@ function saveSettings(st) {
   fs.writeFileSync(tmp, JSON.stringify(st, null, 2));
   fs.renameSync(tmp, SETTINGS_FILE);
 }
-// Retrè: balans HTG => sèlman MonCash / NatCash. Balans dola (USD/USDT) => Meru, Zelle, USDT, CashApp, PayPal, Wise.
-// Dola pa ka ale sou MonCash/NatCash dirèkteman: swap an HTG dabò.
 const W_METHODS = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'] };
-const USDT_NETWORKS = { TRC20: /^T[1-9A-HJ-NP-Za-km-z]{33}$/, BEP20: /^0x[a-fA-F0-9]{40}$/ };
-// USDT: Binance (ID oswa imèl) oswa wallet crypto (rezo TRC20/BEP20). Retounen { account, extra } oswa { error }
-function usdtDestination(b) {
-  const dest = String(b.dest || '');
-  const val = String(b.account || '').trim();
-  if (dest === 'binance') {
-    const idType = String(b.idType || '');
-    if (idType === 'id') return /^\d{5,20}$/.test(val) ? { account: val, extra: { dest, idType } } : { error: 'Binance ID pa valid (chif sèlman).' };
-    if (idType === 'email') return /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/.test(val) && val.length <= 100 ? { account: val, extra: { dest, idType } } : { error: 'Imèl Binance pa valid.' };
-    return { error: 'Chwazi si se Binance ID oswa imèl Binance.' };
-  }
-  if (dest === 'wallet') {
-    const network = String(b.network || '');
-    if (!USDT_NETWORKS[network]) return { error: 'Chwazi rezo a: TRC20 oswa BEP20.' };
-    return USDT_NETWORKS[network].test(val) ? { account: val, extra: { dest, network } } : { error: 'Adrès wallet la pa valid pou rezo ' + network + '.' };
-  }
-  return { error: 'Chwazi Binance oswa wallet crypto.' };
-}
-// Checkbox obligatwa (depo + retrè): kliyan an dakò validasyon pran 24-48 èdtan
-const ackOk = (req) => req.body && req.body.ack === true;
-const ACK_ERR = 'Ou dwe make kazye a pou konfime depo/retrè a ka pran 24 a 48 èdtan pou valide.';
 const txOf = (s) => ({ type: 'withdrawal', currency: 'HTG', ...s });
 const publicUser = (u) => ({
   id: u.id, name: u.name, email: u.email, role: u.role || 'user',
@@ -427,8 +409,8 @@ app.get('/api/invites', auth, (req, res) =>
 );
 
 // ---------- Depo ----------
-// MonCash/NatCash => HTG | PayPal, Zelle, Meru, CashApp, Wise, USDT => dola. Admin mete direksyon (kont/adrès) kote kliyan yo voye lajan an.
-const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD', Wise: 'USD', USDT: 'USD' };
+// MonCash/NatCash => HTG | PayPal, Zelle, Meru, CashApp => dola. Admin mete enfo peman yo.
+const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD' };
 
 app.get('/api/deposit-info', auth, async (req, res) => {
   const dep = getSettings().deposit;
@@ -447,14 +429,13 @@ app.post('/api/deposit', auth, async (req, res) => {
   if (!(amount > 0) || amount > 10000000) return res.status(400).json({ error: 'Montan an pa valid.' });
   const reference = String(req.body.reference || '').trim();
   if (reference.length < 3 || reference.length > 100) return res.status(400).json({ error: 'Antre referans tranzaksyon an.' });
-  if (!ackOk(req)) return res.status(400).json({ error: ACK_ERR });
   if ((u.swaps || []).filter((t) => t.type === 'deposit' && t.status === 'pending').length >= 5) {
     return res.status(429).json({ error: 'Ou gen twòp depo an kou. Tann yo trete.' });
   }
   const dup = req.users.some((x) => (x.swaps || []).some((t) => t.type === 'deposit' && t.method === method && t.status !== 'rejected' && String(t.reference).toLowerCase() === reference.toLowerCase()));
   if (dup) return res.status(409).json({ error: 'Referans sa a deja itilize.' });
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, amount, reference, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, amount, reference, status: 'pending', createdAt: new Date().toISOString() });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
@@ -485,32 +466,8 @@ app.post('/api/swap', auth, notBanned, needProfile, async (req, res) => {
   res.status(201).json(publicUser(u));
 });
 
-// ---------- Swap (dola USD/USDT/fiat -> HTG) ----------
-app.post('/api/swap/to-htg', auth, notBanned, needProfile, async (req, res) => {
-  const u = req.user;
-  if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
-  const st = getSettings();
-  const asset = W_ASSETS.includes(String(req.body.asset || '')) ? String(req.body.asset) : null;
-  const pct = feeFor(st, asset);
-  if (Number(req.body.rate) !== st.rate || Number(req.body.feePercent) !== pct) {
-    return res.status(409).json({ error: 'To oswa frè a fèk chanje. Verifye nouvo valè yo epi eseye ankò.', user: publicUser(u) });
-  }
-  const usd = round2(Number(req.body.amount));
-  if (!(usd > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
-  if (usd > (u.usd || 0)) return res.status(400).json({ error: 'Balans dola ou pa sifi.' });
-  const feeUsd = round2((usd * pct) / 100);
-  const htg = Math.floor((usd - feeUsd) * st.rate * 100) / 100;
-  if (htg <= 0) return res.status(400).json({ error: 'Montan an twò piti pou yon swap.' });
-  u.usd = round2(u.usd - usd);
-  u.balance = round2((u.balance || 0) + htg);
-  u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', dir: 'to_htg', currency: 'USD', amount: usd, fee: feeUsd, feePercent: pct, asset, htg, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
-  await saveUsers(req.users);
-  res.status(201).json(publicUser(u));
-});
-
 // ---------- Retrè ----------
-// HTG => MonCash / NatCash | USD => Meru, Zelle, USDT (Binance/wallet), CashApp, PayPal, Wise
+// HTG => sèlman MonCash / NatCash | USD => Meru, Zelle, USDT, CashApp, PayPal
 app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon retrè.' });
@@ -522,21 +479,15 @@ app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, re
   if (!W_METHODS[currency].includes(method)) {
     return res.status(400).json({ error: currency === 'HTG'
       ? 'Balans HTG ka retire sèlman sou MonCash oswa NatCash. Pou lòt metòd yo, swap an dola dabò.'
-      : 'Balans dola pa ka retire sou MonCash/NatCash. Swap li an HTG dabò.' });
+      : 'Metòd la pa valid.' });
   }
-  if (!ackOk(req)) return res.status(400).json({ error: ACK_ERR });
   const field = currency === 'HTG' ? 'balance' : 'usd';
   if (!(amount > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
   if (amount > (u[field] || 0)) return res.status(400).json({ error: 'Balans ou pa sifi.' });
-  let destAccount = account, extra = {};
-  if (method === 'USDT') {
-    const d = usdtDestination(req.body);
-    if (d.error) return res.status(400).json({ error: d.error });
-    destAccount = d.account; extra = d.extra;
-  } else if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
+  if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
   u[field] = round2(u[field] - amount);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account: destAccount, ...extra, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account, status: 'pending', createdAt: new Date().toISOString() });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
@@ -591,6 +542,7 @@ app.delete('/api/admin/users/:id', adminOnly, async (req, res) => {
   if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka efase yon admin.' });
   await store.removeUser(u.id);
+  try { await support.removeThread(u.id); } catch (e) { console.error('[chat] pa ka efase fil la', e.message); }
   await fileStore.removeKyc(u.id, u.kyc); // foto yo (Supabase + disk). Si efasman an echwe, li ekri nan logs.
   res.json({ ok: true });
 });
@@ -735,6 +687,54 @@ app.post('/api/admin/withdrawals/:id/status', adminOnly, async (req, res) => {
   res.status(404).json({ error: 'Pa jwenn.' });
 });
 
+// ---------- Chat support: woutin ----------
+// Kliyan: li/ekri SÈLMAN fil pa l (id la sòti nan sesyon an). Pa gen woutin pou voye imaj. Staff (admin/support): wè tout fil yo epi reponn.
+const isStaff = (u) => !!u && (u.role === 'admin' || u.role === 'support');
+const staffOnly = (req, res, next) => auth(req, res, () => (isStaff(req.user) ? next() : res.status(403).json({ error: 'Pa otorize.' })));
+const customerOnly = (req, res, next) => (isStaff(req.user) ? res.status(403).json({ error: 'Staff pa itilize chat kliyan an.' }) : next());
+const chatHits = new Map();
+function chatLimit(key, max, windowMs) {
+  const now = Date.now(), arr = (chatHits.get(key) || []).filter((t) => now - t < windowMs);
+  if (arr.length >= max) return false;
+  arr.push(now); chatHits.set(key, arr); return true;
+}
+setInterval(() => { const now = Date.now(); for (const [k, a] of chatHits) if (!a.length || now - a[a.length - 1] > 3600e3) chatHits.delete(k); }, 10 * 60e3).unref();
+const afterId = (q) => Math.max(0, parseInt(q, 10) || 0);
+
+app.get('/api/support/messages', auth, customerOnly, async (req, res) => {
+  res.json({ userId: req.user.id, messages: await support.listForUser(req.user.id, afterId(req.query.after)) });
+});
+app.post('/api/support/messages', auth, customerOnly, async (req, res) => {
+  const body = cleanBody(req.body && req.body.body);
+  if (!body) return res.status(400).json({ error: 'Ekri yon mesaj (1 a 1000 karaktè).' });
+  if (!chatLimit(`u:${req.user.id}:m`, 10, 60e3) || !chatLimit(`u:${req.user.id}:h`, 100, 3600e3)) return res.status(429).json({ error: 'Twòp mesaj. Tann yon ti moman.' });
+  res.status(201).json({ message: await support.send(req.user.id, body) });
+});
+
+app.get('/api/admin/support/unread', staffOnly, async (req, res) => res.json({ unread: await support.unreadTotal() }));
+app.get('/api/admin/support/threads', staffOnly, async (req, res) => {
+  const byId = new Map(req.users.map((u) => [u.id, u]));
+  const list = (await support.threads()).filter((t) => byId.has(t.userId) && !isStaff(byId.get(t.userId))).map((t) => {
+    const u = byId.get(t.userId);
+    return { userId: t.userId, name: u.name, email: u.email, uid: u.uid, banned: !!u.banned, lastBody: t.lastBody, lastSender: t.lastSender, lastAt: t.lastAt, unread: t.unread };
+  });
+  list.sort((a, b) => (b.unread > 0) - (a.unread > 0) || String(b.lastAt).localeCompare(String(a.lastAt)));
+  res.json({ unread: list.reduce((n, t) => n + t.unread, 0), threads: list.slice(0, 100) });
+});
+app.get('/api/admin/support/threads/:userId/messages', staffOnly, async (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.userId);
+  if (!u || isStaff(u)) return res.status(404).json({ error: 'Pa jwenn.' });
+  res.json({ user: { id: u.id, name: u.name, email: u.email, uid: u.uid }, messages: await support.listForStaff(u.id, afterId(req.query.after)) });
+});
+app.post('/api/admin/support/threads/:userId/messages', staffOnly, async (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.userId);
+  if (!u || isStaff(u)) return res.status(404).json({ error: 'Pa jwenn.' });
+  const body = cleanBody(req.body && req.body.body);
+  if (!body) return res.status(400).json({ error: 'Ekri yon repons (1 a 1000 karaktè).' });
+  if (!chatLimit(`s:${req.user.id}`, 60, 60e3)) return res.status(429).json({ error: 'Twòp mesaj. Tann yon ti moman.' });
+  res.status(201).json({ message: await support.reply(u.id, req.user.id, body) });
+});
+
 // ---------- P2P (escrow, anons, lòd, dispit) ----------
 const { createService } = require('./p2p/service');
 const { mount: mountP2P } = require('./p2p/routes');
@@ -815,6 +815,7 @@ app.get('/p2p.html', page('p2p.html'));
 app.get('/admin-p2p.js', page('admin-p2p.js'));
 app.get('/i18n.js', page('i18n.js'));
 app.get('/dialogs.js', page('dialogs.js'));
+app.get('/support-chat.js', page('support-chat.js'));
 app.get('/logos.js', page('logos.js'));
 app.use('/logos', express.static(path.join(__dirname, 'logos'), { index: false }));
 app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
@@ -822,6 +823,10 @@ app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   if (err instanceof ConflictError) return res.status(409).json({ error: 'Done yo fèk chanje. Eseye ankò.' });
+  if (err instanceof SupportError) {
+    console.error('[chat]', req.method, req.path, err.message);
+    return res.status(503).json({ error: 'Chat la pa disponib kounye a. Eseye ankò nan kèk segonn.' });
+  }
   if (err instanceof StorageError) {
     console.error('[estokaj]', req.method, req.path, err.message);
     return res.status(err.status === 400 ? 400 : 503).json({ error: err.status === 400 ? err.message : 'Estokaj foto a pa disponib kounye a. Eseye ankò nan kèk segonn.' });

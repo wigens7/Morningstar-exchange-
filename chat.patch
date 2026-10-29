@@ -1,0 +1,1059 @@
+diff -ruN a/README.md b/README.md
+--- a/README.md	2026-10-29 11:50:03.297631809 +0000
++++ b/README.md	2026-10-29 11:50:03.308058375 +0000
+@@ -34,3 +34,10 @@
+ - Nouvo dosye KYC gen `kyc.store = "supabase"`; nouvo prèv P2P gen `file = "sb:<lòd>/<non>"`. Anrejistreman san sa yo (ansyen) toujou li sou disk (`/data/kyc`, `/data/p2p-evidence`).
+ - `FILE_STORE=disk` = kill-switch: nouvo foto yo tounen sou disk; sa ki deja nan Supabase rete li.
+ - Tès sante (admin konekte): `GET /api/admin/storage-check` monte/li/efase yon ti PNG nan 2 buckets yo epi retounen `ok: true`.
++
++## Chat support (live chat, sèlman tèks)
++- Kliyan: yon ikòn flotan nan paj dashboard/P2P/paramèt/KYC louvri yon popup. **Pa gen okenn fason pou voye foto/fichye**: sèvè a aksepte sèlman yon tèks (1 a 1000 karaktè) epi pa gen woutin upload pou chat la.
++- Staff (admin + support): tab **Chat** nan `/admin.html` (lis kliyan yo, badj non-li, reponn). Staff pa wè ikòn kliyan an.
++- Mesaj yo sove nan Supabase, tab `public.support_messages` (woule `supabase/support-schema.sql` yon fwa). Si Supabase pa konfigire, yo ale nan `support-messages.json` (Volume).
++- Sekirite: kliyan wè sèlman fil pa l (id sòti nan sesyon an); tout tèks parèt kòm tèks (pa HTML); limit 10 mesaj/minit pa kliyan; efase yon kont efase chat li a tou (FK `on delete cascade`).
++- Rafrechisman: popup ouvè = chak 4s, fèmen = chak 30s; admin = 5s nan yon fil, 15s nan lis la.
+diff -ruN a/admin.html b/admin.html
+--- a/admin.html	2026-10-29 11:50:03.298112517 +0000
++++ b/admin.html	2026-10-29 11:50:03.308423052 +0000
+@@ -37,6 +37,7 @@
+     <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="dep" onclick="go('dep')">Depo</button>
+     <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="dinfo" onclick="go('dinfo')">Enfo Depo</button>
+     <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="p2p" onclick="go('p2p')">P2P</button>
++    <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="chat" onclick="go('chat')">Chat<span id="chat-badge" class="hidden ml-1.5 bg-red-600 text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold">0</span></button>
+     <button class="tab rounded-xl py-2 px-3.5 whitespace-nowrap" data-t="set" onclick="go('set')">To &amp; Frè</button>
+   </div>
+   <div id="msg" class="hidden mb-4 p-3 rounded-xl text-sm bg-red-500/10 border border-red-500/30 text-red-400"></div>
+@@ -89,6 +90,8 @@
+ }
+ 
+ async function load() {
++  stopChat();
++  if (tab === 'chat') return loadChat();
+   $('list').innerHTML = '<p class="text-gray-400">Chajman...</p>';
+   if (tab === 'kyc') {
+     const rows = await api('/api/admin/kyc');
+@@ -280,14 +283,97 @@
+   load();
+ }
+ 
++// ---------- Chat support (staff reponn kliyan yo; sèlman tèks) ----------
++let chatTimer = null, chatUser = null, chatLast = 0, chatBadgeTimer = null;
++function stopChat() { clearInterval(chatTimer); chatTimer = null; chatUser = null; }
++const fmtT = (iso) => { try { return new Date(iso).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
++async function chatApi(url, body) { // pa montre erè anwo paj la pandan rafrechisman otomatik la
++  const r = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
++  if (r.status === 401) { location.href = '/'; throw new Error('401'); }
++  return { ok: r.ok, status: r.status, d: await r.json().catch(() => ({})) };
++}
++function setChatBadge(n) { const b = $('chat-badge'); b.textContent = n > 99 ? '99+' : String(n); b.classList.toggle('hidden', !n); }
++async function refreshChatBadge() {
++  if (document.hidden) return;
++  try { const r = await chatApi('/api/admin/support/unread'); if (r.ok) setChatBadge(r.d.unread || 0); } catch { /* pa grav */ }
++}
++
++async function loadChat() {
++  stopChat();
++  const draw = async () => {
++    let r; try { r = await chatApi('/api/admin/support/threads'); } catch { return; }
++    if (tab !== 'chat' || chatUser) return;
++    if (!r.ok) { $('list').innerHTML = '<p class="text-red-400">Pa ka chaje chat la.</p>'; return; }
++    setChatBadge(r.d.unread || 0);
++    const ts = r.d.threads || [];
++    $('list').innerHTML = ts.length ? ts.map((t) => `<button type="button" data-u="${esc(t.userId)}" class="card rounded-2xl p-3 w-full text-left flex gap-3 items-center">
++      <div class="min-w-0 flex-1"><p class="font-semibold truncate">${esc(t.name)}${t.banned ? ' <span class="text-red-400 text-[10px]">bani</span>' : ''}</p>
++      <p class="text-[11px] text-gray-400 truncate">${esc(t.email)} · ID ${esc(t.uid)}</p>
++      <p class="text-xs mt-1 truncate ${t.unread ? 'text-white font-semibold' : 'text-gray-400'}">${t.lastSender === 'staff' ? 'Ou: ' : ''}${esc(t.lastBody)}</p></div>
++      <div class="text-right flex-shrink-0"><p class="text-[10px] text-gray-500">${esc(fmtT(t.lastAt))}</p>${t.unread ? `<span class="inline-block mt-1 bg-red-600 text-white rounded-full px-2 py-0.5 text-[10px] font-bold">${t.unread}</span>` : ''}</div></button>`).join('')
++      : '<p class="text-gray-400">Pa gen mesaj ankò.</p>';
++    $('list').querySelectorAll('button[data-u]').forEach((b) => b.addEventListener('click', () => openThread(b.dataset.u)));
++  };
++  await draw();
++  chatTimer = setInterval(() => { if (!document.hidden) draw(); }, 15000);
++}
++
++async function openThread(userId) {
++  stopChat(); chatUser = userId; chatLast = 0;
++  $('list').innerHTML = `<div class="card rounded-2xl overflow-hidden flex flex-col" style="height:calc(100dvh - 11rem);min-height:20rem">
++    <div class="p-3 border-b border-white/10 flex items-center gap-3"><button type="button" id="ch-back" class="text-amber-400 text-sm flex-shrink-0">← Retounen</button>
++      <div class="min-w-0"><p class="font-semibold truncate" id="ch-name"></p><p class="text-[11px] text-gray-400 truncate" id="ch-sub"></p></div></div>
++    <div id="ch-log" class="flex-1 overflow-y-auto p-3 space-y-2" role="log"></div>
++    <div id="ch-err" class="text-xs text-red-400 px-3 min-h-[1rem]" role="alert"></div>
++    <div class="p-3 border-t border-white/10 flex gap-2 items-end"><textarea id="ch-in" class="inp" rows="2" maxlength="1000" placeholder="Ekri repons ou (sèlman tèks)..."></textarea><button type="button" id="ch-send" class="b on" style="padding:.7rem 1rem">Voye</button></div></div>`;
++  $('ch-back').addEventListener('click', () => { stopChat(); loadChat(); });
++  const log = $('ch-log'), seen = new Set();
++  const add = (m) => {
++    if (seen.has(m.id)) return false; seen.add(m.id); if (m.id > chatLast) chatLast = m.id;
++    const mine = m.sender === 'staff';
++    const b = document.createElement('div');
++    b.className = 'max-w-[82%] px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ' + (mine ? 'ml-auto bg-amber-500 text-black rounded-br-md' : 'bg-white/10 rounded-bl-md');
++    b.appendChild(document.createTextNode(m.body)); // textContent: pa gen HTML/XSS
++    const s = document.createElement('div'); s.className = 'text-[10px] opacity-60 mt-1'; s.textContent = (mine ? 'Support' : 'Kliyan') + ' · ' + fmtT(m.createdAt);
++    b.appendChild(s); log.appendChild(b); return true;
++  };
++  const pull = async (first) => {
++    if (chatUser !== userId || (document.hidden && !first)) return;
++    let r; try { r = await chatApi(`/api/admin/support/threads/${encodeURIComponent(userId)}/messages?after=${chatLast}`); } catch { return; }
++    if (chatUser !== userId) return;
++    if (!r.ok) { if (first) $('ch-err').textContent = r.d.error || 'Pa ka chaje mesaj yo.'; return; }
++    if (first) { $('ch-name').textContent = r.d.user.name; $('ch-sub').textContent = `${r.d.user.email} · ID ${r.d.user.uid}`; }
++    const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
++    let n = 0; for (const m of r.d.messages) if (add(m)) n++;
++    if (first || (n && near)) log.scrollTop = log.scrollHeight;
++    if (n) refreshChatBadge();
++  };
++  let sending = false;
++  const send = async () => {
++    const body = $('ch-in').value.trim(); if (!body || sending) return;
++    sending = true; $('ch-send').disabled = true; $('ch-err').textContent = '';
++    try {
++      const r = await chatApi(`/api/admin/support/threads/${encodeURIComponent(userId)}/messages`, { body });
++      if (!r.ok) { $('ch-err').textContent = r.d.error || 'Pa ka voye.'; return; }
++      add(r.d.message); $('ch-in').value = ''; log.scrollTop = log.scrollHeight; refreshChatBadge();
++    } catch { $('ch-err').textContent = 'Pa ka voye. Eseye ankò.'; } finally { sending = false; $('ch-send').disabled = false; $('ch-in').focus(); }
++  };
++  $('ch-send').addEventListener('click', send);
++  $('ch-in').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); send(); } });
++  await pull(true);
++  chatTimer = setInterval(() => pull(false), 5000);
++  $('ch-in').focus();
++}
++
+ (async () => {
+   const r = await fetch('/api/me');
+   if (r.status === 401) return (location.href = '/');
+   const me = await r.json();
+   if (!['admin', 'support'].includes(me.role)) return (location.href = '/');
+   window.ME_ROLE = me.role;
+-  if (me.role === 'support') { // support: sèlman P2P (revizyon dispit, chat)
+-    document.querySelectorAll('.tab[data-t]').forEach((b) => { if (b.dataset.t !== 'p2p') b.style.display = 'none'; });
++  refreshChatBadge(); chatBadgeTimer = setInterval(refreshChatBadge, 20000);
++  if (me.role === 'support') { // support: sèlman P2P (revizyon dispit) ak Chat kliyan
++    document.querySelectorAll('.tab[data-t]').forEach((b) => { if (!['p2p', 'chat'].includes(b.dataset.t)) b.style.display = 'none'; });
+     return go('p2p');
+   }
+   load();
+diff -ruN a/dashboard.html b/dashboard.html
+--- a/dashboard.html	2026-10-29 11:50:03.298293274 +0000
++++ b/dashboard.html	2026-10-29 11:50:03.308573256 +0000
+@@ -430,5 +430,6 @@
+   render();
+ })();
+ </script>
++<script src="/support-chat.js" defer></script>
+ </body>
+ </html>
+diff -ruN a/kyc.html b/kyc.html
+--- a/kyc.html	2026-10-29 11:50:03.298936132 +0000
++++ b/kyc.html	2026-10-29 11:50:03.309317786 +0000
+@@ -270,5 +270,6 @@
+         }
+     })();
+ </script>
++<script src="/support-chat.js" defer></script>
+ </body>
+ </html>
+diff -ruN a/p2p.html b/p2p.html
+--- a/p2p.html	2026-10-29 11:50:03.299223284 +0000
++++ b/p2p.html	2026-10-29 11:50:03.309816349 +0000
+@@ -433,5 +433,6 @@
+   render();
+ })();
+ </script>
++<script src="/support-chat.js" defer></script>
+ </body>
+ </html>
+diff -ruN a/package.json b/package.json
+--- a/package.json	2026-10-29 11:50:03.300371386 +0000
++++ b/package.json	2026-10-29 11:50:03.310823428 +0000
+@@ -6,7 +6,7 @@
+   "private": true,
+   "scripts": {
+     "start": "node server.js",
+-    "test": "node --test --test-force-exit test/p2p.test.js test/userstore.test.js test/filestore.test.js test/p2p-evidence.test.js test/kyc-server.test.js",
++    "test": "node --test --test-force-exit test/p2p.test.js test/userstore.test.js test/filestore.test.js test/p2p-evidence.test.js test/kyc-server.test.js test/supportstore.test.js test/support-server.test.js",
+     "migrate:users": "node scripts/migrate-users.js"
+   },
+   "engines": {
+diff -ruN a/server.js b/server.js
+--- a/server.js	2026-10-29 11:50:03.300556142 +0000
++++ b/server.js	2026-10-29 11:50:03.311072091 +0000
+@@ -46,6 +46,11 @@
+   p2pDir: path.join(DATA_DIR, 'p2p-evidence')
+ });
+ if (isProd && !fileStore.canWrite) console.warn('ATANSYON: nouvo foto KYC/P2P ap sove sou disk lokal (Supabase Storage pa aktif).');
++// ---------- Chat support (live chat, sèlman tèks) ----------
++const { cleanBody, createSupport, supabaseSupport, fileSupport, SupportError } = require('./supportstore');
++const support = createSupport(useSupabase
++  ? supabaseSupport({ url: SUPABASE_URL, key: SUPABASE_KEY })
++  : fileSupport(path.join(DATA_DIR, 'support-messages.json')));
+ const loadUsers = store.loadUsers;
+ const saveUsers = store.saveUsers; // asynchrone: toujou "await saveUsers(...)"
+ const round2 = (n) => Math.round(n * 100) / 100;
+@@ -537,6 +542,7 @@
+   if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
+   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka efase yon admin.' });
+   await store.removeUser(u.id);
++  try { await support.removeThread(u.id); } catch (e) { console.error('[chat] pa ka efase fil la', e.message); }
+   await fileStore.removeKyc(u.id, u.kyc); // foto yo (Supabase + disk). Si efasman an echwe, li ekri nan logs.
+   res.json({ ok: true });
+ });
+@@ -681,6 +687,54 @@
+   res.status(404).json({ error: 'Pa jwenn.' });
+ });
+ 
++// ---------- Chat support: woutin ----------
++// Kliyan: li/ekri SÈLMAN fil pa l (id la sòti nan sesyon an). Pa gen woutin pou voye imaj. Staff (admin/support): wè tout fil yo epi reponn.
++const isStaff = (u) => !!u && (u.role === 'admin' || u.role === 'support');
++const staffOnly = (req, res, next) => auth(req, res, () => (isStaff(req.user) ? next() : res.status(403).json({ error: 'Pa otorize.' })));
++const customerOnly = (req, res, next) => (isStaff(req.user) ? res.status(403).json({ error: 'Staff pa itilize chat kliyan an.' }) : next());
++const chatHits = new Map();
++function chatLimit(key, max, windowMs) {
++  const now = Date.now(), arr = (chatHits.get(key) || []).filter((t) => now - t < windowMs);
++  if (arr.length >= max) return false;
++  arr.push(now); chatHits.set(key, arr); return true;
++}
++setInterval(() => { const now = Date.now(); for (const [k, a] of chatHits) if (!a.length || now - a[a.length - 1] > 3600e3) chatHits.delete(k); }, 10 * 60e3).unref();
++const afterId = (q) => Math.max(0, parseInt(q, 10) || 0);
++
++app.get('/api/support/messages', auth, customerOnly, async (req, res) => {
++  res.json({ userId: req.user.id, messages: await support.listForUser(req.user.id, afterId(req.query.after)) });
++});
++app.post('/api/support/messages', auth, customerOnly, async (req, res) => {
++  const body = cleanBody(req.body && req.body.body);
++  if (!body) return res.status(400).json({ error: 'Ekri yon mesaj (1 a 1000 karaktè).' });
++  if (!chatLimit(`u:${req.user.id}:m`, 10, 60e3) || !chatLimit(`u:${req.user.id}:h`, 100, 3600e3)) return res.status(429).json({ error: 'Twòp mesaj. Tann yon ti moman.' });
++  res.status(201).json({ message: await support.send(req.user.id, body) });
++});
++
++app.get('/api/admin/support/unread', staffOnly, async (req, res) => res.json({ unread: await support.unreadTotal() }));
++app.get('/api/admin/support/threads', staffOnly, async (req, res) => {
++  const byId = new Map(req.users.map((u) => [u.id, u]));
++  const list = (await support.threads()).filter((t) => byId.has(t.userId) && !isStaff(byId.get(t.userId))).map((t) => {
++    const u = byId.get(t.userId);
++    return { userId: t.userId, name: u.name, email: u.email, uid: u.uid, banned: !!u.banned, lastBody: t.lastBody, lastSender: t.lastSender, lastAt: t.lastAt, unread: t.unread };
++  });
++  list.sort((a, b) => (b.unread > 0) - (a.unread > 0) || String(b.lastAt).localeCompare(String(a.lastAt)));
++  res.json({ unread: list.reduce((n, t) => n + t.unread, 0), threads: list.slice(0, 100) });
++});
++app.get('/api/admin/support/threads/:userId/messages', staffOnly, async (req, res) => {
++  const u = req.users.find((x) => x.id === req.params.userId);
++  if (!u || isStaff(u)) return res.status(404).json({ error: 'Pa jwenn.' });
++  res.json({ user: { id: u.id, name: u.name, email: u.email, uid: u.uid }, messages: await support.listForStaff(u.id, afterId(req.query.after)) });
++});
++app.post('/api/admin/support/threads/:userId/messages', staffOnly, async (req, res) => {
++  const u = req.users.find((x) => x.id === req.params.userId);
++  if (!u || isStaff(u)) return res.status(404).json({ error: 'Pa jwenn.' });
++  const body = cleanBody(req.body && req.body.body);
++  if (!body) return res.status(400).json({ error: 'Ekri yon repons (1 a 1000 karaktè).' });
++  if (!chatLimit(`s:${req.user.id}`, 60, 60e3)) return res.status(429).json({ error: 'Twòp mesaj. Tann yon ti moman.' });
++  res.status(201).json({ message: await support.reply(u.id, req.user.id, body) });
++});
++
+ // ---------- P2P (escrow, anons, lòd, dispit) ----------
+ const { createService } = require('./p2p/service');
+ const { mount: mountP2P } = require('./p2p/routes');
+@@ -761,6 +815,7 @@
+ app.get('/admin-p2p.js', page('admin-p2p.js'));
+ app.get('/i18n.js', page('i18n.js'));
+ app.get('/dialogs.js', page('dialogs.js'));
++app.get('/support-chat.js', page('support-chat.js'));
+ app.get('/logos.js', page('logos.js'));
+ app.use('/logos', express.static(path.join(__dirname, 'logos'), { index: false }));
+ app.get('/kyc', (req, res) => res.redirect('/kyc.html'));
+@@ -768,6 +823,10 @@
+ app.use((err, req, res, next) => {
+   if (res.headersSent) return next(err);
+   if (err instanceof ConflictError) return res.status(409).json({ error: 'Done yo fèk chanje. Eseye ankò.' });
++  if (err instanceof SupportError) {
++    console.error('[chat]', req.method, req.path, err.message);
++    return res.status(503).json({ error: 'Chat la pa disponib kounye a. Eseye ankò nan kèk segonn.' });
++  }
+   if (err instanceof StorageError) {
+     console.error('[estokaj]', req.method, req.path, err.message);
+     return res.status(err.status === 400 ? 400 : 503).json({ error: err.status === 400 ? err.message : 'Estokaj foto a pa disponib kounye a. Eseye ankò nan kèk segonn.' });
+diff -ruN a/settings.html b/settings.html
+--- a/settings.html	2026-10-29 11:50:03.300851010 +0000
++++ b/settings.html	2026-10-29 11:50:03.311242171 +0000
+@@ -211,5 +211,6 @@
+   } catch {}
+ })();
+ </script>
++<script src="/support-chat.js" defer></script>
+ </body>
+ </html>
+diff -ruN a/supabase/support-schema.sql b/supabase/support-schema.sql
+--- a/supabase/support-schema.sql	1970-01-01 00:00:00.000000000 +0000
++++ b/supabase/support-schema.sql	2026-10-29 11:50:03.314689804 +0000
+@@ -0,0 +1,18 @@
++-- Kole sa a nan Supabase > SQL Editor > Run (apre supabase/schema.sql). San danje pou woule plizyè fwa.
++create table if not exists public.support_messages (
++  id         bigint generated always as identity primary key,
++  user_id    text not null references public.users(id) on delete cascade,  -- efase kont lan = efase mesaj yo tou
++  sender     text not null check (sender in ('user', 'staff')),
++  staff_id   text,
++  body       text not null check (char_length(body) between 1 and 1000),   -- sèlman tèks, maks 1000 karaktè
++  staff_read boolean not null default false,
++  created_at timestamptz not null default now()
++);
++create index if not exists support_messages_user_idx on public.support_messages (user_id, id);
++create index if not exists support_messages_unread_idx on public.support_messages (user_id) where sender = 'user' and not staff_read;
++
++-- Sekirite: sèlman sèvè a (service role). Kle piblik la pa ka li ni ekri.
++alter table public.support_messages enable row level security;
++revoke all on public.support_messages from anon, authenticated;
++grant all on table public.support_messages to service_role;
++grant usage, select on sequence public.support_messages_id_seq to service_role;
+diff -ruN a/support-chat.js b/support-chat.js
+--- a/support-chat.js	1970-01-01 00:00:00.000000000 +0000
++++ b/support-chat.js	2026-10-29 11:50:03.315771970 +0000
+@@ -0,0 +1,168 @@
++// Chat support pou kliyan yo: ikòn flotan + fenèt popup. SÈLMAN TÈKS (pa gen bouton foto, pa gen upload).
++// Li parèt sèlman si kliyan an konekte (si sèvè a reponn 401/403, anyen pa parèt).
++(function () {
++  if (window.__scLoaded) return; window.__scLoaded = true;
++  const T = {
++    ht: { title: 'Support', sub: 'Nou la pou ede w', hello: 'Bonjou! Ekri mesaj ou a la a, yon ajan ap reponn ou le pli vit posib.', ph: 'Ekri mesaj ou...', send: 'Voye', close: 'Fèmen', open: 'Louvri chat support', textOnly: 'Sèlman tèks. Pa voye modpas, PIN oswa kòd ou.', err: 'Pa ka voye. Eseye ankò.', many: 'Twòp mesaj. Tann yon ti moman.', load: 'Pa ka chaje mesaj yo.', you: 'Ou', team: 'Support' },
++    fr: { title: 'Support', sub: 'Nous sommes là pour vous aider', hello: 'Bonjour ! Écrivez votre message ici, un agent vous répondra dès que possible.', ph: 'Écrivez votre message...', send: 'Envoyer', close: 'Fermer', open: 'Ouvrir le chat support', textOnly: 'Texte uniquement. N’envoyez jamais mot de passe, PIN ou codes.', err: 'Envoi impossible. Réessayez.', many: 'Trop de messages. Patientez un instant.', load: 'Impossible de charger les messages.', you: 'Vous', team: 'Support' },
++    en: { title: 'Support', sub: 'We’re here to help', hello: 'Hi! Type your message here and an agent will reply as soon as possible.', ph: 'Type your message...', send: 'Send', close: 'Close', open: 'Open support chat', textOnly: 'Text only. Never share your password, PIN or codes.', err: 'Could not send. Try again.', many: 'Too many messages. Please wait a moment.', load: 'Could not load messages.', you: 'You', team: 'Support' },
++    es: { title: 'Soporte', sub: 'Estamos para ayudarte', hello: '¡Hola! Escribe tu mensaje aquí y un agente responderá lo antes posible.', ph: 'Escribe tu mensaje...', send: 'Enviar', close: 'Cerrar', open: 'Abrir chat de soporte', textOnly: 'Solo texto. Nunca compartas tu contraseña, PIN o códigos.', err: 'No se pudo enviar. Inténtalo de nuevo.', many: 'Demasiados mensajes. Espera un momento.', load: 'No se pudieron cargar los mensajes.', you: 'Tú', team: 'Soporte' }
++  };
++  const t = () => T[window.LANG] || T[(document.documentElement.lang || 'ht').slice(0, 2)] || T.ht;
++
++  const css = `
++#sc-fab{position:fixed;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom,0px));z-index:45;width:3.4rem;height:3.4rem;border-radius:50%;border:0;cursor:pointer;background:linear-gradient(135deg,#F1C40F,#D4AF37 60%,#996515);color:#000;box-shadow:0 6px 20px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-family:inherit}
++#sc-fab:focus-visible{outline:3px solid #fff;outline-offset:2px}
++#sc-fab svg{width:1.55rem;height:1.55rem}
++#sc-badge{position:absolute;top:-.25rem;right:-.25rem;min-width:1.2rem;height:1.2rem;padding:0 .3rem;border-radius:999px;background:#dc2626;color:#fff;font-size:.7rem;font-weight:800;display:none;align-items:center;justify-content:center;border:2px solid #090a0f;box-sizing:content-box}
++#sc-panel{position:fixed;z-index:80;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom,0px));width:22.5rem;max-width:calc(100vw - 2rem);height:32rem;max-height:calc(100dvh - 2rem);display:none;flex-direction:column;background:#12141d;color:#e5e7eb;border:1px solid rgba(212,175,55,.3);border-radius:1.1rem;box-shadow:0 14px 50px rgba(0,0,0,.65);font-family:Inter,-apple-system,Roboto,Arial,sans-serif;overflow:hidden}
++#sc-panel.open{display:flex;animation:sc-in .16s ease-out}
++.sc-h{display:flex;align-items:center;gap:.6rem;padding:.8rem 1rem;background:#171a26;border-bottom:1px solid rgba(255,255,255,.08)}
++.sc-h b{font-size:.95rem;display:block;line-height:1.2}.sc-h span{font-size:.72rem;color:#9ca3af}
++.sc-x{margin-left:auto;background:none;border:0;color:#9ca3af;font-size:1.7rem;line-height:1;cursor:pointer;padding:.1rem .4rem;border-radius:.5rem}
++.sc-x:focus-visible,.sc-send:focus-visible{outline:2px solid #D4AF37}
++.sc-log{flex:1;overflow-y:auto;padding:.9rem;display:flex;flex-direction:column;gap:.5rem;overscroll-behavior:contain}
++.sc-m{max-width:82%;padding:.5rem .75rem;border-radius:1rem;font-size:.88rem;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
++.sc-m.me{align-self:flex-end;background:#D4AF37;color:#000;border-bottom-right-radius:.25rem}
++.sc-m.them{align-self:flex-start;background:#1f2333;border-bottom-left-radius:.25rem}
++.sc-m.sys{align-self:center;background:transparent;color:#9ca3af;font-size:.78rem;text-align:center;max-width:92%}
++.sc-m small{display:block;font-size:.65rem;opacity:.65;margin-top:.2rem}
++.sc-err{color:#f87171;font-size:.76rem;padding:0 1rem .3rem;min-height:1.1rem}
++.sc-f{padding:.65rem .75rem calc(.65rem + env(safe-area-inset-bottom,0px));border-top:1px solid rgba(255,255,255,.08);background:#12141d}
++.sc-row{display:flex;gap:.5rem;align-items:flex-end}
++.sc-in{flex:1;resize:none;max-height:7rem;min-height:2.5rem;background:#0a0b10;color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:.8rem;padding:.6rem .7rem;font:inherit;font-size:1rem;line-height:1.3}
++.sc-in:focus{outline:2px solid #D4AF37;border-color:transparent}
++.sc-send{background:#D4AF37;color:#000;border:0;border-radius:.8rem;padding:.65rem .9rem;font-weight:700;font-size:.85rem;cursor:pointer;font-family:inherit}
++.sc-send:disabled{opacity:.5;cursor:default}
++.sc-note{font-size:.68rem;color:#6b7280;margin:.4rem .1rem 0}
++@media(max-width:480px){#sc-panel{right:0;left:0;bottom:0;width:100%;max-width:100%;height:100dvh;max-height:100dvh;border-radius:0;border:0}}
++@keyframes sc-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
++@media(prefers-reduced-motion:reduce){#sc-panel.open{animation:none}}`;
++
++  let fab, panel, log, input, sendBtn, errEl, badge, uid = '', lastId = 0, seenId = 0, isOpen = false, timer = null, sending = false;
++  const ids = new Set();
++  const seenKey = () => 'sc_seen_' + uid;
++  const getSeen = () => { try { return parseInt(localStorage.getItem(seenKey()) || '0', 10) || 0; } catch { return 0; } };
++  const setSeen = (n) => { seenId = n; try { localStorage.setItem(seenKey(), String(n)); } catch { /* pa grav */ } };
++
++  async function api(method, url, body) {
++    const r = await fetch(url, { method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
++    const d = await r.json().catch(() => ({}));
++    return { status: r.status, ok: r.ok, data: d };
++  }
++
++  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
++  const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 60;
++  const toBottom = () => { log.scrollTop = log.scrollHeight; };
++  function fmt(iso) { try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } }
++
++  function addMsg(m) {
++    if (ids.has(m.id)) return false;
++    ids.add(m.id); if (m.id > lastId) lastId = m.id;
++    const mine = m.sender === 'user';
++    const b = el('div', 'sc-m ' + (mine ? 'me' : 'them'));
++    b.appendChild(document.createTextNode(m.body));                 // textContent: pa gen HTML/XSS
++    b.appendChild(el('small', '', (mine ? t().you : t().team) + ' · ' + fmt(m.createdAt)));
++    log.appendChild(b);
++    return true;
++  }
++
++  function updateBadge() {
++    const n = isOpen ? 0 : unreadCount;
++    badge.textContent = n > 9 ? '9+' : String(n);
++    badge.style.display = n > 0 ? 'flex' : 'none';
++    fab.setAttribute('aria-label', t().open + (n ? ` (${n})` : ''));
++  }
++  let unreadCount = 0;
++
++  async function poll(first) {
++    if (document.hidden && !first) return;
++    let r;
++    try { r = await api('GET', '/api/support/messages?after=' + lastId); } catch { return; }
++    if (r.status === 401 || r.status === 403) return teardown();
++    if (!r.ok) { if (isOpen && first) errEl.textContent = t().load; return; }
++    const wasBottom = atBottom();
++    let added = 0;
++    for (const m of r.data.messages || []) { if (addMsg(m)) { added++; if (m.sender !== 'user' && m.id > seenId && !isOpen) unreadCount++; } }
++    if (isOpen) { if (added && wasBottom) toBottom(); if (lastId > seenId) setSeen(lastId); unreadCount = 0; if (first) toBottom(); }
++    updateBadge();
++  }
++  const schedule = () => { clearTimeout(timer); timer = setTimeout(async () => { await poll(false); schedule(); }, isOpen ? 4000 : 30000); };
++
++  function setOpen(v) {
++    isOpen = v;
++    panel.classList.toggle('open', v);
++    fab.style.display = v ? 'none' : 'flex';                          // ikòn nan kache pandan popup la louvri (pa kouvri bouton Voye)
++    fab.setAttribute('aria-expanded', String(v));
++    if (v) {
++      errEl.textContent = '';
++      unreadCount = 0; if (lastId > seenId) setSeen(lastId); updateBadge();
++      toBottom(); setTimeout(() => input.focus(), 50);
++      poll(false); schedule();
++    } else { fab.focus(); schedule(); }
++  }
++
++  async function send() {
++    if (sending) return;
++    const body = input.value.trim();
++    if (!body) return;
++    sending = true; sendBtn.disabled = true; errEl.textContent = '';
++    try {
++      const r = await api('POST', '/api/support/messages', { body });
++      if (r.status === 401 || r.status === 403) return teardown();
++      if (!r.ok) { errEl.textContent = r.status === 429 ? t().many : (r.data && r.data.error) || t().err; return; }
++      addMsg(r.data.message); input.value = ''; autoGrow(); toBottom(); setSeen(lastId);
++    } catch { errEl.textContent = t().err; }
++    finally { sending = false; sendBtn.disabled = false; input.focus(); }
++  }
++  function autoGrow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 112) + 'px'; }
++  function teardown() { clearTimeout(timer); if (fab) fab.remove(); if (panel) panel.remove(); }
++
++  function build() {
++    const st = el('style'); st.textContent = css; document.head.appendChild(st);
++    fab = el('button', ''); fab.id = 'sc-fab'; fab.type = 'button';
++    fab.setAttribute('aria-haspopup', 'dialog'); fab.setAttribute('aria-controls', 'sc-panel'); fab.setAttribute('aria-expanded', 'false');
++    fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.3 8.7 8.7 0 0 1-3.6-.8L3 21l1.9-4.9A8.2 8.2 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5z"/></svg>';
++    badge = el('span', ''); badge.id = 'sc-badge'; fab.appendChild(badge);
++    const nav = document.querySelector('nav.fixed');                // pa kouvri nav anba a sou dashboard
++    if (nav) fab.style.bottom = `calc(${Math.ceil(nav.getBoundingClientRect().height) + 20}px + env(safe-area-inset-bottom,0px))`;
++
++    panel = el('div', ''); panel.id = 'sc-panel'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'false');
++    const h = el('div', 'sc-h'); const hb = el('div'); hb.appendChild(el('b', '', t().title)); hb.appendChild(el('span', '', t().sub));
++    const x = el('button', 'sc-x', '×'); x.type = 'button'; x.setAttribute('aria-label', t().close);
++    h.appendChild(hb); h.appendChild(x);
++    log = el('div', 'sc-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-live', 'polite');
++    log.appendChild(el('div', 'sc-m sys', t().hello));
++    errEl = el('div', 'sc-err'); errEl.setAttribute('role', 'alert');
++    const f = el('div', 'sc-f'); const row = el('div', 'sc-row');
++    input = el('textarea', 'sc-in'); input.rows = 1; input.maxLength = 1000; input.placeholder = t().ph; input.setAttribute('aria-label', t().ph);
++    input.setAttribute('autocomplete', 'off'); input.setAttribute('enterkeyhint', 'send');
++    sendBtn = el('button', 'sc-send', t().send); sendBtn.type = 'button';
++    row.appendChild(input); row.appendChild(sendBtn); f.appendChild(row); f.appendChild(el('p', 'sc-note', t().textOnly));
++    panel.appendChild(h); panel.appendChild(log); panel.appendChild(errEl); panel.appendChild(f);
++    document.body.appendChild(fab); document.body.appendChild(panel);
++
++    fab.addEventListener('click', () => setOpen(!isOpen));
++    x.addEventListener('click', () => setOpen(false));
++    sendBtn.addEventListener('click', send);
++    input.addEventListener('input', autoGrow);
++    input.addEventListener('keydown', (e) => {
++      // Òdinatè: Enter voye (Shift+Enter = liy nouvo). Telefòn: Enter = liy nouvo, bouton "Voye" voye.
++      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(pointer:coarse)').matches) { e.preventDefault(); send(); }
++    });
++    panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } });
++    for (const ev of ['dragover', 'drop']) panel.addEventListener(ev, (e) => e.preventDefault()); // pa gen fichye/imaj
++    document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(false); });
++  }
++
++  async function init() {
++    let r;
++    try { r = await api('GET', '/api/support/messages'); } catch { return; }
++    if (!r.ok) return;                                              // pa konekte, oswa staff: anyen pa parèt
++    uid = String(r.data.userId || ''); seenId = getSeen();
++    build();
++    for (const m of r.data.messages || []) { addMsg(m); if (m.sender !== 'user' && m.id > seenId) unreadCount++; }
++    updateBadge(); schedule();
++  }
++  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
++})();
+diff -ruN a/supportstore.js b/supportstore.js
+--- a/supportstore.js	1970-01-01 00:00:00.000000000 +0000
++++ b/supportstore.js	2026-10-29 11:50:03.315566217 +0000
+@@ -0,0 +1,98 @@
++'use strict';
++// Chat support (live chat): mesaj kliyan <-> staff. SÈLMAN TÈKS. Sove nan Supabase (tab public.support_messages),
++// oswa nan yon fichye JSON si Supabase pa konfigire (devlopman).
++const fs = require('fs');
++
++const MAX_LEN = 1000;
++// Netwaye yon mesaj: sèlman string, retire karaktè kontwòl, 1..1000 karaktè. Retounen null si pa valid.
++function cleanBody(raw) {
++  if (typeof raw !== 'string') return null;
++  let s = raw.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, '');
++  s = s.replace(/\n{4,}/g, '\n\n\n').trim();
++  return s.length >= 1 && s.length <= MAX_LEN ? s : null;
++}
++
++class SupportError extends Error { constructor(m) { super(m); this.name = 'SupportError'; this.code = 'SUPPORT'; } }
++
++// ---------------------------------------------------------------- Supabase (REST)
++function supabaseSupport({ url, key, timeoutMs = 10000, fetchImpl }) {
++  const base = String(url).replace(/\/+$/, '') + '/rest/v1/support_messages';
++  const doFetch = fetchImpl || fetch;
++  const baseHeaders = { apikey: key, 'Content-Type': 'application/json' };
++  if (String(key).startsWith('eyJ')) baseHeaders.Authorization = 'Bearer ' + key;
++  const enc = encodeURIComponent;
++  async function call(method, qs, body, prefer) {
++    const headers = { ...baseHeaders }; if (prefer) headers.Prefer = prefer;
++    let res;
++    try { res = await doFetch(base + qs, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) }); }
++    catch (e) { throw new SupportError('Supabase pa reponn (' + (e && e.name ? e.name : 'erè rezo') + ')'); }
++    const text = await res.text(); let json = null; try { json = text ? JSON.parse(text) : null; } catch { /* pa JSON */ }
++    if (!res.ok) throw new SupportError(`Supabase chat echwe (${res.status}): ${String((json && (json.message || json.error)) || text).slice(0, 160)}`);
++    return json;
++  }
++  return {
++    name: 'supabase',
++    async add({ userId, sender, staffId, body }) {
++      const rows = await call('POST', '?select=id,user_id,sender,body,created_at', { user_id: userId, sender, staff_id: staffId || null, body }, 'return=representation');
++      if (!Array.isArray(rows) || !rows[0]) throw new SupportError('Supabase pa retounen mesaj la.');
++      return rows[0];
++    },
++    async list(userId, after, limit) {
++      const sel = 'select=id,sender,body,created_at,staff_read';
++      if (after > 0) return call('GET', `?user_id=eq.${enc(userId)}&id=gt.${Number(after)}&order=id.asc&limit=${limit}&${sel}`);
++      const rows = await call('GET', `?user_id=eq.${enc(userId)}&order=id.desc&limit=${limit}&${sel}`);
++      return rows.reverse();
++    },
++    async recent(limit) { return call('GET', `?select=id,user_id,sender,body,created_at&order=id.desc&limit=${limit}`); },
++    async unreadRows() { return call('GET', '?sender=eq.user&staff_read=eq.false&select=user_id&limit=5000'); },
++    async markRead(userId) { await call('PATCH', `?user_id=eq.${enc(userId)}&sender=eq.user&staff_read=eq.false`, { staff_read: true }, 'return=minimal'); },
++    async removeThread(userId) { await call('DELETE', `?user_id=eq.${enc(userId)}`); }
++  };
++}
++
++// ---------------------------------------------------------------- Fichye JSON (devlopman, san Supabase)
++function fileSupport(file) {
++  let rows = null, seq = 0;
++  const load = () => { if (rows) return; try { rows = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { rows = []; } seq = rows.reduce((m, r) => Math.max(m, r.id), 0); };
++  const save = () => { const t = file + '.tmp'; fs.writeFileSync(t, JSON.stringify(rows)); fs.renameSync(t, file); };
++  const pub = (r) => ({ id: r.id, sender: r.sender, body: r.body, created_at: r.created_at, staff_read: r.staff_read });
++  return {
++    name: 'file',
++    async add({ userId, sender, staffId, body }) { load(); const r = { id: ++seq, user_id: userId, sender, staff_id: staffId || null, body, staff_read: false, created_at: new Date().toISOString() }; rows.push(r); save(); return r; },
++    async list(userId, after, limit) { load(); const mine = rows.filter((r) => r.user_id === userId && r.id > after); return (after > 0 ? mine.slice(0, limit) : mine.slice(-limit)).map(pub); },
++    async recent(limit) { load(); return rows.slice(-limit).reverse(); },
++    async unreadRows() { load(); return rows.filter((r) => r.sender === 'user' && !r.staff_read).map((r) => ({ user_id: r.user_id })); },
++    async markRead(userId) { load(); let c = false; for (const r of rows) if (r.user_id === userId && r.sender === 'user' && !r.staff_read) { r.staff_read = true; c = true; } if (c) save(); },
++    async removeThread(userId) { load(); rows = rows.filter((r) => r.user_id !== userId); save(); }
++  };
++}
++
++// ---------------------------------------------------------------- Store
++function createSupport(backend) {
++  const pubMsg = (m) => ({ id: m.id, sender: m.sender, body: m.body, createdAt: m.created_at });
++  return {
++    backend,
++    // Kliyan: li pwòp fil li SÈLMAN (userId sòti nan sesyon an, pa nan demann lan)
++    async listForUser(userId, after = 0) { return (await backend.list(userId, after, 100)).map(pubMsg); },
++    async send(userId, body) { return pubMsg(await backend.add({ userId, sender: 'user', body })); },
++    // Staff
++    async reply(userId, staffId, body) { const m = pubMsg(await backend.add({ userId, sender: 'staff', staffId, body })); await backend.markRead(userId); return m; },
++    async listForStaff(userId, after = 0) {
++      const rows = await backend.list(userId, after, 200);
++      if (rows.some((m) => m.sender === 'user' && !m.staff_read)) await backend.markRead(userId);
++      return rows.map(pubMsg);
++    },
++    async threads() {
++      const [recent, unread] = await Promise.all([backend.recent(500), backend.unreadRows()]);
++      const un = new Map(); for (const r of unread) un.set(r.user_id, (un.get(r.user_id) || 0) + 1);
++      const seen = new Map();
++      for (const m of recent) if (!seen.has(m.user_id)) seen.set(m.user_id, { userId: m.user_id, lastBody: String(m.body).slice(0, 120), lastSender: m.sender, lastAt: m.created_at, unread: un.get(m.user_id) || 0 });
++      for (const [uid, n] of un) if (!seen.has(uid)) seen.set(uid, { userId: uid, lastBody: '', lastSender: 'user', lastAt: null, unread: n });
++      return [...seen.values()];
++    },
++    async unreadTotal() { return (await backend.unreadRows()).length; },
++    async removeThread(userId) { await backend.removeThread(userId); }
++  };
++}
++
++module.exports = { cleanBody, createSupport, supabaseSupport, fileSupport, SupportError, MAX_LEN };
+diff -ruN a/test/mock-support.js b/test/mock-support.js
+--- a/test/mock-support.js	1970-01-01 00:00:00.000000000 +0000
++++ b/test/mock-support.js	2026-10-29 11:50:03.313331641 +0000
+@@ -0,0 +1,46 @@
++'use strict';
++// Fo PostgREST pou tab public.support_messages (sèlman sa supportstore.js itilize). Imite kontrent SQL yo.
++const http = require('http');
++function startSupportMock({ key = 'sb_secret_test', users = null } = {}) {
++  const rows = []; let seq = 0;
++  const state = { rows, down: false, requests: [], key, users };
++  const server = http.createServer((req, res) => {
++    let raw = ''; req.on('data', (c) => (raw += c));
++    req.on('end', () => {
++      const u = new URL(req.url, 'http://x'); state.requests.push({ method: req.method, search: u.search });
++      const send = (c, o) => { res.writeHead(c, { 'Content-Type': 'application/json' }); res.end(o === undefined ? '' : JSON.stringify(o)); };
++      if (state.down) return send(500, { message: 'down' });
++      if (req.headers.apikey !== state.key) return send(401, { message: 'Invalid API key' });
++      if (u.pathname !== '/rest/v1/support_messages') return send(404, { message: 'no' });
++      const q = u.searchParams, f = (k) => { const v = q.get(k); const m = v && /^(eq|gt)\.(.*)$/.exec(v); return m ? { op: m[1], val: m[2] } : null; };
++      const match = (r) => {
++        const a = f('user_id'); if (a && r.user_id !== a.val) return false;
++        const s = f('sender'); if (s && r.sender !== s.val) return false;
++        const rd = f('staff_read'); if (rd && String(r.staff_read) !== rd.val) return false;
++        const i = f('id'); if (i && i.op === 'gt' && !(r.id > Number(i.val))) return false;
++        return true;
++      };
++      const pick = (r) => { const cols = (q.get('select') || '').split(',').filter(Boolean); if (!cols.length) return r; const o = {}; for (const c of cols) o[c] = r[c]; return o; };
++      if (req.method === 'GET') {
++        let out = rows.filter(match);
++        if ((q.get('order') || '') === 'id.desc') out = out.slice().sort((a, b) => b.id - a.id); else out = out.slice().sort((a, b) => a.id - b.id);
++        return send(200, out.slice(0, Number(q.get('limit') || 1000)).map(pick));
++      }
++      const data = raw ? JSON.parse(raw) : null;
++      if (req.method === 'POST') {
++        if (!['user', 'staff'].includes(data.sender)) return send(400, { message: 'check sender' });
++        if (typeof data.body !== 'string' || data.body.length < 1 || data.body.length > 1000) return send(400, { message: 'check body length' });
++        if (state.users && !state.users.has(data.user_id)) return send(409, { message: 'foreign key violation' });
++        const extra = Object.keys(data).filter((k) => !['user_id', 'sender', 'staff_id', 'body'].includes(k));
++        if (extra.length) return send(400, { message: 'unknown column ' + extra[0] });
++        const r = { id: ++seq, user_id: data.user_id, sender: data.sender, staff_id: data.staff_id || null, body: data.body, staff_read: false, created_at: new Date().toISOString() };
++        rows.push(r); return send(201, [pick(r)]);
++      }
++      if (req.method === 'PATCH') { for (const r of rows.filter(match)) Object.assign(r, data); return send(204); }
++      if (req.method === 'DELETE') { for (let i = rows.length - 1; i >= 0; i--) if (match(rows[i])) rows.splice(i, 1); return send(204); }
++      send(405, {});
++    });
++  });
++  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => { state.url = `http://127.0.0.1:${server.address().port}`; state.close = () => new Promise((r) => { server.close(r); if (server.closeAllConnections) server.closeAllConnections(); }); resolve(state); }));
++}
++module.exports = { startSupportMock };
+diff -ruN a/test/support-server.test.js b/test/support-server.test.js
+--- a/test/support-server.test.js	1970-01-01 00:00:00.000000000 +0000
++++ b/test/support-server.test.js	2026-10-29 11:50:03.313877548 +0000
+@@ -0,0 +1,152 @@
++'use strict';
++// Woutin chat support yo nan VRÈ server.js (stub pou express/bcrypt/jwt/multer; fo Supabase pou baz + chat).
++const test = require('node:test');
++const assert = require('node:assert/strict');
++const fs = require('fs');
++const os = require('os');
++const path = require('path');
++const http = require('http');
++const Module = require('module');
++const { startMock } = require('./mock-supabase');
++const { startSupportMock } = require('./mock-support');
++
++const KEY = 'sb_secret_test';
++const routes = [], errMw = [];
++let listenResolve; const listening = new Promise((r) => { listenResolve = r; });
++const express = () => { const app = { set() {}, disable() {}, use(...a) { const f = a[a.length - 1]; if (typeof f === 'function' && f.length === 4) errMw.push(f); }, listen(p, h, cb) { listenResolve(); if (cb) cb(); } }; for (const m of ['get', 'post', 'put', 'delete']) app[m] = (p, ...hs) => { if (hs.length) routes.push({ m, p, hs }); }; return app; };
++express.json = () => (q, s, n) => n(); express.static = () => (q, s, n) => n();
++const jwt = { sign: (pl) => 'jwt.' + Buffer.from(JSON.stringify(pl)).toString('base64'), verify: (t) => { if (!/^jwt\./.test(String(t))) throw new Error('bad'); return JSON.parse(Buffer.from(t.slice(4), 'base64').toString()); } };
++const stubs = { express, 'cookie-parser': () => (q, s, n) => n(), bcryptjs: { hashSync: (p) => 'h:' + p, compareSync: (p, h) => h === 'h:' + p, hash: async (p) => 'h:' + p, compare: async (p, h) => h === 'h:' + p }, jsonwebtoken: jwt, multer: Object.assign(() => ({ fields: () => (q, s, cb) => cb(null), single: () => (q, s, cb) => cb(null) }), { memoryStorage: () => ({}) }) };
++const origLoad = Module._load;
++Module._load = function (request, ...rest) { return Object.prototype.hasOwnProperty.call(stubs, request) ? stubs[request] : origLoad.call(this, request, ...rest); };
++
++function fakeRes() { const r = { headers: {}, code: 200, body: null }; r.done = new Promise((res) => { r._resolve = res; }); r.set = (h) => { Object.assign(r.headers, h); return r; }; r.status = (c) => { r.code = c; return r; }; r.json = (o) => { r.body = o; r._resolve(); return r; }; r.end = (b) => { r.body = b; r._resolve(); return r; }; r.cookie = () => r; r.clearCookie = () => r; r.sendFile = () => { r._resolve(); return r; }; r.redirect = () => { r._resolve(); return r; }; return r; }
++let ipSeq = 0;
++async function call(method, pattern, req = {}) {
++  const route = routes.find((x) => x.m === method && x.p === pattern); assert.ok(route, 'route ' + pattern);
++  const res = fakeRes(); const rq = { params: {}, body: {}, query: {}, cookies: {}, get: () => undefined, ip: '10.0.0.' + (++ipSeq), path: pattern, ...req };
++  let i = 0; const next = (err) => { if (err) { errMw[0](err, rq, res, () => {}); return; } const h = route.hs[i++]; if (h) { const out = h(rq, res, next); if (out && out.catch) out.catch((e) => next(e)); } };
++  next(); await Promise.race([res.done, new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT ' + pattern)), 8000))]); return res;
++}
++const as = (id) => ({ cookies: { token: jwt.sign({ sub: id }) } });
++function startRouter(dbUrl, supUrl) {
++  const srv = http.createServer((req, res) => { const ch = []; req.on('data', (c) => ch.push(c)); req.on('end', async () => {
++    const target = (req.url.startsWith('/rest/v1/support_messages') ? supUrl : dbUrl) + req.url;
++    const h = {}; for (const k of ['apikey', 'content-type', 'prefer']) if (req.headers[k]) h[k] = req.headers[k];
++    const r = await fetch(target, { method: req.method, headers: h, body: ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(ch) });
++    res.writeHead(r.status, { 'Content-Type': 'application/json' }); res.end(Buffer.from(await r.arrayBuffer())); }); });
++  return new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve({ url: `http://127.0.0.1:${srv.address().port}`, close: () => { srv.closeAllConnections && srv.closeAllConnections(); srv.close(); } })));
++}
++let uidSeq = 8000000;
++const mkUser = (id, extra = {}) => ({ id, email: id + '@x.com', name: 'User ' + id, uid: String(++uidSeq), role: 'user', createdAt: '2026-01-01T00:00:00.000Z', balance: 0, usd: 0, swaps: [], kyc: { status: 'none' }, passwordHash: 'h:password123', ...extra });
++let env;
++test.before(async () => {
++  const db = await startMock(), sup = await startSupportMock({ key: KEY }), router = await startRouter(db.url, sup.url);
++  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sup-srv-'));
++  const seed = [mkUser('alice'), mkUser('bob'), mkUser('carol', { banned: true }), mkUser('helper', { role: 'support' })];
++  for (const u of seed) db.rows.set(u.id, { id: u.id, email: u.email, uid: u.uid, data: u, version: 1 });
++  Object.assign(process.env, { NODE_ENV: 'test', DATA_DIR: dataDir, JWT_SECRET: 'x'.repeat(40), ADMIN_EMAIL: 'admin@x.com', ADMIN_PASSWORD: 'adminpass12345', SUPABASE_URL: router.url, SUPABASE_SERVICE_ROLE_KEY: KEY });
++  delete process.env.FILE_STORE; delete process.env.MIGRATE_USERS_ON_BOOT;
++  const log = console.log; console.log = () => {}; require('../server.js'); await listening; console.log = log;
++  env = { db, sup, router, admin: [...db.rows.values()].find((r) => r.email === 'admin@x.com').id };
++  sup.users = new Set([...db.rows.keys()]);                                  // kontrent FK: sèlman itilizatè ki egziste
++});
++test.after(() => { env.router.close(); setTimeout(() => process.exit(0), 100).unref(); });
++
++const send = (id, body, extra = {}) => call('post', '/api/support/messages', { ...as(id), body, ...extra });
++const mine = (id, q = {}) => call('get', '/api/support/messages', { ...as(id), query: q });
++
++test('kliyan voye mesaj; li reponn 201 ak mesaj la; li sove nan Supabase ak bon kliyan', async () => {
++  const r = await send('alice', { body: '  Bonjou, mwen bezwen èd  ' });
++  assert.equal(r.code, 201); assert.equal(r.body.message.body, 'Bonjou, mwen bezwen èd'); assert.equal(r.body.message.sender, 'user');
++  assert.equal(env.sup.rows.length, 1); assert.equal(env.sup.rows[0].user_id, 'alice'); assert.equal(env.sup.rows[0].sender, 'user');
++});
++
++test('SÈLMAN TÈKS: imaj/fichye/lyen/ekstra chan pa janm sove; pa gen woutin upload', async () => {
++  const before = env.sup.rows.length;
++  const r = await send('alice', { body: 'foto', image: 'data:image/png;base64,iVBOR', file: { name: 'a.png' }, attachment: 'x', url: 'http://x/y.png', sender: 'staff', user_id: 'bob' });
++  assert.equal(r.code, 201);
++  const row = env.sup.rows[env.sup.rows.length - 1];
++  assert.deepEqual(Object.keys(row).sort(), ['body', 'created_at', 'id', 'sender', 'staff_id', 'staff_read', 'user_id']);
++  assert.equal(row.user_id, 'alice'); assert.equal(row.sender, 'user'); assert.equal(row.body, 'foto');           // pa ka fè tèt li pase pou staff oswa pou lòt moun
++  for (const bad of [{ body: { x: 1 } }, { body: ['a'] }, { body: 123 }, { body: '' }, { body: '   ' }, { body: 'x'.repeat(1001) }, {}, undefined, 'bonjou']) assert.equal((await send('alice', bad)).code, 400, JSON.stringify(bad));
++  assert.equal(env.sup.rows.length, before + 1);
++  const postRoutes = routes.filter((x) => x.m === 'post' && /support/.test(x.p)).map((x) => x.p);
++  assert.deepEqual(postRoutes.sort(), ['/api/admin/support/threads/:userId/messages', '/api/support/messages']);   // pa gen /upload, /image, /file
++  const src = fs.readFileSync(path.join(__dirname, '..', 'support-chat.js'), 'utf8');
++  assert.ok(!/type\s*=\s*['"]file['"]|FormData|multipart|<input/i.test(src));
++});
++
++test('izolasyon: chak kliyan wè sèlman fil pa l; userId nan demann lan inyore', async () => {
++  await send('bob', { body: 'mesaj prive bob' });
++  const a = await mine('alice'), b = await mine('bob');
++  assert.ok(a.body.messages.every((m) => m.body !== 'mesaj prive bob')); assert.deepEqual(b.body.messages.map((m) => m.body), ['mesaj prive bob']);
++  const sneaky = await mine('alice', { userId: 'bob', user_id: 'bob', after: '0' });
++  assert.ok(sneaky.body.messages.every((m) => m.body !== 'mesaj prive bob')); assert.equal(sneaky.body.userId, 'alice');
++  assert.deepEqual(Object.keys(a.body.messages[0]).sort(), ['body', 'createdAt', 'id', 'sender']);               // pa gen staff_id / staff_read
++  const after = a.body.messages.at(-1).id; assert.deepEqual((await mine('alice', { after })).body.messages, []);
++});
++
++test('otorizasyon: san login 401; staff pa itilize chat kliyan; kliyan pa antre nan woutin staff', async () => {
++  assert.equal((await call('get', '/api/support/messages', {})).code, 401);
++  assert.equal((await call('post', '/api/support/messages', { body: { body: 'x' } })).code, 401);
++  assert.equal((await mine(env.admin)).code, 403); assert.equal((await mine('helper')).code, 403);
++  assert.equal((await send(env.admin, { body: 'x' })).code, 403);
++  for (const [m, p, extra] of [['get', '/api/admin/support/threads', {}], ['get', '/api/admin/support/unread', {}], ['get', '/api/admin/support/threads/:userId/messages', { params: { userId: 'alice' } }], ['post', '/api/admin/support/threads/:userId/messages', { params: { userId: 'alice' }, body: { body: 'fo' } }]]) {
++    assert.equal((await call(m, p, { ...as('bob'), ...extra })).code, 403, p);
++    assert.equal((await call(m, p, extra)).code, 401, p);
++  }
++  assert.ok(!env.sup.rows.some((r) => r.body === 'fo'));
++});
++
++test('staff: wè fil yo ak non-li, louvri fil = make li, reponn, kliyan wè repons lan', async () => {
++  const t = await call('get', '/api/admin/support/threads', as(env.admin));
++  assert.equal(t.code, 200);
++  const a = t.body.threads.find((x) => x.userId === 'alice'), b = t.body.threads.find((x) => x.userId === 'bob');
++  assert.ok(a.unread >= 2 && b.unread === 1); assert.equal(a.name, 'User alice'); assert.ok(a.email && a.uid);
++  assert.ok(!JSON.stringify(t.body).includes('passwordHash') && !JSON.stringify(t.body).includes('h:password'));
++  assert.equal(t.body.unread, a.unread + b.unread);
++  assert.equal(t.body.threads[0].unread > 0, true);                                           // non-li anwo
++  const open = await call('get', '/api/admin/support/threads/:userId/messages', { ...as(env.admin), params: { userId: 'bob' } });
++  assert.deepEqual(open.body.messages.map((m) => m.body), ['mesaj prive bob']); assert.equal(open.body.user.email, 'bob@x.com');
++  assert.equal((await call('get', '/api/admin/support/unread', as(env.admin))).body.unread, a.unread);   // bob li, alice rete
++  const rep = await call('post', '/api/admin/support/threads/:userId/messages', { ...as(env.admin), params: { userId: 'bob' }, body: { body: 'Bonjou Bob, ki pwoblèm lan?' } });
++  assert.equal(rep.code, 201); assert.equal(rep.body.message.sender, 'staff');
++  const seen = await mine('bob'); assert.deepEqual(seen.body.messages.map((m) => m.sender + ':' + m.body), ['user:mesaj prive bob', 'staff:Bonjou Bob, ki pwoblèm lan?']);
++  assert.equal(env.sup.rows.at(-1).staff_id, env.admin);
++  assert.ok(!JSON.stringify(seen.body).includes(env.admin));                                  // kliyan an pa wè id staff la
++});
++
++test('wòl support ka reponn tou; reponn yon kont ki pa egziste / yon staff => 404; vid/long => 400', async () => {
++  assert.equal((await call('post', '/api/admin/support/threads/:userId/messages', { ...as('helper'), params: { userId: 'alice' }, body: { body: 'Men yon ajan support' } })).code, 201);
++  for (const id of ['pa-egziste', 'helper', env.admin]) assert.equal((await call('post', '/api/admin/support/threads/:userId/messages', { ...as(env.admin), params: { userId: id }, body: { body: 'x' } })).code, 404, id);
++  for (const body of [{}, { body: '' }, { body: 'x'.repeat(1001) }, { body: { a: 1 } }]) assert.equal((await call('post', '/api/admin/support/threads/:userId/messages', { ...as(env.admin), params: { userId: 'alice' }, body })).code, 400);
++  assert.equal((await call('get', '/api/admin/support/threads/:userId/messages', { ...as(env.admin), params: { userId: 'pa-egziste' } })).code, 404);
++});
++
++test('kont ki bani ka kontakte support; limit: 10 mesaj/minit pa kliyan (11yèm => 429), lòt kliyan pa afekte', async () => {
++  assert.equal((await send('carol', { body: 'Poukisa kont mwen bani?' })).code, 201);
++  let last; for (let i = 0; i < 12; i++) last = await send('bob', { body: 'spam ' + i });
++  assert.equal(last.code, 429); assert.match(last.body.error, /Twòp/);
++  assert.equal((await send('alice', { body: 'mwen toujou ka voye' })).code, 201);
++});
++
++test('tèks danjere sove kòm tèks (escape fèt nan paj la); Supabase tonbe => 503 pwòp san kle', async () => {
++  const x = await send('alice', { body: '<script>alert(1)</script><img src=x onerror=alert(2)>' });
++  assert.equal(x.code, 201); assert.equal(x.body.message.body, '<script>alert(1)</script><img src=x onerror=alert(2)>');
++  env.sup.down = true;
++  const r = await send('alice', { body: 'pa pase' }); const g = await mine('alice'); const t = await call('get', '/api/admin/support/threads', as(env.admin));
++  env.sup.down = false;
++  for (const x of [r, g, t]) { assert.equal(x.code, 503); assert.match(x.body.error, /Eseye ankò/); assert.ok(!JSON.stringify(x.body).includes(KEY)); }
++});
++
++test('efase kont: tout mesaj chat li yo efase', async () => {
++  assert.ok(env.sup.rows.some((r) => r.user_id === 'bob'));
++  const r = await call('delete', '/api/admin/users/:id', { ...as(env.admin), params: { id: 'bob' } });
++  assert.equal(r.code, 200); assert.ok(!env.sup.rows.some((x) => x.user_id === 'bob'));
++  assert.ok(env.sup.rows.some((x) => x.user_id === 'alice'));
++});
++
++test('chat la pa dechaje kle service_role: support-chat.js ak admin.html pa gen kle ni SUPABASE', () => {
++  for (const f of ['support-chat.js', 'admin.html', 'dashboard.html']) { const s = fs.readFileSync(path.join(__dirname, '..', f), 'utf8'); assert.ok(!/SUPABASE|sb_secret|service_role/i.test(s), f); }
++});
+diff -ruN a/test/supportstore.test.js b/test/supportstore.test.js
+--- a/test/supportstore.test.js	1970-01-01 00:00:00.000000000 +0000
++++ b/test/supportstore.test.js	2026-10-29 11:50:03.313577585 +0000
+@@ -0,0 +1,91 @@
++'use strict';
++const test = require('node:test');
++const assert = require('node:assert/strict');
++const fs = require('fs');
++const os = require('os');
++const path = require('path');
++const { cleanBody, createSupport, supabaseSupport, fileSupport, SupportError } = require('../supportstore');
++const { startSupportMock } = require('./mock-support');
++
++test('cleanBody: sèlman string 1..1000; kontwòl/RTL retire; objè, lis, nimewo, vid refize', () => {
++  assert.equal(cleanBody('  Bonjou  '), 'Bonjou');
++  assert.equal(cleanBody('a\r\nb'), 'a\nb');
++  assert.equal(cleanBody('a'.repeat(1000)).length, 1000);
++  assert.equal(cleanBody('a'.repeat(1001)), null);
++  assert.equal(cleanBody(' \n\t '), null);
++  assert.equal(cleanBody(''), null);
++  assert.equal(cleanBody('a\u0000b\u0007c\u202Ed'), 'abcd');                 // null byte, bell, RTL override
++  assert.equal(cleanBody('x\n\n\n\n\n\ny'), 'x\n\n\ny');
++  for (const bad of [undefined, null, 5, true, {}, [], ['a'], { body: 'x' }, () => 'x']) assert.equal(cleanBody(bad), null, String(bad));
++  assert.equal(cleanBody('<img src=x onerror=alert(1)>'), '<img src=x onerror=alert(1)>'); // kenbe kòm tèks; frontend la escape
++  assert.equal(cleanBody('Ayiti 🇭🇹 ça va?'), 'Ayiti 🇭🇹 ça va?');
++});
++
++async function withBackends(fn) {
++  const m = await startSupportMock();
++  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sup-'));
++  try {
++    await fn('supabase', createSupport(supabaseSupport({ url: m.url, key: 'sb_secret_test', timeoutMs: 2000 })), m);
++    await fn('file', createSupport(fileSupport(path.join(dir, 'm.json'))), null);
++  } finally { await m.close(); }
++}
++
++test('fil kliyan: ranje, "after", chak kliyan wè sèlman pwòp fil li (Supabase + fichye)', async () => {
++  await withBackends(async (name, S) => {
++    const a1 = await S.send('A', 'm1'), a2 = await S.send('A', 'm2'); await S.send('B', 'secret B');
++    await S.reply('A', 'staff1', 'repons');
++    const all = await S.listForUser('A');
++    assert.deepEqual(all.map((m) => m.body), ['m1', 'm2', 'repons'], name);
++    assert.deepEqual(all.map((m) => m.sender), ['user', 'user', 'staff']);
++    assert.deepEqual((await S.listForUser('A', a1.id)).map((m) => m.body), ['m2', 'repons']);
++    assert.deepEqual((await S.listForUser('A', a2.id + 10)).map((m) => m.body), []);
++    assert.deepEqual((await S.listForUser('B')).map((m) => m.body), ['secret B']);
++    assert.deepEqual(Object.keys(all[0]).sort(), ['body', 'createdAt', 'id', 'sender']);   // pa gen staff_id, user_id, staff_read nan repons kliyan an
++    assert.deepEqual(await S.listForUser('nobody'), []);
++  });
++});
++
++test('staff: lis fil yo ak non-li, li fil la make li, reponn make li, total non-li', async () => {
++  await withBackends(async (name, S) => {
++    await S.send('A', 'a1'); await S.send('A', 'a2'); await S.send('B', 'b1');
++    let th = await S.threads(); const byU = Object.fromEntries(th.map((t) => [t.userId, t]));
++    assert.equal(byU.A.unread, 2, name); assert.equal(byU.B.unread, 1); assert.equal(byU.A.lastBody, 'a2');
++    assert.equal(await S.unreadTotal(), 3);
++    assert.deepEqual((await S.listForStaff('A')).map((m) => m.body), ['a1', 'a2']);
++    assert.equal(await S.unreadTotal(), 1);                                                  // A li, B rete
++    await S.reply('B', 'st', 'byen resevwa');
++    assert.equal(await S.unreadTotal(), 0);                                                  // reponn = li
++    th = await S.threads(); assert.equal(th.find((t) => t.userId === 'B').lastSender, 'staff');
++    await S.send('A', 'a3'); assert.equal(await S.unreadTotal(), 1);
++  });
++});
++
++test('efase fil: sèlman fil kliyan sa a', async () => {
++  await withBackends(async (name, S) => {
++    await S.send('A', 'a'); await S.send('B', 'b'); await S.removeThread('A');
++    assert.deepEqual(await S.listForUser('A'), []); assert.equal((await S.listForUser('B')).length, 1, name);
++  });
++});
++
++test('Supabase: kontrent SQL yo rejte mesaj move (1001 kar., sender), kle pa nan erè, ak tonbe => SupportError', async () => {
++  const m = await startSupportMock();
++  const S = createSupport(supabaseSupport({ url: m.url, key: 'sb_secret_test', timeoutMs: 2000 }));
++  await assert.rejects(() => S.send('A', 'x'.repeat(1001)), SupportError);
++  await assert.rejects(() => S.backend.add({ userId: 'A', sender: 'admin', body: 'x' }), SupportError);
++  assert.equal(m.rows.length, 0);
++  m.down = true;
++  await assert.rejects(() => S.send('A', 'x'), (e) => e instanceof SupportError && !e.message.includes('sb_secret_test'));
++  m.down = false;
++  const bad = createSupport(supabaseSupport({ url: m.url, key: 'sb_secret_WRONG', timeoutMs: 2000 }));
++  await assert.rejects(() => bad.send('A', 'x'), /401/);
++  await m.close();
++});
++
++test('Supabase: id itilizatè ak "after" ki danjere pa kapab enjekte filt (PostgREST)', async () => {
++  const m = await startSupportMock(); const S = createSupport(supabaseSupport({ url: m.url, key: 'sb_secret_test', timeoutMs: 2000 }));
++  await S.send('victim', 'secret'); await S.send('me', 'mine');
++  assert.deepEqual(await S.listForUser('me&user_id=eq.victim'), []);          // tout valè a enkode, pa yon dezyèm filt
++  assert.deepEqual(await S.listForUser('x,or=(user_id.eq.victim)'), []);
++  assert.deepEqual((await S.listForUser('me', '0 or 1=1')).map((x) => x.body), ['mine']);   // Number() => NaN => 0 pa janm rive jan sa a
++  await m.close();
++});
+diff -ruN a/test/ui-support.playwright.js b/test/ui-support.playwright.js
+--- a/test/ui-support.playwright.js	1970-01-01 00:00:00.000000000 +0000
++++ b/test/ui-support.playwright.js	2026-10-29 11:50:03.314070035 +0000
+@@ -0,0 +1,175 @@
++'use strict';
++// Tès entèfas nan vrè navigatè (Chromium) pou ikòn chat la + panèl admin. Pa nan "npm test" (Playwright pa nan dependans pwojè a).
++// Kouri: node test/ui-support.playwright.js   (bezwen Playwright + Chromium)
++const { chromium } = require(process.env.PLAYWRIGHT_PATH || '/home/claude/.npm-global/lib/node_modules/playwright');
++const fs = require('fs');
++const path = require('path');
++const root = path.join(__dirname, '..');
++const results = []; const t = (n, ok, extra) => results.push((ok ? 'OK   ' : 'ECHEC') + ' ' + n + (ok ? '' : '  <- ' + (extra || '')));
++
++// ---- API mock (kopi senp lojik sèvè a)
++function makeApi() {
++  const st = { auth: 'ok', msgs: [], seq: 0, posts: [], failNext: null, adminRole: 'admin', threads: [], threadMsgs: {}, replies: [], unread: 0 };
++  const json = (route, code, obj) => route.fulfill({ status: code, contentType: 'application/json', body: JSON.stringify(obj) });
++  st.handle = async (route) => {
++    const req = route.request(), u = new URL(req.url()), p = u.pathname, m = req.method();
++    if (p === '/api/support/messages') {
++      if (st.auth === '401') return json(route, 401, { error: 'Ou pa konekte.' });
++      if (st.auth === '403') return json(route, 403, { error: 'Staff' });
++      if (m === 'GET') { const after = +u.searchParams.get('after') || 0; return json(route, 200, { userId: 'u1', messages: st.msgs.filter((x) => x.id > after) }); }
++      const body = JSON.parse(req.postData() || '{}'); st.posts.push(body);
++      if (st.failNext) { const f = st.failNext; st.failNext = null; return json(route, f, { error: f === 429 ? 'Twòp' : 'Erè' }); }
++      const msg = { id: ++st.seq, sender: 'user', body: body.body, createdAt: new Date().toISOString() }; st.msgs.push(msg); return json(route, 201, { message: msg });
++    }
++    if (p === '/api/me') return json(route, 200, { role: st.adminRole, name: 'Admin' });
++    if (p === '/api/admin/support/unread') return json(route, 200, { unread: st.unread });
++    if (p === '/api/admin/support/threads') return json(route, 200, { unread: st.unread, threads: st.threads });
++    let mm = /^\/api\/admin\/support\/threads\/([^/]+)\/messages$/.exec(p);
++    if (mm) {
++      const id = decodeURIComponent(mm[1]);
++      if (m === 'GET') { const after = +u.searchParams.get('after') || 0; st.unread = 0; return json(route, 200, { user: { id, name: '<b>Evil</b> Name', email: 'e@x.com', uid: '7000001' }, messages: (st.threadMsgs[id] || []).filter((x) => x.id > after) }); }
++      const body = JSON.parse(req.postData() || '{}'); st.replies.push({ id, body });
++      const msg = { id: 100 + st.replies.length, sender: 'staff', body: body.body, createdAt: new Date().toISOString() }; (st.threadMsgs[id] = st.threadMsgs[id] || []).push(msg); return json(route, 201, { message: msg });
++    }
++    if (p.startsWith('/api/')) return json(route, 200, []);
++    return route.fulfill({ status: 404, body: '' });
++  };
++  return st;
++}
++async function mount(page, api, html, extraFiles = {}) {
++  await page.route('**/*', async (route) => {
++    const u = new URL(route.request().url());
++    if (u.hostname !== 'localhost') return route.abort();                      // CDN (tailwind, fonts...) pa disponib nan tès la
++    if (u.pathname.startsWith('/api/')) return api.handle(route);
++    if (u.pathname === '/') return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
++    const f = path.join(root, u.pathname.slice(1));
++    if (fs.existsSync(f) && fs.statSync(f).isFile()) return route.fulfill({ status: 200, contentType: f.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8', body: fs.readFileSync(f) });
++    return route.abort();
++  });
++}
++const CUSTOMER_HTML = '<!doctype html><html lang="ht"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>t</title></head><body style="background:#090a0f;color:#fff;margin:0"><h1>Dashboard</h1><nav class="fixed" style="position:fixed;left:16px;right:16px;bottom:12px;height:64px;background:#222;border-radius:16px;z-index:40">NAV</nav><script src="/support-chat.js" defer></script></body></html>';
++
++(async () => {
++  const b = await chromium.launch();
++  const ctx = async (vp = { width: 1000, height: 800 }, touch = false) => { const c = await b.newContext({ viewport: vp, ...(touch ? { isMobile: true, hasTouch: true } : {}) }); const p = await c.newPage(); const errs = []; p.on('pageerror', (e) => errs.push(e.message)); p.on('dialog', (d) => { errs.push('NATIF:' + d.type()); d.dismiss(); }); return { c, p, errs }; };
++
++  // ===== 1. kliyan: pa konekte / staff => anyen pa parèt
++  for (const mode of ['401', '403']) {
++    const { c, p } = await ctx(); const api = makeApi(); api.auth = mode; await mount(p, api, CUSTOMER_HTML);
++    await p.goto('http://localhost/'); await p.waitForTimeout(400);
++    t(`auth=${mode}: pa gen ikòn chat`, (await p.locator('#sc-fab').count()) === 0 && (await p.locator('#sc-panel').count()) === 0); await c.close();
++  }
++
++  // ===== 2. kliyan konekte: ikòn, popup, sèlman tèks
++  {
++    const { c, p, errs } = await ctx(); const api = makeApi(); await mount(p, api, CUSTOMER_HTML);
++    await p.goto('http://localhost/'); await p.waitForSelector('#sc-fab');
++    t('ikòn parèt, popup fèmen', (await p.locator('#sc-fab').isVisible()) && !(await p.locator('#sc-panel').isVisible()));
++    const nav = await p.locator('nav').boundingBox(), fab = await p.locator('#sc-fab').boundingBox();
++    t('ikòn pa kouvri nav anba a', fab.y + fab.height <= nav.y + 1, JSON.stringify({ fab, nav }));
++    await p.click('#sc-fab'); await p.waitForSelector('#sc-panel.open');
++    t('popup louvri, mesaj akeyi', (await p.locator('.sc-m.sys').innerText()).includes('Bonjou'));
++    t('PA gen okenn chan fichye/foto', (await p.locator('#sc-panel input').count()) === 0 && (await p.locator('input[type=file]').count()) === 0 && (await p.locator('[accept]').count()) === 0);
++    t('textarea maks 1000', (await p.locator('.sc-in').getAttribute('maxlength')) === '1000');
++    t('fokis nan chan an', await p.evaluate(() => document.activeElement.className === 'sc-in'));
++    t('ikòn kache pandan popup la louvri', !(await p.locator('#sc-fab').isVisible()));
++    await p.waitForTimeout(350); await p.screenshot({ path: '/tmp/ui_chat_desktop.png' });
++
++    // voye
++    await p.fill('.sc-in', 'Bonjou, mwen bezwen èd'); await p.click('.sc-send'); await p.waitForSelector('.sc-m.me');
++    t('mesaj voye parèt, chan an vid', (await p.locator('.sc-m.me').innerText()).includes('Bonjou, mwen bezwen èd') && (await p.inputValue('.sc-in')) === '');
++    t('demann lan = JSON {body} sèlman', JSON.stringify(api.posts[0]) === JSON.stringify({ body: 'Bonjou, mwen bezwen èd' }));
++    // XSS
++    await p.fill('.sc-in', '<img src=x onerror="window.__xss=1"><b>gra</b>'); await p.click('.sc-send'); await p.waitForTimeout(300);
++    t('HTML = tèks, pa egzekite', (await p.evaluate(() => !window.__xss && !document.querySelector('.sc-log img, .sc-log b'))) && (await p.locator('.sc-log').innerText()).includes('<img src=x'));
++    // drop imaj
++    const prevented = await p.evaluate(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' })); const e = new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }); document.querySelector('#sc-panel').dispatchEvent(e); return e.defaultPrevented; });
++    t('drop imaj bloke, anyen pa ajoute', prevented && api.posts.length === 2);
++    // Enter / Shift+Enter (desktop)
++    await p.fill('.sc-in', 'liy 1'); await p.keyboard.press('Shift+Enter'); await p.keyboard.type('liy 2');
++    t('Shift+Enter = liy nouvo', (await p.inputValue('.sc-in')) === 'liy 1\nliy 2' && api.posts.length === 2);
++    await p.keyboard.press('Enter'); await p.waitForTimeout(300);
++    t('Enter voye (desktop)', api.posts.length === 3 && api.posts[2].body === 'liy 1\nliy 2');
++    // erè
++    api.failNext = 429; await p.fill('.sc-in', 'twòp'); await p.click('.sc-send'); await p.waitForTimeout(300);
++    t('429: mesaj erè + tèks la rete', (await p.locator('.sc-err').innerText()).includes('Twòp') && (await p.inputValue('.sc-in')) === 'twòp');
++    api.failNext = 500; await p.click('.sc-send'); await p.waitForTimeout(300);
++    t('500: erè + tèks la rete', (await p.locator('.sc-err').innerText()).length > 0 && (await p.inputValue('.sc-in')) === 'twòp');
++    await p.click('.sc-send'); await p.waitForTimeout(300); t('re-eseye mache', api.posts.at(-1).body === 'twòp' && (await p.inputValue('.sc-in')) === '' && (await p.locator('.sc-err').innerText()) === '');
++    // Escape
++    await p.keyboard.press('Escape'); await p.waitForTimeout(100);
++    t('Escape fèmen epi fokis tounen sou ikòn', !(await p.locator('#sc-panel').isVisible()) && (await p.evaluate(() => document.activeElement.id)) === 'sc-fab');
++
++    // repons staff pandan popup la fèmen => badge; louvri => badge disparèt; reload => pa tounen
++    api.msgs.push({ id: ++api.seq, sender: 'staff', body: 'Men repons support la', createdAt: new Date().toISOString() });
++    await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))); await p.waitForTimeout(400);
++    t('badge 1 sou ikòn lè gen repons', (await p.locator('#sc-badge').innerText()) === '1' && (await p.locator('#sc-badge').isVisible()));
++    await p.click('#sc-fab'); await p.waitForTimeout(300);
++    t('repons staff parèt ak non "Support"', (await p.locator('.sc-m.them').last().innerText()).includes('Men repons support la') && (await p.locator('.sc-m.them small').last().innerText()).startsWith('Support'));
++    t('badge disparèt lè louvri', !(await p.locator('#sc-badge').isVisible()));
++    await p.reload(); await p.waitForSelector('#sc-fab'); await p.waitForTimeout(200);
++    t('apre reload badge pa tounen (li deja wè)', !(await p.locator('#sc-badge').isVisible()));
++    // repons ki rive pandan popup la ouvè (poll 4s)
++    await p.click('#sc-fab'); api.msgs.push({ id: ++api.seq, sender: 'staff', body: 'dezyèm repons', createdAt: new Date().toISOString() });
++    await p.waitForFunction(() => document.querySelector('.sc-log').innerText.includes('dezyèm repons'), null, { timeout: 8000 }).then(() => t('popup ouvè resevwa repons otomatikman (poll)', true), () => t('popup ouvè resevwa repons otomatikman (poll)', false, 'pa rive'));
++    t('pa gen erè JS ni dialog natif', errs.length === 0, errs.join('|')); await c.close();
++  }
++
++  // ===== 3. mobil
++  {
++    const { c, p, errs } = await ctx({ width: 390, height: 780 }, true); const api = makeApi(); await mount(p, api, CUSTOMER_HTML);
++    await p.goto('http://localhost/'); await p.waitForSelector('#sc-fab');
++    const nav = await p.locator('nav').boundingBox(), fab = await p.locator('#sc-fab').boundingBox();
++    t('mobil: ikòn anwo nav la', fab.y + fab.height <= nav.y + 1);
++    await p.click('#sc-fab'); await p.waitForSelector('#sc-panel.open');
++    const pb = await p.locator('#sc-panel').boundingBox();
++    t('mobil: popup plen ekran, ikòn kache', Math.round(pb.width) === 390 && Math.round(pb.height) === 780 && !(await p.locator('#sc-fab').isVisible()), JSON.stringify(pb));
++    t('mobil: ekran tactil detekte (pointer coarse)', await p.evaluate(() => matchMedia('(pointer:coarse)').matches));
++    await p.fill('.sc-in', 'tès mobil'); await p.keyboard.press('Enter'); await p.waitForTimeout(200);
++    t('mobil: Enter = liy nouvo, PA voye', api.posts.length === 0 && (await p.inputValue('.sc-in')) === 'tès mobil\n', JSON.stringify({ posts: api.posts.length, v: await p.inputValue('.sc-in') }));
++    await p.tap('.sc-send'); await p.waitForTimeout(300);
++    t('mobil: bouton Voye voye mesaj la', api.posts.length === 1 && api.posts[0].body === 'tès mobil');
++    await p.screenshot({ path: '/tmp/ui_chat_mobile.png' });
++    await p.click('.sc-x'); t('mobil: fèmen mennen ikòn tounen', await p.locator('#sc-fab').isVisible()); t('mobil: pa gen erè JS', errs.length === 0, errs.join('|')); await c.close();
++  }
++
++  // ===== 4. panèl admin
++  {
++    const html = fs.readFileSync(path.join(root, 'admin.html'), 'utf8');
++    const { c, p, errs } = await ctx({ width: 430, height: 900 }); const api = makeApi();
++    api.unread = 3;
++    api.threads = [
++      { userId: 'u-1', name: '<b>Evil</b> Name', email: 'e@x.com', uid: '7000001', banned: false, lastBody: '<img src=x onerror="window.__adm=1">', lastSender: 'user', lastAt: new Date().toISOString(), unread: 3 },
++      { userId: 'u-2', name: 'Maria', email: 'm@x.com', uid: '7000002', banned: true, lastBody: 'Mèsi', lastSender: 'staff', lastAt: new Date().toISOString(), unread: 0 }
++    ];
++    api.threadMsgs['u-1'] = [{ id: 1, sender: 'user', body: 'Mwen pa resevwa lajan <script>window.__adm=2</script>', createdAt: new Date().toISOString() }];
++    await mount(p, api, html);
++    await p.goto('http://localhost/'); await p.waitForSelector('#chat-badge:not(.hidden)');
++    t('admin: badge Chat montre 3', (await p.locator('#chat-badge').innerText()) === '3');
++    await p.click('button[data-t=chat]'); await p.waitForSelector('button[data-u]');
++    t('admin: lis fil yo (2) ak non-li', (await p.locator('button[data-u]').count()) === 2 && (await p.locator('button[data-u]').first().innerText()).includes('3'));
++    t('admin: HTML nan non/mesaj = tèks (pa egzekite)', await p.evaluate(() => !window.__adm && !document.querySelector('#list b, #list img')));
++    t('admin: kont bani make', (await p.locator('button[data-u]').nth(1).innerText()).toLowerCase().includes('bani'));
++    await p.click('button[data-u="u-1"]'); await p.waitForSelector('#ch-log .rounded-2xl');
++    t('admin: fil la louvri ak mesaj kliyan an (tèks)', (await p.locator('#ch-log').innerText()).includes('<script>window.__adm=2</script>') && (await p.evaluate(() => !window.__adm)));
++    t('admin: antèt montre non (tèks) + imèl', (await p.locator('#ch-name').innerText()).includes('<b>Evil</b>') && (await p.locator('#ch-sub').innerText()).includes('e@x.com'));
++    t('admin: pa gen chan fichye', (await p.locator('input[type=file]').count()) === 0);
++    await p.waitForTimeout(300); t('admin: louvri fil = badge non-li disparèt', (await p.locator('#chat-badge').getAttribute('class')).split(' ').includes('hidden')); /* Tailwind pa chaje nan tès la: nou tcheke klas hidden */
++    await p.fill('#ch-in', 'Bonjou, nap verifye sa.'); await p.click('#ch-send'); await p.waitForTimeout(300);
++    { const mineCount = await p.locator('#ch-log .ml-auto').count(); t('admin: repons voye (JSON {body}) epi parèt dwat', api.replies.length === 1 && JSON.stringify(api.replies[0]) === JSON.stringify({ id: 'u-1', body: { body: 'Bonjou, nap verifye sa.' } }) && mineCount === 1, JSON.stringify({ replies: api.replies, mineCount, err: await p.locator('#ch-err').innerText() })); }
++    await p.screenshot({ path: '/tmp/ui_admin_thread.png' });
++    await p.click('#ch-back'); await p.waitForSelector('button[data-u]'); t('admin: retounen nan lis la', (await p.locator('button[data-u]').count()) === 2);
++    await p.click('button[data-t=kyc]'); await p.waitForTimeout(200); t('admin: lòt tab yo toujou mache (KYC)', (await p.locator('#list').innerText()).length >= 0 && (await p.locator('button[data-t=kyc].on').count()) === 1);
++    t('admin: pa gen erè JS ni dialog natif', errs.length === 0, errs.join('|')); await c.close();
++  }
++  // wòl support: sèlman P2P + Chat
++  {
++    const html = fs.readFileSync(path.join(root, 'admin.html'), 'utf8');
++    const { c, p } = await ctx({ width: 430, height: 900 }); const api = makeApi(); api.adminRole = 'support'; await mount(p, api, html);
++    await p.goto('http://localhost/'); await p.waitForTimeout(500);
++    const vis = await p.$$eval('.tab[data-t]', (bs) => bs.filter((x) => getComputedStyle(x).display !== 'none').map((x) => x.dataset.t));
++    t('support: wè sèlman P2P ak Chat', JSON.stringify(vis.sort()) === JSON.stringify(['chat', 'p2p']), vis.join(',')); await c.close();
++  }
++  await b.close();
++  console.log(results.join('\n')); if (results.some((r) => r.startsWith('ECHEC'))) process.exitCode = 1;
++})();
