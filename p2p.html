@@ -37,7 +37,9 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 .bub{max-width:80%;padding:.4rem .6rem .25rem;border-radius:.85rem;font-size:.9rem;word-break:break-word;display:flex;flex-direction:column;width:fit-content}
 .bub.me{background:#4a3d12;margin-left:auto;border-bottom-right-radius:.2rem}
 .bub.them{background:#1c2030;border-bottom-left-radius:.2rem}
-.bub .tm{align-self:flex-end;font-size:.62rem;color:rgba(255,255,255,.45);margin-top:.1rem}
+.bub .tm{align-self:flex-end;display:flex;align-items:center;gap:.25rem;font-size:.62rem;color:rgba(255,255,255,.45);margin-top:.1rem}
+.receipt{font-size:.78rem;letter-spacing:-.16em;color:rgba(255,255,255,.45);padding-right:.12rem}
+.receipt.read{color:#38bdf8}
 .chatimg{max-width:220px;max-height:260px;border-radius:.6rem;margin-bottom:.2rem;cursor:pointer;object-fit:cover}
 .payinfo{align-self:center;width:92%;background:rgba(212,175,55,.08);border:1px solid rgba(212,175,55,.3);border-radius:.9rem;padding:.6rem .8rem;font-size:.85rem;margin:.25rem 0;user-select:text}
 .sysmsg{align-self:center;max-width:90%;text-align:center;font-size:.7rem;color:#9ca3af;background:rgba(255,255,255,.06);padding:.3rem .7rem;border-radius:999px;margin:.25rem auto}
@@ -111,7 +113,8 @@ const ST = {
   DISPUTED: ['Dispit', 'bg-red-500/15 text-red-400'], UNDER_REVIEW: ['Dispit an revizyon', 'bg-red-500/15 text-red-400'], CREATED: ['Kreye', 'bg-white/10 text-gray-400'], ESCROW_LOCKED: ['Escrow bloke', 'bg-amber-500/15 text-amber-400']
 };
 const pill = (s) => { const [l, c] = ST[s] || [s, '']; return `<span class="pill ${c}">${l}</span>`; };
-let ADS = [], me = null, view = 'market', side = 'BUY', fiat = 'HTG', openId = null, pollT = null, lastMsg = 0;
+let ADS = [], me = null, view = 'market', side = 'BUY', fiat = 'HTG', openId = null, pollT = null, lastMsg = 0, readObserver = null;
+const readPending = new Set();
 const KEYS = {};
 const key = (n) => (KEYS[n] ||= crypto.randomUUID());
 
@@ -216,7 +219,8 @@ async function vOrders() {
 /* ---------- Paj lòd = chat plen ekran ---------- */
 let curOrder = null;
 async function openOrder(id) {
-  openId = id; lastMsg = 0; curOrder = null; window.__sig = '';
+  openId = id; lastMsg = 0; curOrder = null; window.__sig = ''; readPending.clear();
+  if (readObserver) readObserver.disconnect();
   $('chat').innerHTML = ''; $('c-menu').classList.add('hidden');
   $('m-order').classList.remove('hidden'); document.body.style.overflow = 'hidden';
   await poll();
@@ -224,6 +228,7 @@ async function openOrder(id) {
 }
 function closeOrder() {
   $('m-order').classList.add('hidden'); document.body.style.overflow = ''; clearInterval(pollT); openId = null;
+  if (readObserver) readObserver.disconnect(); readPending.clear();
   if (view === 'orders') vOrders(); refreshChip();
 }
 async function poll() {
@@ -234,7 +239,7 @@ async function poll() {
   const sig = [o.status, o.actions.join(), o.dispute ? o.dispute.status : '', o.providerVerified].join('|');
   if (sig !== window.__sig) { window.__sig = sig; drawHead(o); }
   const msgs = await api('GET', `/api/p2p/orders/${id}/messages?after=${lastMsg}`).catch(() => []);
-  if (id === openId) appendMsgs(msgs);
+  if (id === openId) { appendMsgs(msgs); watchIncomingMessages(); }
 }
 function drawHead(o) {
   const buyer = o.role === 'BUYER', other = buyer ? o.seller : o.buyer, has = (a) => o.actions.includes(a);
@@ -260,7 +265,7 @@ function drawHead(o) {
   $('c-act').innerHTML = act;
   // meni (⋮)
   const items = [];
-  if (has('CANCEL')) items.push(['Anile lòd', 'doCancel()']);
+  if (has('CANCEL')) items.push(['Anile lòd', 'openCancelSheet()']);
   if (has('DISPUTE') || has('LATE_CLAIM')) items.push(['Louvri yon dispit', 'openDisputeSheet()']);
   items.push(['Siyale yon pwoblèm', 'reportOrder()']);
   $('c-menu').innerHTML = items.map(([t, f]) => `<button onclick="$('c-menu').classList.add('hidden');${f}">${t}</button>`).join('');
@@ -275,13 +280,79 @@ function bubble(m) {
   if (m.role === 'SYSTEM') return `<div class="sysmsg">${esc(m.body)}</div>`;
   const img = m.evidenceId ? `<img src="/api/p2p/evidence/${m.evidenceId}" class="chatimg" onclick="showImg(this.src)" alt="foto">` : '';
   const who = m.role === 'STAFF' ? '<span class="text-[10px] font-bold text-red-300">Sipò</span>' : m.kind === 'AUTO' ? '<span class="text-[10px] font-bold text-amber-300">Mesaj machann</span>' : '';
-  return `<div class="bub ${m.mine ? 'me' : 'them'}">${who}${img}${m.body ? `<span>${esc(m.body)}</span>` : ''}<span class="tm">${time}</span></div>`;
+  const id = Number(m.id), idAttr = Number.isSafeInteger(id) && id > 0 ? ` data-message-id="${id}"` : '';
+  const receipt = m.mine && m.role === 'USER' ? `<span class="receipt ${m.readAt ? 'read' : ''}" aria-label="${m.readAt ? 'Li' : 'Voye'}">${m.readAt ? '✓✓' : '✓'}</span>` : '';
+  return `<div class="bub ${m.mine ? 'me' : 'them'}" data-message-role="${esc(m.role)}"${idAttr}>${who}${img}${m.body ? `<span>${esc(m.body)}</span>` : ''}<span class="tm">${time}${receipt}</span></div>`;
 }
 function appendMsgs(ms) {
   if (!ms.length) return;
   const c = $('chat'), near = lastMsg === 0 || c.scrollHeight - c.scrollTop - c.clientHeight < 140;
-  ms.forEach((m) => { lastMsg = Math.max(lastMsg, m.id); c.insertAdjacentHTML('beforeend', bubble(m)); });
+  ms.forEach((m) => {
+    const id = Number(m.id), existing = c.querySelector(`[data-message-id="${id}"]`);
+    lastMsg = Math.max(lastMsg, id);
+    if (existing) {
+      if (m.readAt) {
+        existing.dataset.readAt = String(m.readAt);
+        const receipt = existing.querySelector('.receipt');
+        if (receipt) { receipt.textContent = '✓✓'; receipt.classList.add('read'); receipt.setAttribute('aria-label', 'Li'); }
+      }
+      return;
+    }
+    c.insertAdjacentHTML('beforeend', bubble(m));
+  });
   if (near) c.scrollTop = c.scrollHeight;
+  watchIncomingMessages();
+}
+function watchIncomingMessages() {
+  const c = $('chat');
+  if (!chatVisibleForRead()) return;
+  if ('IntersectionObserver' in window) {
+    if (!readObserver) readObserver = new IntersectionObserver((entries) => {
+      if (!chatVisibleForRead()) return;
+      const ids = entries.filter((e) => e.isIntersecting && e.intersectionRatio >= .5 &&
+        e.target.classList.contains('them') && e.target.dataset.messageRole === 'USER' && !e.target.dataset.readAt && !readPending.has(Number(e.target.dataset.messageId)))
+        .map((e) => Number(e.target.dataset.messageId)).filter((id) => Number.isSafeInteger(id) && id > 0);
+      if (ids.length) markMessagesRead(ids);
+    }, { root: c, threshold: [.5] });
+    c.querySelectorAll('.bub.them[data-message-role="USER"][data-message-id]:not([data-read-at])').forEach((el) => readObserver.observe(el));
+  }
+  const root = c.getBoundingClientRect();
+  const ids = [...c.querySelectorAll('.bub.them[data-message-role="USER"][data-message-id]:not([data-read-at])')]
+    .filter((el) => {
+      const r = el.getBoundingClientRect(), height = Math.max(0, Math.min(r.bottom, root.bottom) - Math.max(r.top, root.top));
+      const width = Math.max(0, Math.min(r.right, root.right) - Math.max(r.left, root.left));
+      return r.width > 0 && r.height > 0 && (height * width) / (r.height * r.width) >= .5;
+    })
+    .map((el) => Number(el.dataset.messageId))
+    .filter((id) => Number.isSafeInteger(id) && id > 0 && !readPending.has(id));
+  if (ids.length) markMessagesRead(ids);
+}
+function chatVisibleForRead() {
+  return !!openId && document.visibilityState === 'visible' &&
+    !$('m-order').classList.contains('hidden') && $('m-sheet').classList.contains('hidden') &&
+    $('m-pin').classList.contains('hidden') && $('viewer').classList.contains('hidden');
+}
+let readScanFrame = 0;
+$('chat').addEventListener('scroll', () => {
+  if (readScanFrame) return;
+  readScanFrame = requestAnimationFrame(() => { readScanFrame = 0; watchIncomingMessages(); });
+}, { passive: true });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') watchIncomingMessages(); });
+async function markMessagesRead(ids) {
+  const orderId = openId;
+  ids.forEach((id) => readPending.add(id));
+  try {
+    const result = await api('POST', `/api/p2p/orders/${orderId}/messages/read`, { ids });
+    if (orderId !== openId || !result.readAt) return;
+    (result.readIds || []).forEach((id) => {
+      const el = $('chat').querySelector(`[data-message-id="${id}"]`);
+      if (el) el.dataset.readAt = String(result.readAt);
+    });
+  } catch {
+    // Pwochen polling lan ap eseye ankò si mesaj la toujou vizib.
+  } finally {
+    ids.forEach((id) => readPending.delete(id));
+  }
 }
 function showImg(src) { $('viewer-img').src = src; $('viewer').classList.remove('hidden'); }
 async function sendMsg() { const i = $('c-msg'), t = i.value.trim(); if (!t) return; i.value = ''; await act(() => api('POST', `/api/p2p/orders/${openId}/messages`, { body: t })); poll(); }
@@ -311,7 +382,29 @@ async function doRelease() {
   let pin; if (me.pinActive) { pin = await askPin(); if (pin === null) return; }
   await act(async () => { await api('POST', `/api/p2p/orders/${openId}/release`, me.pinActive ? { pin } : {}); toast('USDT lage bay achtè a.', true); refreshChip(); poll(); });
 }
-async function doCancel() { if (!(await uiConfirm('Anile lòd sa a? Pa anile si ou deja peye.', { ok: 'Anile lòd la', danger: true }))) return; await act(async () => { await api('POST', `/api/p2p/orders/${openId}/cancel`); toast('Lòd anile.', true); poll(); }); }
+function openCancelSheet() {
+  $('sheet').innerHTML = `<div class="flex justify-between items-center mb-2"><h2 class="font-bold">Anile lòd la</h2><button onclick="closeSheet()" class="text-gray-400 text-2xl leading-none">&times;</button></div>
+    <p class="text-xs text-gray-400 mb-3">Ou ka anile sèlman anvan ou make peman. Si ou deja peye, rapòte pwoblèm nan oswa louvri yon dispit.</p>
+    <label class="lbl">Chwazi rezon an</label><div class="field"><select id="cancel-reason" onchange="$('cancel-other').classList.toggle('hidden',this.value!=='OTHER')">
+      <option value="">Chwazi yon rezon</option><option value="NO_LONGER_NEEDED">Mwen pa bezwen lòd la ankò</option>
+      <option value="PAYMENT_METHOD_ISSUE">Metòd peman an pa mache</option><option value="ORDER_DETAILS_INCORRECT">Detay lòd la pa kòrèk</option>
+      <option value="CANNOT_PAY_IN_TIME">Mwen pap kapab peye nan delè a</option><option value="OTHER">Lòt rezon</option></select></div>
+    <div id="cancel-other" class="hidden mt-2"><label class="lbl">Eksplike rezon an</label><div class="field"><textarea id="cancel-details" rows="3" maxlength="500" placeholder="Omwen 10 karaktè"></textarea></div></div>
+    <p id="cancel-err" class="text-red-400 text-xs mt-2 hidden"></p>
+    <button onclick="submitCancel()" class="w-full py-3 rounded-xl text-sm bg-red-600 text-white mt-3">Kontinye ak anilasyon</button>`;
+  $('m-sheet').classList.remove('hidden');
+}
+async function submitCancel() {
+  const code = $('cancel-reason').value, details = code === 'OTHER' ? $('cancel-details').value.trim() : '';
+  const err = $('cancel-err');
+  if (!code) { err.textContent = 'Chwazi yon rezon pou anilasyon an.'; err.classList.remove('hidden'); return; }
+  if (code === 'OTHER' && details.length < 10) { err.textContent = 'Eksplike lòt rezon an ak omwen 10 karaktè.'; err.classList.remove('hidden'); return; }
+  if (!(await uiConfirm('Anile lòd sa a? Si ou te deja voye peman an, pa kontinye.', { ok: 'Anile lòd la', danger: true }))) return;
+  await act(async () => {
+    await api('POST', `/api/p2p/orders/${openId}/cancel`, { reason: { code, details } });
+    closeSheet(); toast('Lòd anile.', true); poll();
+  });
+}
 function openDisputeSheet() {
   $('sheet').innerHTML = `<div class="flex justify-between items-center mb-2"><h2 class="font-bold">Louvri yon dispit</h2><button onclick="closeSheet()" class="text-gray-400 text-2xl leading-none">&times;</button></div>
     <p class="text-xs text-gray-400 mb-2">Escrow la rete bloke epi yon admin ap revize chat la ak foto yo.</p>

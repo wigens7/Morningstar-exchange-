@@ -53,12 +53,13 @@ function mount(app, deps) {
   app.get('/api/p2p/orders/:id', auth, loose, h((req) => S.getOrderFor(viewerOf(req), req.params.id)));
   app.post('/api/p2p/orders/:id/paid', auth, tight, h((req) => S.markPaid(req.user.id, req.params.id, req.body.reference, ip(req))));
   app.post('/api/p2p/orders/:id/release', auth, tight, pin, h((req) => S.release(req.user.id, req.params.id, ip(req))));
-  app.post('/api/p2p/orders/:id/cancel', auth, tight, h((req) => S.cancel(req.user.id, req.params.id, ip(req))));
+  app.post('/api/p2p/orders/:id/cancel', auth, tight, h((req) => S.cancel(req.user.id, req.params.id, req.body && req.body.reason, ip(req))));
   app.post('/api/p2p/orders/:id/dispute', auth, tight, h((req) => S.openDispute(req.user.id, req.params.id, req.body.reason, ip(req))));
 
   // ----- chat -----
   app.get('/api/p2p/orders/:id/messages', auth, loose, h((req) => S.listMessages(viewerOf(req), req.params.id, req.query.after)));
   app.post('/api/p2p/orders/:id/messages', auth, tight, h((req) => S.postMessage(viewerOf(req), req.params.id, req.body.body)));
+  app.post('/api/p2p/orders/:id/messages/read', auth, tight, h((req) => S.markMessagesRead(viewerOf(req), req.params.id, req.body && req.body.ids)));
 
   // ----- prèv (foto) -----
   const uploadRoute = (chat) => (req, res) => {

@@ -56,7 +56,8 @@ function createService(opts = {}) {
   db.exec(SCHEMA);
   // migrasyon: baz ki te egziste deja pa gen kolòn evidence_id (foto nan chat)
   const addCol = (t, c, d) => { if (!db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); };
-  addCol('messages', 'evidence_id', 'TEXT'); addCol('messages', 'kind', 'TEXT');
+  addCol('messages', 'evidence_id', 'TEXT'); addCol('messages', 'kind', 'TEXT'); addCol('messages', 'read_at', 'INTEGER');
+  addCol('ads', 'auto_paused', 'INTEGER NOT NULL DEFAULT 0');
 
   const q = (sql, ...p) => db.prepare(sql).all(...p);
   const q1 = (sql, ...p) => db.prepare(sql).get(...p);
@@ -77,6 +78,15 @@ function createService(opts = {}) {
   const sysMsg = (orderId, body, kind) => run('INSERT INTO messages(order_id,sender_id,role,body,ts,kind) VALUES(?,?,?,?,?,?)', orderId, null, 'SYSTEM', body, now(), kind || null);
   const requirePerm = (staff, perm) => { if (!staff || !can(staff.role, perm)) throw E('FORBIDDEN', 403, 'Ou pa gen pèmisyon pou aksyon sa a.'); };
   const needReason = (r) => { const s = String(r || '').trim(); if (s.length < 10) throw E('REASON_REQUIRED', 400, 'Yon rezon (omwen 10 karaktè) obligatwa.'); return s.slice(0, 500); };
+  const CANCEL_REASONS = new Set(['NO_LONGER_NEEDED', 'PAYMENT_METHOD_ISSUE', 'ORDER_DETAILS_INCORRECT', 'CANNOT_PAY_IN_TIME', 'OTHER']);
+  function cancellationReason(value) {
+    const code = String(value && typeof value === 'object' ? value.code || '' : value || '').trim();
+    const details = String(value && typeof value === 'object' ? value.details || '' : '').trim();
+    if (!CANCEL_REASONS.has(code) || details.length > 500 || (code === 'OTHER' && details.length < 10)) {
+      throw E('CANCEL_REASON_REQUIRED', 400, 'Chwazi yon rezon pou anilasyon an; si se “Lòt rezon”, bay omwen 10 karaktè.');
+    }
+    return { code, details };
+  }
 
   // ---------- ledger ----------
   function acct(kind, owner, allowNeg = 0) {
@@ -99,6 +109,7 @@ function createService(opts = {}) {
     run('UPDATE accounts SET balance=balance+? WHERE id=?', amount, credit.id);
     run('INSERT INTO ledger_entries(tx_id,account_id,dir,amount) VALUES(?,?,?,?)', id, debit.id, 'DEBIT', amount);
     run('INSERT INTO ledger_entries(tx_id,account_id,dir,amount) VALUES(?,?,?,?)', id, credit.id, 'CREDIT', amount);
+    if (debit.kind === 'AVAILABLE') syncAdAvailabilityInTx(debit.owner, { resume: false });
     return { id, duplicate: false };
   }
   const bridgeAcct = () => acct('SYSTEM', 'BRIDGE', 1);
@@ -154,6 +165,7 @@ function createService(opts = {}) {
         post('bridge:' + id, 'BRIDGE_IN', null, bridgeAcct(), acct('AVAILABLE', t.user_id), t.amount, { userId: t.user_id });
         run("UPDATE bridge_transfers SET status='COMPLETED', updated_at=? WHERE id=?", now(), id);
         audit(t.user_id, 'USER', 'BRIDGE_IN', 'bridge', id, { amount: t.amount });
+        syncAdAvailabilityInTx(t.user_id, { resume: true });
       });
     } else {
       if (!main.has(t.user_id, id)) main.credit(t.user_id, amountCents, id);
@@ -250,6 +262,7 @@ function createService(opts = {}) {
       const id = crypto.randomUUID();
       run(`INSERT INTO ads(id,user_id,type,asset,fiat,price_cents,total_micro,available_micro,min_fiat_cents,max_fiat_cents,methods,pay_details,pay_window_min,status,advertiser_name,terms,idem,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, userId, type, ASSET, fiat, price, total, total, minF, maxF, JSON.stringify(methods), pay ? JSON.stringify(pay) : null, win, 'ACTIVE', displayName(userId), String(input.terms || '').slice(0, 300), idem, now(), now());
+      if (type === 'SELL') syncAdAvailabilityInTx(userId, { resume: true });
       audit(userId, 'USER', 'AD_CREATE', 'ad', id, { type, fiat, price, total }, ip);
       return adView(q1('SELECT * FROM ads WHERE id=?', id));
     });
@@ -265,9 +278,12 @@ function createService(opts = {}) {
         if (!['ACTIVE', 'PAUSED', 'CLOSED'].includes(status)) throw E('BAD_INPUT', 400, 'Eta pa valid.');
         if (a.status === 'SUSPENDED') throw E('SUSPENDED', 403, 'Anons sa a sispann pa admin.');
         if (a.status === 'CLOSED') throw E('CLOSED', 409, 'Anons sa a fèmen.');
-        if (status === 'ACTIVE') { const el = eligible(actor.id); if (!el.ok) throw E('NOT_ELIGIBLE', 403, el.reason); }
+        if (status === 'ACTIVE') {
+          const el = eligible(actor.id); if (!el.ok) throw E('NOT_ELIGIBLE', 403, el.reason);
+          if (a.type === 'SELL' && !adFundingEnough(a, wallet(actor.id).available)) throw E('INSUFFICIENT_FUNDS', 400, 'Balans USDT disponib la pa kouvri kantite ki rete sou anons sa a oswa minimòm lan.');
+        }
       }
-      run('UPDATE ads SET status=?, updated_at=? WHERE id=?', status, now(), adId);
+      run('UPDATE ads SET status=?, auto_paused=0, updated_at=? WHERE id=?', status, now(), adId);
       audit(actor.id, actor.role || 'USER', 'AD_' + status, 'ad', adId, { reason: reason || null }, ip);
       return adView(q1('SELECT * FROM ads WHERE id=?', adId));
     });
@@ -277,16 +293,65 @@ function createService(opts = {}) {
     const p = [type === 'BUY' ? 'BUY' : 'SELL', fiat === 'USD' ? 'USD' : 'HTG'];
     if (viewerId) { sql += ' AND user_id<>?'; p.push(viewerId); }
     sql += ' ORDER BY price_cents ' + (type === 'BUY' ? 'DESC' : 'ASC') + ' LIMIT 100';
-    let rows = q(sql, ...p);
-    if (method) rows = rows.filter((a) => JSON.parse(a.methods).includes(method));
-    if (amount) {
-      const f = parseUnits(amount, 2);
-      rows = rows.filter((a) => f >= a.min_fiat_cents && f <= Math.min(a.max_fiat_cents, fiatFor(a.available_micro, a.price_cents)));
+    const filterRows = (rows) => {
+      if (method) rows = rows.filter((a) => JSON.parse(a.methods).includes(method));
+      if (amount) {
+        const f = parseUnits(amount, 2);
+        rows = rows.filter((a) => f >= a.min_fiat_cents && f <= Math.min(a.max_fiat_cents, fiatFor(a.available_micro, a.price_cents)));
+      }
+      return rows;
+    };
+    let rows = filterRows(q(sql, ...p));
+    if (type !== 'BUY' && rows.length) {
+      const balances = new Map(), underfundedUsers = new Set();
+      for (const ad of rows) {
+        if (!balances.has(ad.user_id)) balances.set(ad.user_id, wallet(ad.user_id).available);
+        if (!adFundingEnough(ad, balances.get(ad.user_id))) underfundedUsers.add(ad.user_id);
+      }
+      if (underfundedUsers.size) {
+        tx(() => { for (const userId of underfundedUsers) syncAdAvailabilityInTx(userId, { resume: false }); });
+        rows = filterRows(q(sql, ...p));
+      }
     }
     return rows.map((a) => adView(a, userStats(a.user_id)));
   }
-  const myAds = (userId) => q('SELECT * FROM ads WHERE user_id=? ORDER BY created_at DESC LIMIT 100', userId).map((a) => adView(a));
+  const myAds = (userId) => {
+    syncAdAvailability(userId, { resume: true });
+    return q('SELECT * FROM ads WHERE user_id=? ORDER BY created_at DESC LIMIT 100', userId).map((a) => adView(a));
+  };
 
+  function adFundingEnough(ad, available) {
+    return ad.available_micro > 0 &&
+      ad.available_micro <= available &&
+      fiatFor(ad.available_micro, ad.price_cents) >= ad.min_fiat_cents;
+  }
+  function syncAdAvailabilityInTx(userId, { resume = false } = {}) {
+    const available = wallet(userId).available;
+    const ads = q("SELECT * FROM ads WHERE user_id=? AND type='SELL' AND status IN ('ACTIVE','PAUSED') ORDER BY created_at,id", String(userId));
+    let changed = 0;
+    for (const ad of ads) {
+      const enough = adFundingEnough(ad, available);
+      if (ad.status === 'ACTIVE' && !enough) {
+        const r = run("UPDATE ads SET status='PAUSED',auto_paused=1,updated_at=? WHERE id=? AND status='ACTIVE'", now(), ad.id);
+        if (r.changes) {
+          audit('system', 'SYSTEM', 'AD_AUTO_PAUSED', 'ad', ad.id, { availableMicro: available, adAvailableMicro: ad.available_micro });
+          changed++;
+        }
+      } else if (resume && ad.status === 'PAUSED' && ad.auto_paused && enough) {
+        const el = eligible(ad.user_id);
+        if (!el.ok || !merchantRow(ad.user_id)) continue;
+        const r = run("UPDATE ads SET status='ACTIVE',auto_paused=0,updated_at=? WHERE id=? AND status='PAUSED' AND auto_paused=1", now(), ad.id);
+        if (r.changes) {
+          audit('system', 'SYSTEM', 'AD_AUTO_RESUMED', 'ad', ad.id, { availableMicro: available, adAvailableMicro: ad.available_micro });
+          changed++;
+        }
+      }
+    }
+    return changed;
+  }
+  function syncAdAvailability(userId, options) {
+    return tx(() => syncAdAvailabilityInTx(userId, options));
+  }
   // ---------- lòd: machin eta ----------
   const getOrder = (id) => q1('SELECT * FROM orders WHERE id=?', id);
   const roleOf = (o, uid) => (uid === o.buyer_id ? 'BUYER' : uid === o.seller_id ? 'SELLER' : null);
@@ -307,6 +372,7 @@ function createService(opts = {}) {
     if (!e || e.status !== 'LOCKED') throw E('ESCROW_NOT_LOCKED', 409, 'Escrow la pa bloke.');
     post(`order:${o.id}:release`, 'ESCROW_RELEASE', o.id, acct('ESCROW', o.id), acct('AVAILABLE', o.buyer_id), e.amount, { buyer: o.buyer_id });
     run("UPDATE escrows SET status='RELEASED_TO_BUYER', updated_at=? WHERE order_id=?", now(), o.id);
+    syncAdAvailabilityInTx(o.buyer_id, { resume: true });
   }
   function returnEscrow(o) { // escrow -> vandè
     const e = q1('SELECT * FROM escrows WHERE order_id=?', o.id);
@@ -314,12 +380,16 @@ function createService(opts = {}) {
     post(`order:${o.id}:return`, 'ESCROW_RETURN', o.id, acct('ESCROW', o.id), acct('AVAILABLE', o.seller_id), e.amount, { seller: o.seller_id });
     run("UPDATE escrows SET status='RETURNED_TO_SELLER', updated_at=? WHERE order_id=?", now(), o.id);
     run("UPDATE ads SET available_micro=MIN(total_micro, available_micro+?), updated_at=? WHERE id=? AND status<>'CLOSED'", o.crypto_micro, now(), o.ad_id);
+    syncAdAvailabilityInTx(o.seller_id, { resume: true });
   }
 
   function createOrder(userId, input, idemKey, ip) {
     const el = eligible(userId); if (!el.ok) throw E('NOT_ELIGIBLE', 403, el.reason);
     const cryptoMicro = parseUnits(input.crypto, 6);
-    return tx(() => {
+    const candidate = q1('SELECT user_id,type FROM ads WHERE id=?', String(input.adId));
+    if (candidate && candidate.type === 'SELL') syncAdAvailability(candidate.user_id, { resume: true });
+    let sellerToSync = null;
+    try { return tx(() => {
       if (idemKey) { const ex = q1('SELECT response FROM idempotency WHERE key=? AND user_id=? AND route=?', idemKey, userId, 'order.create'); if (ex) return JSON.parse(ex.response); }
       const ad = q1('SELECT * FROM ads WHERE id=?', String(input.adId));
       if (!ad || ad.status !== 'ACTIVE') throw E('AD_UNAVAILABLE', 409, 'Anons sa a pa disponib ankò.');
@@ -333,6 +403,7 @@ function createService(opts = {}) {
       if (q1("SELECT COUNT(*) c FROM orders WHERE (buyer_id=? OR seller_id=?) AND status IN ('CREATED','ESCROW_LOCKED','WAITING_PAYMENT','PAYMENT_MARKED')", userId, userId).c >= 10) throw E('LIMIT', 429, 'Ou gen twòp lòd an kou.');
       const sellerIsAdv = ad.type === 'SELL';
       const sellerId = sellerIsAdv ? ad.user_id : userId, buyerId = sellerIsAdv ? userId : ad.user_id;
+      sellerToSync = sellerId;
       let pay;
       if (sellerIsAdv) pay = JSON.parse(ad.pay_details)[method];
       else {
@@ -363,7 +434,10 @@ function createService(opts = {}) {
       const view = orderView(o, { id: userId });
       if (idemKey) run('INSERT INTO idempotency(key,user_id,route,response,created_at) VALUES(?,?,?,?,?)', idemKey, userId, 'order.create', JSON.stringify(view), t);
       return view;
-    });
+    }); } catch (e) {
+      if (e.code === 'INSUFFICIENT_FUNDS' && sellerToSync) syncAdAvailability(sellerToSync, { resume: false });
+      throw e;
+    }
   }
 
   function markPaid(userId, orderId, reference, ip) {
@@ -396,17 +470,28 @@ function createService(opts = {}) {
       return orderView(getOrder(o.id), { id: userId });
     });
   }
-  function cancel(userId, orderId, ip) {
+  function cancel(userId, orderId, reason, ip) {
     return tx(() => {
       let o = mustOrder(orderId);
       if (roleOf(o, userId) !== 'BUYER') throw E('FORBIDDEN', 403, 'Se sèlman achtè a ki ka anile.');
-      if (o.status === 'CANCELLED') return orderView(o, { id: userId });
-      if (o.status === 'PAYMENT_MARKED') throw E('ILLEGAL_TRANSITION', 409, 'Peman an make deja. Louvri yon dispit si gen pwoblèm.');
-      o = transition(o, 'CANCELLED', ['BUYER'], 'BUYER_CANCELLED', userId);
+      const dispute = q1('SELECT status FROM disputes WHERE order_id=?', o.id);
+      if (dispute && dispute.status !== 'RESOLVED') throw E('DISPUTE_OPEN', 409, 'Gen yon dispit ouvè; swiv pwosedi rezolisyon an olye ou anile lòd la.');
+      if (o.status !== 'WAITING_PAYMENT') {
+        const message = o.status === 'PAYMENT_MARKED'
+          ? 'Peman an make deja. Rapòte pwoblèm nan oswa louvri yon dispit.'
+          : o.status === 'COMPLETED'
+            ? 'Lòd la fini oswa crypto a deja lage; li pa ka anile.'
+            : o.status === 'CANCELLED'
+              ? 'Lòd sa a deja anile.'
+              : `Ou pa ka anile yon lòd ${o.status}.`;
+        throw E('ILLEGAL_TRANSITION', 409, message);
+      }
+      const why = cancellationReason(reason);
+      o = transition(o, 'CANCELLED', ['BUYER'], 'BUYER_CANCELLED', userId, { reason: why.code, details: why.details || null });
       returnEscrow(o);
       run("UPDATE orders SET closed_reason='BUYER_CANCELLED' WHERE id=?", o.id);
       sysMsg(o.id, 'Achtè a anile lòd la. USDT la tounen bay vandè a.');
-      audit(userId, 'USER', 'ORDER_CANCEL', 'order', o.id, null, ip);
+      audit(userId, 'USER', 'ORDER_CANCEL', 'order', o.id, { reason: why.code, details: why.details || null }, ip);
       if (q1("SELECT COUNT(*) c FROM order_events WHERE actor=? AND action='BUYER_CANCELLED' AND ts>?", userId, now() - 24 * HOUR).c >= 5) alert(userId, 'FREQUENT_CANCEL', { orderId: o.id });
       return orderView(getOrder(o.id), { id: userId });
     });
@@ -507,8 +592,30 @@ function createService(opts = {}) {
   }
   function listMessages(viewer, orderId, afterId = 0) {
     const o = mustOrder(orderId), role = access(o, viewer);
-    return q('SELECT id,sender_id,role,body,ts,evidence_id,kind FROM messages WHERE order_id=? AND id>? ORDER BY id LIMIT 300', o.id, Number(afterId) || 0)
-      .map((m) => ({ id: m.id, evidenceId: m.evidence_id || null, kind: m.kind || null, role: m.role, mine: m.sender_id === viewer.id, from: m.role === 'USER' ? (m.sender_id === o.buyer_id ? 'BUYER' : 'SELLER') : m.role, body: m.body, ts: m.ts }));
+    const after = Math.max(0, Number(afterId) || 0);
+    return q(`SELECT id,sender_id,role,body,ts,evidence_id,kind,read_at FROM messages
+      WHERE order_id=? AND (id>? OR (sender_id=? AND role='USER' AND read_at IS NOT NULL)) ORDER BY id LIMIT 300`, o.id, after, viewer.id)
+      .map((m) => ({ id: m.id, evidenceId: m.evidence_id || null, kind: m.kind || null, role: m.role, mine: m.sender_id === viewer.id, from: m.role === 'USER' ? (m.sender_id === o.buyer_id ? 'BUYER' : 'SELLER') : m.role, body: m.body, ts: m.ts, readAt: m.sender_id === viewer.id ? m.read_at || null : null }));
+  }
+  function markMessagesRead(viewer, orderId, ids) {
+    if (!Array.isArray(ids) || ids.length > 100 || ids.some((id) => !Number.isSafeInteger(Number(id)) || Number(id) <= 0)) {
+      throw E('BAD_INPUT', 400, 'Lis mesaj yo pa valid.');
+    }
+    return tx(() => {
+      const o = mustOrder(orderId), role = access(o, viewer);
+      if (role !== 'BUYER' && role !== 'SELLER') throw E('FORBIDDEN', 403, 'Se achtè oswa vandè a ki ka make mesaj yo kòm li.');
+      const senderId = role === 'BUYER' ? o.seller_id : o.buyer_id;
+      const readAt = now();
+      let updated = 0;
+      const readIds = [];
+      for (const id of new Set(ids.map(Number))) {
+        const changed = run(`UPDATE messages SET read_at=? WHERE id=? AND order_id=? AND sender_id=? AND role='USER' AND read_at IS NULL`,
+          readAt, id, o.id, senderId).changes;
+        updated += changed;
+        if (changed || q1(`SELECT id FROM messages WHERE id=? AND order_id=? AND sender_id=? AND role='USER' AND read_at IS NOT NULL`, id, o.id, senderId)) readIds.push(id);
+      }
+      return { updated, readIds, readAt: readIds.length ? readAt : null };
+    });
   }
   const EVIDENCE_STATES = ['WAITING_PAYMENT', 'PAYMENT_MARKED', 'DISPUTED', 'UNDER_REVIEW', 'EXPIRED'];
   function addEvidence(viewer, orderId, kind, file, sha256, opts = {}) {
@@ -713,7 +820,7 @@ function createService(opts = {}) {
   return {
     db, tx, q, q1, P2PError, can, parseUnits, fmtUnits, fiatFor, wallet, bridgeIn, bridgeOut, finishBridge, recoverBridge,
     getMerchant: merchantView, saveMerchant, createAd, setAdStatus, listAds, myAds, createOrder, markPaid, release, cancel, openDispute, takeDispute, resolveDispute,
-    postMessage, listMessages, addEvidence, evidenceFile, getOrderFor, myOrders, processProviderEvent,
+    postMessage, listMessages, markMessagesRead, addEvidence, evidenceFile, getOrderFor, myOrders, processProviderEvent,
     expireDue, recoverStuck, runJobs, reconcile, report, admin, close: () => db.close()
   };
 }

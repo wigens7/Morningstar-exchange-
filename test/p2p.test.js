@@ -7,7 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { createService, parseUnits, fiatFor } = require('../p2p/service');
-const { verifySignature } = require('../p2p/routes');
+const { verifySignature, mount: mountP2P } = require('../p2p/routes');
 
 const ADMIN = { id: 'adm', role: 'admin' };
 const SUPPORT = { id: 'sup', role: 'support' };
@@ -37,6 +37,33 @@ const order = (S, buyer, ad, crypto = '10', over = {}) => S.createOrder(buyer, {
 const throwsCode = (fn, code) => assert.throws(fn, (e) => { assert.equal(e.code, code, `got ${e.code}: ${e.message}`); return true; });
 const clean = (S) => { const r = S.reconcile(); assert.deepEqual(r.issues, [], JSON.stringify(r.issues)); };
 const bal = (S, u) => S.wallet(u);
+const CANCEL_REASON = { code: 'CANNOT_PAY_IN_TIME' };
+
+function invokeP2PRoute(S, route, user, body, params = {}) {
+  const routes = {};
+  const app = {
+    get: (path, ...handlers) => { routes[`GET ${path}`] = handlers; },
+    post: (path, ...handlers) => { routes[`POST ${path}`] = handlers; }
+  };
+  const evidenceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'p2p-route-'));
+  mountP2P(app, {
+    auth: (req, res, next) => { req.user = user; next(); },
+    rateLimit: () => (req, res, next) => next(),
+    service: S, upload: () => {}, detectExt: () => null, evidenceDir,
+    isStaffRole: (role) => role === 'admin' || role === 'support'
+  });
+  const handlers = routes[`POST ${route}`];
+  const req = { user, body: body || {}, params, query: {}, ip: '127.0.0.1', get: () => null };
+  const res = {
+    headersSent: false, statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(value) { this.body = value; this.headersSent = true; return this; }
+  };
+  let i = 0;
+  const next = (err) => { if (err) throw err; if (handlers && i < handlers.length) handlers[i++](req, res, next); };
+  try { next(); } finally { fs.rmSync(evidenceDir, { recursive: true, force: true }); }
+  return { status: res.statusCode, body: res.body };
+}
 
 // ---------- inite ----------
 test('inite: pa gen float, 6 desimal, awondi antye', () => {
@@ -55,7 +82,9 @@ test('1. de achtè pa ka rezève menm lajan (menm vandè, 2 anons)', () => {
   const c = setup(); fund(c, 'seller', 100);
   const a1 = sellAd(c.S, 'seller'), a2 = sellAd(c.S, 'seller'); // chak anons pa rezève anyen
   order(c.S, 'b1', a1, '60');
-  throwsCode(() => order(c.S, 'b2', a2, '60'), 'INSUFFICIENT_FUNDS');
+  assert.equal(c.S.q1('SELECT status,auto_paused FROM ads WHERE id=?', a2.id).status, 'PAUSED');
+  assert.equal(c.S.q1('SELECT auto_paused FROM ads WHERE id=?', a2.id).auto_paused, 1);
+  throwsCode(() => order(c.S, 'b2', a2, '60'), 'AD_UNAVAILABLE');
   assert.equal(bal(c.S, 'seller').available, 40_000_000);
   assert.equal(bal(c.S, 'seller').reserved, 60_000_000);
   assert.equal(c.S.q1('SELECT COUNT(*) c FROM orders').c, 1);        // lòd ki echwe a pa kreye
@@ -252,7 +281,7 @@ test('7. dispit louvri anvan lage: vandè pa ka lage, escrow rete bloke jiskaske
   c.S.openDispute('buyer', o.id, 'Dezyèm eseye menm bagay la.');                 // idempotan
   assert.equal(c.S.q1('SELECT COUNT(*) c FROM disputes').c, 1);
   throwsCode(() => c.S.release('seller', o.id), 'ILLEGAL_TRANSITION');
-  throwsCode(() => c.S.cancel('buyer', o.id), 'ILLEGAL_TRANSITION');
+  throwsCode(() => c.S.cancel('buyer', o.id, CANCEL_REASON), 'DISPUTE_OPEN');
   c.clock.t += 10 * 3600e3; c.S.expireDue();                                    // tan pa debloke anyen
   assert.equal(c.S.getOrderFor({ id: 'buyer' }, o.id).escrow, 'LOCKED');
   const d = c.S.q1('SELECT id FROM disputes').id;
@@ -290,7 +319,48 @@ test('8b. limit, metòd, pwòp anons, eligibilite', () => {
   throwsCode(() => c.S.setAdStatus({ id: 'b' }, ad.id, 'ACTIVE'), 'FORBIDDEN');
   clean(c.S);
 });
-test('8c. anons AWAT (BUY): vandè se moun k pran an; escrow soti nan li', () => {
+test('8c. anons VANN yo poze lè kantite oswa minimòm lan pa kouvri; depo ka relouvri sèlman poz otomatik', () => {
+  const c = setup(); fund(c, 'seller', 20);
+  const ad = sellAd(c.S, 'seller', { total: '20' });
+  c.S.bridgeOut('seller', 500, 'withdraw-before-order');
+  assert.equal(c.S.q1('SELECT status,auto_paused FROM ads WHERE id=?', ad.id).status, 'PAUSED');
+  assert.equal(c.S.q1('SELECT auto_paused FROM ads WHERE id=?', ad.id).auto_paused, 1);
+  throwsCode(() => c.S.setAdStatus({ id: 'seller' }, ad.id, 'ACTIVE'), 'INSUFFICIENT_FUNDS');
+  throwsCode(() => order(c.S, 'buyer', ad, '1'), 'AD_UNAVAILABLE');
+  c.S.bridgeIn('seller', 500, 'deposit-after-withdraw');
+  assert.equal(c.S.q1('SELECT status FROM ads WHERE id=?', ad.id).status, 'ACTIVE');
+  order(c.S, 'buyer', ad, '19.5');
+  assert.equal(c.S.q1('SELECT status,auto_paused FROM ads WHERE id=?', ad.id).status, 'PAUSED');
+  assert.equal(c.S.q1('SELECT auto_paused FROM ads WHERE id=?', ad.id).auto_paused, 1);
+  c.S.cancel('buyer', c.S.q1('SELECT id FROM orders ORDER BY created_at DESC LIMIT 1').id, CANCEL_REASON);
+  assert.equal(c.S.q1('SELECT status FROM ads WHERE id=?', ad.id).status, 'ACTIVE');
+  c.S.setAdStatus({ id: 'seller' }, ad.id, 'PAUSED');
+  c.S.bridgeOut('seller', 500, 'withdraw-manual-pause');
+  c.S.bridgeIn('seller', 500, 'deposit-manual-pause');
+  assert.equal(c.S.q1('SELECT status,auto_paused FROM ads WHERE id=?', ad.id).status, 'PAUSED');
+  assert.equal(c.S.q1('SELECT auto_paused FROM ads WHERE id=?', ad.id).auto_paused, 0);
+  clean(c.S);
+});
+test('8c. lis mache a poze sèlman anons machann ki pa finanse yo', () => {
+  const c = setup(); fund(c, 'seller-low', 20); fund(c, 'seller-funded', 20);
+  const low = sellAd(c.S, 'seller-low', { total: '10' });
+  const funded = sellAd(c.S, 'seller-funded', { total: '10' });
+  const available = c.S.q1("SELECT id FROM accounts WHERE kind='AVAILABLE' AND owner=?", 'seller-low');
+  const bridge = c.S.q1("SELECT id FROM accounts WHERE kind='SYSTEM' AND owner='BRIDGE'");
+  c.S.tx(() => {
+    const txId = c.S.db.prepare("INSERT INTO ledger_txs(ref,type,order_id,created_at,meta) VALUES(?,?,?,?,?)").run('legacy-adjustment', 'LEGACY_ADJUSTMENT', null, c.clock.t, '{}').lastInsertRowid;
+    c.S.db.prepare('UPDATE accounts SET balance=balance-? WHERE id=?').run(20_000_000, available.id);
+    c.S.db.prepare('UPDATE accounts SET balance=balance+? WHERE id=?').run(20_000_000, bridge.id);
+    c.S.db.prepare("INSERT INTO ledger_entries(tx_id,account_id,dir,amount) VALUES(?,?,?,?)").run(txId, available.id, 'DEBIT', 20_000_000);
+    c.S.db.prepare("INSERT INTO ledger_entries(tx_id,account_id,dir,amount) VALUES(?,?,?,?)").run(txId, bridge.id, 'CREDIT', 20_000_000);
+  }); // simile yon ansyen balans ki poko te deklanche poz otomatik la
+  const listed = c.S.listAds({ type: 'SELL', fiat: 'HTG' });
+  assert.equal(c.S.q1('SELECT status FROM ads WHERE id=?', low.id).status, 'PAUSED');
+  assert.equal(c.S.q1('SELECT status FROM ads WHERE id=?', funded.id).status, 'ACTIVE');
+  assert.deepEqual(listed.map((a) => a.id), [funded.id]);
+  clean(c.S);
+});
+test('8d. anons AWAT (BUY): vandè se moun k pran an; escrow soti nan li', () => {
   const c = setup(); fund(c, 'taker', 50);
   merch(c.S, 'adv');
   const ad = c.S.createAd('adv', { type: 'BUY', fiat: 'HTG', price: '139.00', total: '50', minFiat: '100', maxFiat: '20000', methods: ['MonCash'], payWindowMin: 15 });
@@ -306,7 +376,7 @@ test('9. anilasyon ak konfimasyon peman nan tout lòd: yon sèl rezilta, lajan k
   for (const cancelFirst of [true, false]) {
     const c = setup(); fund(c, 'seller', 100);
     const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '20');
-    const calls = [() => c.S.cancel('buyer', o.id), () => c.S.markPaid('buyer', o.id, 'TXRACE')];
+    const calls = [() => c.S.cancel('buyer', o.id, CANCEL_REASON), () => c.S.markPaid('buyer', o.id, 'TXRACE')];
     if (!cancelFirst) calls.reverse();
     const res = calls.map((f) => { try { f(); return 'ok'; } catch (e) { return e.code; } });
     const v = c.S.getOrderFor({ id: 'buyer' }, o.id);
@@ -315,10 +385,82 @@ test('9. anilasyon ak konfimasyon peman nan tout lòd: yon sèl rezilta, lajan k
     clean(c.S);
   }
 });
+test('9a. rezon anilasyon obligatwa, otorize, ak anrejistre nan istwa imitab la', () => {
+  const c = setup(); fund(c, 'seller', 100);
+  const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '20');
+  throwsCode(() => c.S.cancel('buyer', o.id, null), 'CANCEL_REASON_REQUIRED');
+  throwsCode(() => c.S.cancel('buyer', o.id, { code: 'OTHER', details: 'twò kout' }), 'CANCEL_REASON_REQUIRED');
+  assert.equal(c.S.getOrderFor({ id: 'buyer' }, o.id).status, 'WAITING_PAYMENT');
+  c.S.cancel('buyer', o.id, { code: 'OTHER', details: 'Mwen pa kapab konfime montan peman an.' });
+  const event = c.S.q1("SELECT * FROM order_events WHERE order_id=? AND action='BUYER_CANCELLED'", o.id);
+  assert.equal(event.actor, 'buyer'); assert.equal(event.actor_role, 'BUYER');
+  assert.equal(event.from_status, 'WAITING_PAYMENT'); assert.equal(event.to_status, 'CANCELLED');
+  assert.equal(event.ts, c.clock.t);
+  assert.deepEqual(JSON.parse(event.details), { reason: 'OTHER', details: 'Mwen pa kapab konfime montan peman an.' });
+  assert.equal(c.S.getOrderFor({ id: 'buyer' }, o.id).status, 'CANCELLED');
+  assert.equal(bal(c.S, 'seller').available, 100_000_000);
+  throwsCode(() => c.S.cancel('buyer', o.id, CANCEL_REASON), 'ILLEGAL_TRANSITION');
+  assert.equal(c.S.q1("SELECT COUNT(*) c FROM order_events WHERE order_id=? AND action='BUYER_CANCELLED'", o.id).c, 1);
+  clean(c.S);
+});
+test('9a. demann API dirèk pa ka anile peman make, epi rezon an pase atravè route la', () => {
+  const c = setup(); fund(c, 'seller', 100);
+  const ad = sellAd(c.S, 'seller', { total: '50' });
+  const unpaid = order(c.S, 'buyer', ad, '10');
+  const missingReason = invokeP2PRoute(c.S, '/api/p2p/orders/:id/cancel', { id: 'buyer', role: 'user' }, {}, { id: unpaid.id });
+  assert.equal(missingReason.status, 400);
+  assert.equal(missingReason.body.code, 'CANCEL_REASON_REQUIRED');
+  const canceled = invokeP2PRoute(c.S, '/api/p2p/orders/:id/cancel', { id: 'buyer', role: 'user' }, { reason: CANCEL_REASON }, { id: unpaid.id });
+  assert.equal(canceled.status, 200); assert.equal(canceled.body.status, 'CANCELLED');
+  assert.deepEqual(JSON.parse(c.S.q1("SELECT details FROM order_events WHERE order_id=? AND action='BUYER_CANCELLED'", unpaid.id).details).reason, CANCEL_REASON.code);
+  const paid = order(c.S, 'buyer', ad, '10');
+  c.S.markPaid('buyer', paid.id);
+  const directRequest = invokeP2PRoute(c.S, '/api/p2p/orders/:id/cancel', { id: 'buyer', role: 'user' }, { reason: CANCEL_REASON }, { id: paid.id });
+  assert.equal(directRequest.status, 409);
+  assert.equal(directRequest.body.code, 'ILLEGAL_TRANSITION');
+  assert.equal(c.S.getOrderFor({ id: 'buyer' }, paid.id).status, 'PAYMENT_MARKED');
+  assert.equal(c.S.getOrderFor({ id: 'buyer' }, paid.id).escrow, 'LOCKED');
+  throwsCode(() => c.S.cancel('seller', paid.id, CANCEL_REASON), 'FORBIDDEN');
+  clean(c.S);
+});
+test('9a. anilasyon pa pase ansanm ak liberasyon crypto a', () => {
+  const c = setup(); fund(c, 'seller', 100);
+  const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '20');
+  c.S.markPaid('buyer', o.id);
+  throwsCode(() => c.S.cancel('buyer', o.id, CANCEL_REASON), 'ILLEGAL_TRANSITION');
+  c.S.release('seller', o.id);
+  throwsCode(() => c.S.cancel('buyer', o.id, CANCEL_REASON), 'ILLEGAL_TRANSITION');
+  assert.equal(c.S.getOrderFor({ id: 'buyer' }, o.id).status, 'COMPLETED');
+  assert.equal(c.S.getOrderFor({ id: 'buyer' }, o.id).escrow, 'RELEASED_TO_BUYER');
+  assert.equal(bal(c.S, 'buyer').available, 20_000_000);
+  clean(c.S);
+});
+test('9a. pwosesis an paralèl pa ka anile pandan liberasyon crypto a', async () => {
+  const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'p2p-release-cancel-')), 'db.sqlite');
+  const c = setup({ dbPath }); fund(c, 'seller', 100);
+  const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '20');
+  c.S.markPaid('buyer', o.id);
+  const servicePath = path.resolve(__dirname, '../p2p/service');
+  const run = (action) => new Promise((resolve, reject) => {
+    const reason = JSON.stringify(CANCEL_REASON), orderId = JSON.stringify(o.id);
+    const code = `const {createService}=require(${JSON.stringify(servicePath)});const S=createService({dbPath:${JSON.stringify(dbPath)}});try{if(${JSON.stringify(action)}==='cancel'){S.cancel('buyer',${orderId},${reason});console.log('CANCELLED')}else{S.release('seller',${orderId});console.log('RELEASED')}}catch(e){console.log(e.code==='ILLEGAL_TRANSITION'?'CANCEL_BLOCKED':'ERR_'+e.code)}finally{S.close()}`;
+    const child = spawn(process.execPath, ['-e', code]);
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { err += d; });
+    child.on('error', reject);
+    child.on('close', (status) => status === 0 ? resolve(out.trim()) : reject(new Error(err || `worker exited ${status}`)));
+  });
+  const result = await Promise.all([run('cancel'), run('release')]);
+  assert.deepEqual(result.sort(), ['CANCEL_BLOCKED', 'RELEASED']);
+  assert.equal(c.S.getOrderFor({ id: 'buyer' }, o.id).status, 'COMPLETED');
+  assert.equal(c.S.q1("SELECT COUNT(*) c FROM ledger_txs WHERE ref=?", `order:${o.id}:release`).c, 1);
+  assert.equal(bal(c.S, 'buyer').available, 20_000_000);
+  clean(c.S);
+});
 test('9b. eta final: lòd COMPLETED/CANCELLED pa ka chanje (menm ak SQL dirèk)', () => {
   const c = setup(); fund(c, 'seller', 100);
   const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '20'); c.S.markPaid('buyer', o.id, 'TXFINAL'); c.S.release('seller', o.id);
-  throwsCode(() => c.S.cancel('buyer', o.id), 'ILLEGAL_TRANSITION');
+  throwsCode(() => c.S.cancel('buyer', o.id, CANCEL_REASON), 'ILLEGAL_TRANSITION');
   throwsCode(() => c.S.openDispute('seller', o.id, 'Eseye louvri dispit apre fini.'), 'ILLEGAL_TRANSITION');
   assert.throws(() => c.S.db.prepare("UPDATE orders SET status='WAITING_PAYMENT' WHERE id=?").run(o.id), /terminal/);
   assert.throws(() => c.S.db.prepare("UPDATE escrows SET status='LOCKED' WHERE order_id=?").run(o.id), /final/);
@@ -437,12 +579,35 @@ test('chat ak prèv: sèlman patisipan; staff sèlman nan dispit; prèv limite p
   assert.equal(v.status, 'DISPUTED'); assert.ok(v.messages.length >= 3);
   clean(c.S);
 });
+test('resi lekti chat la mande idantite moun k ap resevwa a epi mache nan toude direksyon', () => {
+  const c = setup(); fund(c, 'seller', 100);
+  const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '10');
+  c.S.postMessage({ id: 'seller' }, o.id, 'Men prèv peman an.');
+  const sellerMessage = c.S.listMessages({ id: 'buyer' }, o.id).find((m) => m.body === 'Men prèv peman an.');
+  assert.equal(sellerMessage.readAt, null);
+  const receiptRoute = invokeP2PRoute(c.S, '/api/p2p/orders/:id/messages/read', { id: 'buyer', role: 'user' }, { ids: [sellerMessage.id] }, { id: o.id });
+  assert.equal(receiptRoute.status, 200); assert.equal(receiptRoute.body.updated, 1);
+  const sellerView = c.S.listMessages({ id: 'seller' }, o.id).find((m) => m.id === sellerMessage.id);
+  assert.equal(sellerView.readAt, c.clock.t);
+  assert.equal(c.S.markMessagesRead({ id: 'buyer' }, o.id, [sellerMessage.id]).updated, 0);
+  assert.equal(c.S.markMessagesRead({ id: 'buyer' }, o.id, [sellerMessage.id]).readIds[0], sellerMessage.id);
+
+  c.S.postMessage({ id: 'buyer' }, o.id, 'Mwen voye lajan an.');
+  const buyerMessage = c.S.listMessages({ id: 'seller' }, o.id).find((m) => m.body === 'Mwen voye lajan an.');
+  assert.equal(c.S.markMessagesRead({ id: 'seller' }, o.id, [buyerMessage.id]).updated, 1);
+  assert.equal(c.S.listMessages({ id: 'buyer' }, o.id).find((m) => m.id === buyerMessage.id).readAt, c.clock.t);
+  assert.deepEqual(c.S.markMessagesRead({ id: 'buyer' }, o.id, [buyerMessage.id]).readIds, []);
+  throwsCode(() => c.S.markMessagesRead({ id: 'stranger' }, o.id, [sellerMessage.id]), 'FORBIDDEN');
+  throwsCode(() => c.S.markMessagesRead({ ...SUPPORT, staff: true }, o.id, [sellerMessage.id]), 'FORBIDDEN');
+  assert.equal(c.S.q1("SELECT COUNT(*) c FROM messages WHERE order_id=? AND role='USER'", o.id).c, 2);
+  clean(c.S);
+});
 test('machin eta: pa gen chemen ilegal', () => {
   const c = setup(); fund(c, 'seller', 100);
   const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '10');
   throwsCode(() => c.S.release('seller', o.id), 'ILLEGAL_TRANSITION');           // WAITING_PAYMENT -> COMPLETED
   throwsCode(() => c.S.openDispute('buyer', o.id, 'Mwen vle yon dispit san peman'), 'ILLEGAL_TRANSITION'); // WAITING_PAYMENT -> DISPUTED
-  throwsCode(() => c.S.cancel('seller', o.id), 'FORBIDDEN');                       // vandè pa ka anile
+  throwsCode(() => c.S.cancel('seller', o.id, CANCEL_REASON), 'FORBIDDEN');       // vandè pa ka anile
   throwsCode(() => c.S.takeDispute(ADMIN, 999), 'NOT_FOUND');
   clean(c.S);
 });
@@ -464,6 +629,7 @@ test('chat: foto nan konvèsasyon (tou de moun), pa staff/etranje, pa apre fème
   old.close();
   const c = setup({ dbPath }); fund(c, 'seller', 100);
   assert.ok(c.S.db.prepare('PRAGMA table_info(messages)').all().some((x) => x.name === 'evidence_id'));
+  assert.ok(c.S.db.prepare('PRAGMA table_info(messages)').all().some((x) => x.name === 'read_at'));
   const o = order(c.S, 'buyer', sellAd(c.S, 'seller'), '10');
   c.S.addEvidence({ id: 'buyer' }, o.id, 'CHAT', 'x/a.jpg', 'h1', { chat: true });
   c.S.markPaid('buyer', o.id);
@@ -476,6 +642,17 @@ test('chat: foto nan konvèsasyon (tou de moun), pa staff/etranje, pa apre fème
   throwsCode(() => c.S.addEvidence({ id: 'buyer' }, o.id, 'CHAT', 'x/d.jpg', 'h4', { chat: true }), 'ILLEGAL_TRANSITION'); // lòd fini
   assert.equal(c.S.listMessages({ id: 'buyer' }, o.id).filter((x) => x.evidenceId).length, 2);
   clean(c.S);
+
+  const adDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'p2p-ads-')), 'old.sqlite');
+  const oldAds = new DatabaseSync(adDbPath);
+  oldAds.exec("CREATE TABLE ads (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, type TEXT NOT NULL, fiat TEXT NOT NULL, status TEXT NOT NULL)");
+  oldAds.exec("INSERT INTO ads(id,user_id,type,fiat,status) VALUES('existing','seller','SELL','HTG','ACTIVE')");
+  oldAds.close();
+  const migrated = createService({ dbPath: adDbPath, main: makeMain() });
+  assert.ok(migrated.db.prepare('PRAGMA table_info(ads)').all().some((x) => x.name === 'auto_paused'));
+  const preservedAd = migrated.q1('SELECT status,auto_paused FROM ads WHERE id=?', 'existing');
+  assert.equal(preservedAd.status, 'ACTIVE'); assert.equal(preservedAd.auto_paused, 0);
+  migrated.close();
 });
 
 // ---------- machann: non biznis + mesaj otomatik ----------
