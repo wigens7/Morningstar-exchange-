@@ -665,6 +665,87 @@ app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, re
   res.status(201).json(publicUser(u));
 });
 
+// ---------- Transfè ant itilizatè (san frè) ----------
+// Non an maske pou vi prive: "John Smith" -> "Joh** Sm***" (1ye mo: 3 lèt + **, lòt mo yo: 2 lèt + ***)
+function maskName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '***';
+  return parts.map((w, i) => {
+    const c = [...w];
+    if (c.length <= 1) return '*';
+    const vis = Math.max(1, Math.min(i === 0 ? 3 : 2, c.length - 1));
+    return c.slice(0, vis).join('') + '*'.repeat(i === 0 ? 2 : 3);
+  }).join(' ');
+}
+// Chèche moun k ap resevwa a pa ID kont (7 chif) oswa imèl. Staff (admin/support) ak kont bani pa ka resevwa.
+function findRecipient(users, raw) {
+  const q = String(raw || '').trim().toLowerCase();
+  let r = null;
+  if (/^\d{7}$/.test(q)) r = users.find((x) => x.uid === q);
+  else if (EMAIL_RE.test(q)) r = users.find((x) => x.email === q);
+  return r && (r.role || 'user') === 'user' && !r.banned ? r : null;
+}
+function applyTransfer(u, side, tx) {
+  const field = tx.currency === 'USD' ? 'usd' : 'balance';
+  u[field] = round2((u[field] || 0) + (side === 'out' ? -tx.amount : tx.amount));
+  u.swaps = u.swaps || [];
+  const entry = { id: crypto.randomUUID(), type: 'transfer', dir: side, txId: tx.txId, currency: tx.currency, amount: tx.amount, note: tx.note,
+    fromName: tx.fromName, toName: tx.toName, status: 'done', createdAt: tx.createdAt };
+  u.swaps.push(entry);
+  return entry;
+}
+// Si yon sèl bò transfè a sove (konfli), nou fini bò ki manke a pou lajan pa pèdi.
+async function reconcileTransfer(tx, senderId, recId) {
+  for (let i = 0; i < 3; i++) {
+    const users = loadUsers();
+    const s = users.find((x) => x.id === senderId), r = users.find((x) => x.id === recId);
+    if (!s || !r) return null;
+    const sHas = (s.swaps || []).some((x) => x.txId === tx.txId), rHas = (r.swaps || []).some((x) => x.txId === tx.txId);
+    if (sHas && rHas) return true;
+    if (!sHas && !rHas) return null;
+    if (!rHas) applyTransfer(r, 'in', tx); else applyTransfer(s, 'out', tx);
+    try { await saveUsers(users); } catch { continue; }
+  }
+  return null;
+}
+
+app.get('/api/transfer/lookup', auth, rateLimit(40, 15 * 60 * 1000), notBanned, (req, res) => {
+  const r = findRecipient(req.users, req.query.to);
+  if (!r) return res.status(404).json({ error: 'Pa jwenn kont sa a.' });
+  if (r.id === req.user.id) return res.status(400).json({ error: 'Ou pa ka voye lajan bay tèt ou.' });
+  res.json({ name: maskName(r.name) });
+});
+
+app.post('/api/transfer', auth, rateLimit(20, 15 * 60 * 1000), notBanned, needProfile, pinGuard, async (req, res) => {
+  const u = req.user;
+  if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon transfè.' });
+  const currency = req.body.currency === 'USD' ? 'USD' : req.body.currency === 'HTG' ? 'HTG' : null;
+  const raw = Number(req.body.amount);
+  const amount = round2(raw);
+  if (!currency || !Number.isFinite(raw) || !(amount > 0) || amount > 10000000 || Math.abs(raw - amount) > 1e-9) return res.status(400).json({ error: 'Montan an pa valid.' });
+  const r = findRecipient(req.users, req.body.to);
+  if (!r) return res.status(404).json({ error: 'Pa jwenn kont sa a.' });
+  if (r.id === u.id) return res.status(400).json({ error: 'Ou pa ka voye lajan bay tèt ou.' });
+  const field = currency === 'USD' ? 'usd' : 'balance';
+  if (amount > (u[field] || 0)) return res.status(400).json({ error: 'Balans ou pa sifi.' });
+  const note = String(req.body.note || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100);
+  let txId;
+  do { txId = 'TRF-' + crypto.randomBytes(6).toString('hex').toUpperCase(); }
+  while (req.users.some((x) => (x.swaps || []).some((t) => t.txId === txId)));
+  const tx = { txId, currency, amount, note, fromName: maskName(u.name), toName: maskName(r.name), createdAt: new Date().toISOString() };
+  const mine = applyTransfer(u, 'out', tx);
+  const theirs = applyTransfer(r, 'in', tx);
+  logAct(u, 'transfer', 'Voye ' + moneyTxt(amount, currency) + ' bay ' + r.email + ' (ID ' + r.uid + ') · ' + txId, req, { ref: mine.id });
+  logAct(r, 'transfer', 'Resevwa ' + moneyTxt(amount, currency) + ' nan men ' + u.email + ' (ID ' + u.uid + ') · ' + txId, null, { ref: theirs.id });
+  notify(r, 'nTrfIn', { a: moneyTxt(amount, currency), n: tx.fromName });
+  try { await saveUsers(req.users); }
+  catch (e) {
+    if (!(await reconcileTransfer(tx, u.id, r.id))) return res.status(409).json({ error: 'Transfè a pa pase. Tanpri eseye ankò.' });
+  }
+  const fresh = loadUsers().find((x) => x.id === u.id) || u;
+  res.status(201).json({ ...publicUser(fresh), receipt: txOf(mine) });
+});
+
 // ---------- Admin (sesyon + wòl admin) ----------
 function adminOnly(req, res, next) {
   auth(req, res, () => {
