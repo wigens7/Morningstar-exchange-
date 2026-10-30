@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS ads (
   pay_details TEXT,
   pay_window_min INTEGER NOT NULL CHECK (pay_window_min BETWEEN 5 AND 60),
   status TEXT NOT NULL CHECK (status IN ('ACTIVE','PAUSED','CLOSED','SUSPENDED')),
+  auto_paused INTEGER NOT NULL DEFAULT 0 CHECK (auto_paused IN (0,1)),
   advertiser_name TEXT,
   terms TEXT,
   idem TEXT UNIQUE,
@@ -100,7 +101,7 @@ CREATE TABLE IF NOT EXISTS idempotency (
 );
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY, order_id TEXT NOT NULL, sender_id TEXT, role TEXT NOT NULL CHECK (role IN ('USER','STAFF','SYSTEM')),
-  body TEXT NOT NULL, ts INTEGER NOT NULL, evidence_id TEXT, kind TEXT
+  body TEXT NOT NULL, ts INTEGER NOT NULL, evidence_id TEXT, kind TEXT, read_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_msgs_order ON messages(order_id);
 CREATE TABLE IF NOT EXISTS evidence (
