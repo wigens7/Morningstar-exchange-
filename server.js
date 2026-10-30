@@ -216,7 +216,25 @@ function setSession(res, user, remember) {
     httpOnly: true, sameSite: 'lax', secure: isProd,
     maxAge: (remember ? 30 : 1) * 24 * 3600 * 1000
   });
+  setPinHint(res, user);
 }
+
+// Kouki "aparèy ki rekonèt" (30 jou): li pèmèt fòm PIN nan parèt sèlman si kliyan an gen PIN aktif
+// epi sesyon aparèy la poko ekspire. Li pa konekte pesonn pou kont li: PIN lan toujou obligatwa.
+function setPinHint(res, user) {
+  if (!user.pinActive) return res.clearCookie('pinhint');
+  const t = jwt.sign({ sub: user.id, k: 'pinhint' }, JWT_SECRET, { expiresIn: '30d' });
+  res.cookie('pinhint', t, { httpOnly: true, sameSite: 'lax', secure: isProd, maxAge: 30 * 24 * 3600 * 1000 });
+}
+function pinHintUser(req) {
+  try {
+    const p = jwt.verify(req.cookies.pinhint, JWT_SECRET);
+    if (p.k !== 'pinhint') return null;
+    const u = loadUsers().find((x) => x.id === p.sub);
+    return u && u.pinActive && u.pinHash ? u : null;
+  } catch { return null; }
+}
+const maskEmail = (e) => { const [a, b] = String(e).split('@'); return (a.length <= 2 ? a[0] : a.slice(0, 2)) + '•••@' + b; };
 
 function auth(req, res, next) {
   try {
@@ -303,14 +321,23 @@ app.post('/api/login', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
   const password = String(req.body.password || '');
   const user = loadUsers().find((u) => u.email === email);
-  let ok = false;
-  if (user && /^\d{6}$/.test(password)) { // 6 chif = PIN (mòdpas gen omwen 8 karaktè)
-    if (pinLocked(user)) return res.status(429).json({ error: 'PIN bloke pou 30 minit. Itilize mòdpas ou.' });
-    ok = !!user.pinActive && (await checkPin(user, password));
-  } else if (user) {
-    ok = await bcrypt.compare(password, user.passwordHash);
-  }
+  const ok = !!user && (await bcrypt.compare(password, user.passwordHash));
   if (!ok) return res.status(401).json({ error: 'Imèl oswa mòdpas la pa kòrèk.' });
+  setSession(res, user, !!req.body.remember);
+  res.json(publicUser(user));
+});
+
+// Fòm PIN: disponib sèlman si aparèy la gen yon kouki pinhint valid (PIN aktif + 30 jou poko pase)
+app.get('/api/pin-hint', (req, res) => {
+  const u = pinHintUser(req);
+  res.json(u ? { available: true, email: maskEmail(u.email), name: String(u.name).split(' ')[0] } : { available: false });
+});
+
+app.post('/api/login-pin', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
+  const user = pinHintUser(req);
+  if (!user) return res.status(401).json({ error: 'Sesyon PIN lan ekspire. Itilize imèl ak mòdpas ou.' });
+  if (pinLocked(user)) return res.status(429).json({ error: 'PIN bloke pou 30 minit. Itilize mòdpas ou.' });
+  if (!(await checkPin(user, req.body.pin))) return res.status(401).json({ error: 'PIN pa kòrèk.' });
   setSession(res, user, !!req.body.remember);
   res.json(publicUser(user));
 });
@@ -432,6 +459,7 @@ app.post('/api/pin/set', auth, async (req, res) => {
   const u = users.find((x) => x.id === req.user.id);
   u.pinHash = pinHash; u.pinActive = true;
   await saveUsers(users);
+  setPinHint(res, u);
   res.json(publicUser(u));
 });
 
@@ -441,6 +469,7 @@ app.post('/api/pin/disable', auth, async (req, res) => {
   const u = users.find((x) => x.id === req.user.id);
   u.pinActive = false; delete u.pinHash;
   await saveUsers(users);
+  res.clearCookie('pinhint');
   res.json(publicUser(u));
 });
 
@@ -932,6 +961,8 @@ app.post('/api/admin/users/:id/role', adminOnly, async (req, res) => {
 const page = (file) => (req, res) => res.sendFile(path.join(__dirname, file));
 app.get('/', page('index.html'));
 app.get('/index.html', page('index.html'));
+app.get('/privacy.html', page('privacy.html'));
+app.get('/privacy', page('privacy.html'));
 app.get('/kyc.html', page('kyc.html'));
 app.get('/dashboard.html', page('dashboard.html'));
 app.get('/admin.html', page('admin.html'));
