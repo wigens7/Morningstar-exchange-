@@ -80,9 +80,42 @@ function saveSettings(st) {
   fs.writeFileSync(tmp, JSON.stringify(st, null, 2));
   fs.renameSync(tmp, SETTINGS_FILE);
 }
+// Retrè: balans HTG => sèlman MonCash / NatCash. Balans dola (USD/USDT) => Meru, Zelle, USDT, CashApp, PayPal, Wise.
+// Dola pa ka ale sou MonCash/NatCash dirèkteman: swap an HTG dabò.
 const W_METHODS = { HTG: ['MonCash', 'NatCash'], USD: ['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'] };
+const USDT_NETWORKS = { TRC20: /^T[1-9A-HJ-NP-Za-km-z]{33}$/, BEP20: /^0x[a-fA-F0-9]{40}$/ };
+// USDT: Binance (ID oswa imèl) oswa wallet crypto (rezo TRC20/BEP20). Retounen { account, extra } oswa { error }
+function usdtDestination(b) {
+  const dest = String(b.dest || '');
+  const val = String(b.account || '').trim();
+  if (dest === 'binance') {
+    const idType = String(b.idType || '');
+    if (idType === 'id') return /^\d{5,20}$/.test(val) ? { account: val, extra: { dest, idType } } : { error: 'Binance ID pa valid (chif sèlman).' };
+    if (idType === 'email') return /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/.test(val) && val.length <= 100 ? { account: val, extra: { dest, idType } } : { error: 'Imèl Binance pa valid.' };
+    return { error: 'Chwazi si se Binance ID oswa imèl Binance.' };
+  }
+  if (dest === 'wallet') {
+    const network = String(b.network || '');
+    if (!USDT_NETWORKS[network]) return { error: 'Chwazi rezo a: TRC20 oswa BEP20.' };
+    return USDT_NETWORKS[network].test(val) ? { account: val, extra: { dest, network } } : { error: 'Adrès wallet la pa valid pou rezo ' + network + '.' };
+  }
+  return { error: 'Chwazi Binance oswa wallet crypto.' };
+}
+// Checkbox obligatwa (depo + retrè): kliyan an dakò validasyon pran 24-48 èdtan
+const ackOk = (req) => req.body && req.body.ack === true;
+const ACK_ERR = 'Ou dwe make kazye a pou konfime depo/retrè a ka pran 24 a 48 èdtan pou valide.';
 const txOf = (s) => ({ type: 'withdrawal', currency: 'HTG', ...s });
+// ---------- Notifikasyon (klòch la) ----------
+// Sove nan done kliyan an (u.notifs, max 50). Chak notifikasyon = yon kle (k) + paramèt (p); dashboard la tradui l nan lang kliyan an.
+function notify(u, k, p) {
+  if (!u) return;
+  u.notifs = u.notifs || [];
+  u.notifs.push({ id: crypto.randomUUID(), k, p: p || {}, at: new Date().toISOString(), read: false });
+  if (u.notifs.length > 50) u.notifs = u.notifs.slice(-50);
+}
+const moneyTxt = (n, cur) => (cur === 'USD' ? '$' + Number(n).toFixed(2) : Number(n).toFixed(2) + ' HTG');
 const publicUser = (u) => ({
+  notifs: (u.notifs || []).slice(-30).reverse(), unread: (u.notifs || []).filter((n) => !n.read).length,
   id: u.id, name: u.name, email: u.email, role: u.role || 'user',
   balance: u.balance || 0, usd: u.usd || 0, rate: getSettings().rate,
   fee: { active: getSettings().feeActive, percent: getSettings().feePercent, byAsset: getSettings().feeByAsset }, banned: !!u.banned,
@@ -373,6 +406,13 @@ app.post('/api/profile', auth, async (req, res) => {
   res.json(publicUser(u));
 });
 
+app.post('/api/notifications/read', auth, async (req, res) => {
+  let changed = false;
+  for (const n of req.user.notifs || []) if (!n.read) { n.read = true; changed = true; }
+  if (changed) await saveUsers(req.users);
+  res.json({ ok: true });
+});
+
 app.post('/api/lang', auth, async (req, res) => {
   if (!['ht', 'fr', 'en', 'es'].includes(req.body.lang)) return res.status(400).json({ error: 'Lang pa valid.' });
   req.user.lang = req.body.lang;
@@ -409,13 +449,21 @@ app.get('/api/invites', auth, (req, res) =>
 );
 
 // ---------- Depo ----------
-// MonCash/NatCash => HTG | PayPal, Zelle, Meru, CashApp => dola. Admin mete enfo peman yo.
-const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD' };
+// MonCash/NatCash => HTG | PayPal, Zelle, Meru, CashApp, Wise, USDT => dola. Admin mete direksyon (kont/adrès) kote kliyan yo voye lajan an.
+// USDT: admin mete (1) Binance ID ak/oswa imèl Binance, (2) yon adrès pa rezo (TRC20 / BEP20). Kliyan an chwazi Binance (ID oswa imèl) oswa wallet (rezo).
+// Binance => Transaction ID obligatwa | Wallet => TXID obligatwa.
+const BINANCE_TX = /^[A-Za-z0-9]{6,100}$/;
+const TXID = { TRC20: /^[a-fA-F0-9]{64}$/, BEP20: /^(0x)?[a-fA-F0-9]{64}$/ };
+const depBinance = (d) => Object.fromEntries(['id', 'email'].filter((k) => d && d.binance && typeof d.binance[k] === 'string' && d.binance[k]).map((k) => [k, d.binance[k]]));
+const depNetworks = (d) => Object.fromEntries(Object.keys(USDT_NETWORKS).filter((n) => d && d.networks && typeof d.networks[n] === 'string' && d.networks[n]).map((n) => [n, d.networks[n]]));
+const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD', Wise: 'USD', USDT: 'USD' };
 
 app.get('/api/deposit-info', auth, async (req, res) => {
   const dep = getSettings().deposit;
   res.json(Object.keys(D_METHODS).filter((m) => dep[m] && dep[m].active && dep[m].account)
-    .map((m) => ({ method: m, currency: D_METHODS[m], account: dep[m].account, name: dep[m].name || '', note: dep[m].note || '' })));
+    .map((m) => m === 'USDT'
+      ? { method: m, currency: 'USD', account: '', name: '', note: dep[m].note || '', binance: depBinance(dep[m]), networks: depNetworks(dep[m]) }
+      : { method: m, currency: D_METHODS[m], account: dep[m].account, name: dep[m].name || '', note: dep[m].note || '' }));
 });
 
 // Kliyan an di li voye lajan an; admin verifye epi kredite. (Kont bani ka fè depo tou.)
@@ -429,13 +477,28 @@ app.post('/api/deposit', auth, async (req, res) => {
   if (!(amount > 0) || amount > 10000000) return res.status(400).json({ error: 'Montan an pa valid.' });
   const reference = String(req.body.reference || '').trim();
   if (reference.length < 3 || reference.length > 100) return res.status(400).json({ error: 'Antre referans tranzaksyon an.' });
+  if (!ackOk(req)) return res.status(400).json({ error: ACK_ERR });
+  let network = null, dest = null, idType = null;
+  if (method === 'USDT') {
+    dest = String(req.body.dest || '');
+    if (dest === 'binance') {
+      idType = String(req.body.idType || '');
+      if (!depBinance(info)[idType]) return res.status(400).json({ error: 'Chwazi Binance ID oswa imèl Binance.' });
+      if (!BINANCE_TX.test(reference)) return res.status(400).json({ error: 'Antre Transaction ID Binance lan (6 a 100 lèt/chif).' });
+    } else if (dest === 'wallet') {
+      network = String(req.body.network || '');
+      if (!depNetworks(info)[network]) return res.status(400).json({ error: 'Chwazi rezo a: TRC20 oswa BEP20.' });
+      if (!TXID[network].test(reference)) return res.status(400).json({ error: 'TXID la pa valid pou ' + network + ' (64 karaktè hex' + (network === 'BEP20' ? ', ak oswa san 0x' : '') + ').' });
+    } else return res.status(400).json({ error: 'Chwazi Binance oswa wallet.' });
+  }
   if ((u.swaps || []).filter((t) => t.type === 'deposit' && t.status === 'pending').length >= 5) {
     return res.status(429).json({ error: 'Ou gen twòp depo an kou. Tann yo trete.' });
   }
   const dup = req.users.some((x) => (x.swaps || []).some((t) => t.type === 'deposit' && t.method === method && t.status !== 'rejected' && String(t.reference).toLowerCase() === reference.toLowerCase()));
   if (dup) return res.status(409).json({ error: 'Referans sa a deja itilize.' });
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, amount, reference, status: 'pending', createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, ...(dest ? { dest } : {}), ...(idType ? { idType } : {}), ...(network ? { network } : {}), amount, reference, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
+  notify(u, 'nDepPending', { a: moneyTxt(amount, D_METHODS[method]), m: method });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
@@ -462,12 +525,38 @@ app.post('/api/swap', auth, notBanned, needProfile, async (req, res) => {
   u.usd = round2((u.usd || 0) + usd);
   u.swaps = u.swaps || [];
   u.swaps.push({ id: crypto.randomUUID(), type: 'swap', currency: 'HTG', amount, fee, feePercent: pct, asset, usd, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
+  notify(u, 'nSwapUsd', { a: amount.toFixed(2) + ' HTG', b: '$' + usd.toFixed(2) });
+  await saveUsers(req.users);
+  res.status(201).json(publicUser(u));
+});
+
+// ---------- Swap (dola USD/USDT/fiat -> HTG) ----------
+app.post('/api/swap/to-htg', auth, notBanned, needProfile, async (req, res) => {
+  const u = req.user;
+  if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon swap.' });
+  const st = getSettings();
+  const asset = W_ASSETS.includes(String(req.body.asset || '')) ? String(req.body.asset) : null;
+  const pct = feeFor(st, asset);
+  if (Number(req.body.rate) !== st.rate || Number(req.body.feePercent) !== pct) {
+    return res.status(409).json({ error: 'To oswa frè a fèk chanje. Verifye nouvo valè yo epi eseye ankò.', user: publicUser(u) });
+  }
+  const usd = round2(Number(req.body.amount));
+  if (!(usd > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
+  if (usd > (u.usd || 0)) return res.status(400).json({ error: 'Balans dola ou pa sifi.' });
+  const feeUsd = round2((usd * pct) / 100);
+  const htg = Math.floor((usd - feeUsd) * st.rate * 100) / 100;
+  if (htg <= 0) return res.status(400).json({ error: 'Montan an twò piti pou yon swap.' });
+  u.usd = round2(u.usd - usd);
+  u.balance = round2((u.balance || 0) + htg);
+  u.swaps = u.swaps || [];
+  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', dir: 'to_htg', currency: 'USD', amount: usd, fee: feeUsd, feePercent: pct, asset, htg, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
+  notify(u, 'nSwapHtg', { a: '$' + usd.toFixed(2), b: htg.toFixed(2) + ' HTG' });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
 
 // ---------- Retrè ----------
-// HTG => sèlman MonCash / NatCash | USD => Meru, Zelle, USDT, CashApp, PayPal
+// HTG => MonCash / NatCash | USD => Meru, Zelle, USDT (Binance/wallet), CashApp, PayPal, Wise
 app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, res) => {
   const u = req.user;
   if (u.kyc.status !== 'approved') return res.status(403).json({ error: 'KYC ou dwe apwouve anvan ou fè yon retrè.' });
@@ -479,15 +568,22 @@ app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, re
   if (!W_METHODS[currency].includes(method)) {
     return res.status(400).json({ error: currency === 'HTG'
       ? 'Balans HTG ka retire sèlman sou MonCash oswa NatCash. Pou lòt metòd yo, swap an dola dabò.'
-      : 'Metòd la pa valid.' });
+      : 'Balans dola pa ka retire sou MonCash/NatCash. Swap li an HTG dabò.' });
   }
+  if (!ackOk(req)) return res.status(400).json({ error: ACK_ERR });
   const field = currency === 'HTG' ? 'balance' : 'usd';
   if (!(amount > 0)) return res.status(400).json({ error: 'Montan an pa valid.' });
   if (amount > (u[field] || 0)) return res.status(400).json({ error: 'Balans ou pa sifi.' });
-  if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
+  let destAccount = account, extra = {};
+  if (method === 'USDT') {
+    const d = usdtDestination(req.body);
+    if (d.error) return res.status(400).json({ error: d.error });
+    destAccount = d.account; extra = d.extra;
+  } else if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
   u[field] = round2(u[field] - amount);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account, status: 'pending', createdAt: new Date().toISOString() });
+  u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account: destAccount, ...extra, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
+  notify(u, 'nWdPending', { a: moneyTxt(amount, currency), m: method });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
 });
@@ -522,6 +618,7 @@ app.post('/api/admin/users/:id/balance', adminOnly, async (req, res) => {
     id: crypto.randomUUID(), type: 'adjustment', currency, amount: delta,
     note: String(req.body.note || '').trim().slice(0, 100), status: 'done', createdAt: new Date().toISOString()
   });
+  notify(u, delta > 0 ? 'nAdjPlus' : 'nAdjMinus', { a: moneyTxt(Math.abs(delta), currency) });
   await saveUsers(req.users);
   res.json({ balance: u.balance, usd: u.usd || 0 });
 });
@@ -569,7 +666,10 @@ app.post('/api/admin/settings', adminOnly, async (req, res) => {
 
 app.get('/api/admin/deposit-info', adminOnly, async (req, res) => {
   const dep = getSettings().deposit, out = {};
-  for (const m of Object.keys(D_METHODS)) out[m] = { active: !!(dep[m] && dep[m].active), account: (dep[m] && dep[m].account) || '', name: (dep[m] && dep[m].name) || '', note: (dep[m] && dep[m].note) || '' };
+  for (const m of Object.keys(D_METHODS)) {
+    out[m] = { active: !!(dep[m] && dep[m].active), account: (dep[m] && dep[m].account) || '', name: (dep[m] && dep[m].name) || '', note: (dep[m] && dep[m].note) || '' };
+    if (m === 'USDT') { out[m].networks = depNetworks(dep[m]); out[m].binance = depBinance(dep[m]); }
+  }
   res.json(out);
 });
 
@@ -578,6 +678,21 @@ app.post('/api/admin/deposit-info', adminOnly, async (req, res) => {
   const cut = (v, n) => String(v || '').trim().slice(0, n);
   for (const m of Object.keys(D_METHODS)) {
     const i = inp[m] || {};
+    if (m === 'USDT') {
+      const nets = {}, bin = {};
+      for (const n of Object.keys(USDT_NETWORKS)) {
+        const a = cut(i.networks && i.networks[n], 100);
+        if (a && !USDT_NETWORKS[n].test(a)) return res.status(400).json({ error: 'Adrès ' + n + ' la pa valid.' });
+        if (a) nets[n] = a;
+      }
+      const bid = cut(i.binance && i.binance.id, 30), bem = cut(i.binance && i.binance.email, 100);
+      if (bid && !/^\d{5,20}$/.test(bid)) return res.status(400).json({ error: 'Binance ID la pa valid (chif sèlman).' });
+      if (bem && !/^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/.test(bem)) return res.status(400).json({ error: 'Imèl Binance la pa valid.' });
+      if (bid) bin.id = bid;
+      if (bem) bin.email = bem;
+      dep[m] = { active: !!i.active, account: bin.id || bin.email || Object.values(nets)[0] || '', name: '', note: cut(i.note, 300), binance: bin, networks: nets };
+      continue;
+    }
     dep[m] = { active: !!i.active, account: cut(i.account, 150), name: cut(i.name, 100), note: cut(i.note, 300) };
   }
   saveSettings({ ...getSettings(), deposit: dep });
@@ -603,8 +718,10 @@ app.post('/api/admin/deposits/:id/decision', adminOnly, async (req, res) => {
       const field = t.currency === 'USD' ? 'usd' : 'balance';
       u[field] = round2((u[field] || 0) + amt);
       t.requested = t.amount; t.amount = amt; t.status = 'done';
+      notify(u, 'nDepDone', { a: moneyTxt(amt, t.currency), m: t.method });
     } else {
       t.status = 'rejected'; t.note = String(req.body.reason || '').trim().slice(0, 200);
+      notify(u, 'nDepRej', { a: moneyTxt(t.amount, t.currency), m: t.method });
     }
     await saveUsers(req.users);
     return res.json({ ok: true });
@@ -658,6 +775,8 @@ app.post('/api/admin/kyc/:id/decision', adminOnly, async (req, res) => {
   user.kyc.status = decision;
   user.kyc.reason = defaults[decision] ? String(reason || '').slice(0, 300) || defaults[decision] : null;
   user.kyc.reviewedAt = new Date().toISOString();
+  const kn = { approved: 'nKycOk', rejected: 'nKycRej', reupload: 'nKycRe' }[decision];
+  if (kn) notify(user, kn, {});
   await saveUsers(req.users);
   res.json({ ok: true });
 });
@@ -681,6 +800,7 @@ app.post('/api/admin/withdrawals/:id/status', adminOnly, async (req, res) => {
       const field = (t.currency || 'HTG') === 'HTG' ? 'balance' : 'usd';
       u[field] = round2((u[field] || 0) + t.amount);
     }
+    notify(u, status === 'done' ? 'nWdDone' : 'nWdRej', { a: moneyTxt(t.amount, t.currency || 'HTG'), m: t.method });
     await saveUsers(req.users);
     return res.json({ ok: true });
   }
@@ -732,7 +852,10 @@ app.post('/api/admin/support/threads/:userId/messages', staffOnly, async (req, r
   const body = cleanBody(req.body && req.body.body);
   if (!body) return res.status(400).json({ error: 'Ekri yon repons (1 a 1000 karaktè).' });
   if (!chatLimit(`s:${req.user.id}`, 60, 60e3)) return res.status(429).json({ error: 'Twòp mesaj. Tann yon ti moman.' });
-  res.status(201).json({ message: await support.reply(u.id, req.user.id, body) });
+  const reply = await support.reply(u.id, req.user.id, body);
+  const lastN = (u.notifs || [])[(u.notifs || []).length - 1];
+  if (!(lastN && lastN.k === 'nSupport' && !lastN.read)) { notify(u, 'nSupport', {}); await saveUsers(req.users); }
+  res.status(201).json({ message: reply });
 });
 
 // ---------- P2P (escrow, anons, lòd, dispit) ----------
@@ -752,6 +875,7 @@ const mainStore = {
       if (have < amountCents) return { result: 'INSUFFICIENT' };
       u.usd = round2((have - amountCents) / 100);
       u.swaps.push({ id, type: 'p2p_bridge', dir: 'to_p2p', currency: 'USD', amount: amountCents / 100, status: 'done', createdAt: new Date().toISOString() });
+      notify(u, 'nP2pOut', { a: '$' + (amountCents / 100).toFixed(2) });
       return { result: 'OK', changed: true };
     });
   },
@@ -762,6 +886,7 @@ const mainStore = {
       if (u.swaps.some((t) => t.id === id)) return { result: undefined };
       u.usd = round2(Math.round((u.usd || 0) * 100) / 100 + amountCents / 100);
       u.swaps.push({ id, type: 'p2p_bridge', dir: 'from_p2p', currency: 'USD', amount: amountCents / 100, status: 'done', createdAt: new Date().toISOString() });
+      notify(u, 'nP2pIn', { a: '$' + (amountCents / 100).toFixed(2) });
       return { result: undefined, changed: true };
     });
   }
