@@ -210,6 +210,32 @@ function rateLimit(max, windowMs) {
 }
 setInterval(() => hits.clear(), 60 * 60 * 1000).unref();
 
+// ---------- Jounal aktivite (pou panel admin: 360° itilizatè) ----------
+const uaInfo = (ua = '') => {
+  const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iOS/i.test(ua) ? 'iOS' : /Windows/i.test(ua) ? 'Windows' : /Mac OS X/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : '?';
+  const br = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '?';
+  return br + ' · ' + os;
+};
+// Ajoute yon evènman sou objè itilizatè a (max 200). req = aksyon kliyan an (IP + aparèy); san req = aksyon admin (extra.by).
+function logAct(u, type, detail, req, extra) {
+  if (!u) return;
+  u.activity = u.activity || [];
+  const e = { at: new Date().toISOString(), type, detail: String(detail || '').slice(0, 200), ...extra };
+  if (req) { e.ip = String(req.ip || '').slice(0, 64); e.device = uaInfo(req.get('user-agent') || ''); }
+  u.activity.push(e);
+  if (u.activity.length > 200) u.activity = u.activity.slice(-200);
+}
+// Pou evènman ki pa sove otomatikman (koneksyon, dekoneksyon). Pa janm bloke repons lan si sove a echwe.
+async function recordAct(userId, type, detail, req, extra) {
+  try {
+    const users = loadUsers();
+    const u = users.find((x) => x.id === userId);
+    if (!u) return;
+    logAct(u, type, detail, req, extra);
+    await saveUsers(users);
+  } catch (e) { console.error('[activity]', e.message); }
+}
+
 function setSession(res, user, remember) {
   const token = jwt.sign({ sub: user.id }, JWT_SECRET, { expiresIn: remember ? '30d' : '1d' });
   res.cookie('token', token, {
@@ -308,6 +334,7 @@ app.post('/api/signup', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
     role: 'user', balance: 0, swaps: [],
     kyc: { status: 'none' }
   };
+  logAct(user, 'signup', 'Kont kreye', req);
   users.push(user);
   try { await saveUsers(users); } catch (e) {
     if (e instanceof ConflictError) return res.status(409).json({ error: 'Imèl sa a deja itilize.' });
@@ -322,7 +349,11 @@ app.post('/api/login', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
   const password = String(req.body.password || '');
   const user = loadUsers().find((u) => u.email === email);
   const ok = !!user && (await bcrypt.compare(password, user.passwordHash));
-  if (!ok) return res.status(401).json({ error: 'Imèl oswa mòdpas la pa kòrèk.' });
+  if (!ok) {
+    if (user) await recordAct(user.id, 'login_fail', 'Eseye konekte: mòdpas pa kòrèk', req);
+    return res.status(401).json({ error: 'Imèl oswa mòdpas la pa kòrèk.' });
+  }
+  await recordAct(user.id, 'login', 'Koneksyon ak mòdpas' + (req.body.remember ? ' (sonje aparèy)' : ''), req);
   setSession(res, user, !!req.body.remember);
   res.json(publicUser(user));
 });
@@ -337,12 +368,17 @@ app.post('/api/login-pin', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
   const user = pinHintUser(req);
   if (!user) return res.status(401).json({ error: 'Sesyon PIN lan ekspire. Itilize imèl ak mòdpas ou.' });
   if (pinLocked(user)) return res.status(429).json({ error: 'PIN bloke pou 30 minit. Itilize mòdpas ou.' });
-  if (!(await checkPin(user, req.body.pin))) return res.status(401).json({ error: 'PIN pa kòrèk.' });
+  if (!(await checkPin(user, req.body.pin))) {
+    await recordAct(user.id, 'login_fail', 'Eseye konekte: PIN pa kòrèk', req);
+    return res.status(401).json({ error: 'PIN pa kòrèk.' });
+  }
+  await recordAct(user.id, 'login_pin', 'Koneksyon ak PIN', req);
   setSession(res, user, !!req.body.remember);
   res.json(publicUser(user));
 });
 
 app.post('/api/logout', async (req, res) => {
+  try { const { sub } = jwt.verify(req.cookies.token, JWT_SECRET); await recordAct(sub, 'logout', 'Dekonekte', req); } catch { /* pa konekte */ }
   res.clearCookie('token');
   res.json({ ok: true });
 });
@@ -404,6 +440,7 @@ app.post('/api/kyc', auth, notBanned, async (req, res, next) => {
     const previous = user.kyc; // pou nou ka efase ansyen foto yo apre nouvo a fin sove
     const stored = await fileStore.saveKyc(user.id, saved);
     user.kyc = { status: 'pending', idType, files: stored.files, ...(stored.store ? { store: stored.store } : {}), submittedAt: new Date().toISOString() };
+    logAct(user, 'kyc_submit', 'KYC soumèt (' + idType + ')', req);
     try { await saveUsers(users); } catch (e) { await stored.undo(); throw e; }
     // efase ansyen foto yo. Dosye disk la efase sèlman si nouvo foto yo nan Supabase (sinon se li menm ki gen nouvo yo).
     await fileStore.removeKyc(user.id, previous, { disk: !!stored.store });
@@ -429,6 +466,7 @@ app.post('/api/profile', auth, async (req, res) => {
   const eighteen = new Date(Date.UTC(now.getUTCFullYear() - 18, now.getUTCMonth(), now.getUTCDate()));
   if (d > eighteen) return res.status(400).json({ error: 'Ou dwe gen omwen 18 an.' });
   u.profile = { firstName, lastName, dob, country, phone, address, savedAt: new Date().toISOString() };
+  logAct(u, 'profile', 'Enfòmasyon pèsonèl konplete', req);
   await saveUsers(req.users);
   res.json(publicUser(u));
 });
@@ -458,6 +496,7 @@ app.post('/api/pin/set', auth, async (req, res) => {
   const users = loadUsers();
   const u = users.find((x) => x.id === req.user.id);
   u.pinHash = pinHash; u.pinActive = true;
+  logAct(u, 'pin_set', 'PIN 6 chif aktive', req);
   await saveUsers(users);
   setPinHint(res, u);
   res.json(publicUser(u));
@@ -468,6 +507,7 @@ app.post('/api/pin/disable', auth, async (req, res) => {
   const users = loadUsers();
   const u = users.find((x) => x.id === req.user.id);
   u.pinActive = false; delete u.pinHash;
+  logAct(u, 'pin_disable', 'PIN 6 chif dezaktive', req);
   await saveUsers(users);
   res.clearCookie('pinhint');
   res.json(publicUser(u));
@@ -526,7 +566,9 @@ app.post('/api/deposit', auth, async (req, res) => {
   const dup = req.users.some((x) => (x.swaps || []).some((t) => t.type === 'deposit' && t.method === method && t.status !== 'rejected' && String(t.reference).toLowerCase() === reference.toLowerCase()));
   if (dup) return res.status(409).json({ error: 'Referans sa a deja itilize.' });
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'deposit', currency: D_METHODS[method], method, ...(dest ? { dest } : {}), ...(idType ? { idType } : {}), ...(network ? { network } : {}), amount, reference, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
+  const depId = crypto.randomUUID();
+  logAct(u, 'deposit', 'Demann depo ' + method + ' · ' + moneyTxt(amount, D_METHODS[method]), req, { ref: depId });
+  u.swaps.push({ id: depId, type: 'deposit', currency: D_METHODS[method], method, ...(dest ? { dest } : {}), ...(idType ? { idType } : {}), ...(network ? { network } : {}), amount, reference, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
   notify(u, 'nDepPending', { a: moneyTxt(amount, D_METHODS[method]), m: method });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
@@ -553,7 +595,9 @@ app.post('/api/swap', auth, notBanned, needProfile, async (req, res) => {
   u.balance = round2(u.balance - amount);
   u.usd = round2((u.usd || 0) + usd);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', currency: 'HTG', amount, fee, feePercent: pct, asset, usd, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
+  const swId = crypto.randomUUID();
+  logAct(u, 'swap', 'Swap ' + amount.toFixed(2) + ' HTG → $' + usd.toFixed(2) + (asset ? ' (' + asset + ')' : ''), req, { ref: swId });
+  u.swaps.push({ id: swId, type: 'swap', currency: 'HTG', amount, fee, feePercent: pct, asset, usd, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
   notify(u, 'nSwapUsd', { a: amount.toFixed(2) + ' HTG', b: '$' + usd.toFixed(2) });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
@@ -578,7 +622,9 @@ app.post('/api/swap/to-htg', auth, notBanned, needProfile, async (req, res) => {
   u.usd = round2(u.usd - usd);
   u.balance = round2((u.balance || 0) + htg);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'swap', dir: 'to_htg', currency: 'USD', amount: usd, fee: feeUsd, feePercent: pct, asset, htg, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
+  const swId = crypto.randomUUID();
+  logAct(u, 'swap', 'Swap $' + usd.toFixed(2) + ' → ' + htg.toFixed(2) + ' HTG' + (asset ? ' (' + asset + ')' : ''), req, { ref: swId });
+  u.swaps.push({ id: swId, type: 'swap', dir: 'to_htg', currency: 'USD', amount: usd, fee: feeUsd, feePercent: pct, asset, htg, rate: st.rate, status: 'done', createdAt: new Date().toISOString() });
   notify(u, 'nSwapHtg', { a: '$' + usd.toFixed(2), b: htg.toFixed(2) + ' HTG' });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
@@ -611,7 +657,9 @@ app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, re
   } else if (account.length < 3 || account.length > 100) return res.status(400).json({ error: 'Antre kont oswa nimewo destinasyon an.' });
   u[field] = round2(u[field] - amount);
   u.swaps = u.swaps || [];
-  u.swaps.push({ id: crypto.randomUUID(), type: 'withdrawal', currency, method, amount, account: destAccount, ...extra, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
+  const wdId = crypto.randomUUID();
+  logAct(u, 'withdrawal', 'Demann retrè ' + method + ' · ' + moneyTxt(amount, currency), req, { ref: wdId });
+  u.swaps.push({ id: wdId, type: 'withdrawal', currency, method, amount, account: destAccount, ...extra, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
   notify(u, 'nWdPending', { a: moneyTxt(amount, currency), m: method });
   await saveUsers(req.users);
   res.status(201).json(publicUser(u));
@@ -633,6 +681,49 @@ app.get('/api/admin/users', adminOnly, (req, res) =>
   })))
 );
 
+
+// 360° itilizatè: pwofil, koneksyon, ak tout aktivite (jounal + istorik tranzaksyon). Admin sèlman.
+app.get('/api/admin/users/:id/activity', adminOnly, (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.id);
+  if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
+  const log = (u.activity || []).map((e) => ({ at: e.at, type: e.type, detail: e.detail, ip: e.ip || null, device: e.device || null, by: e.by || null }));
+  const logged = new Set((u.activity || []).map((e) => e.ref).filter(Boolean));
+  const has = (t) => log.some((e) => e.type === t);
+  const ev = [...log];
+  // Istorik ki egziste deja anvan jounal la (kont ansyen): nou rekonstwi l ak done ki deja la
+  if (!has('signup') && u.createdAt) ev.push({ at: u.createdAt, type: 'signup', detail: 'Kont kreye' });
+  if (!has('profile') && u.profile && u.profile.savedAt) ev.push({ at: u.profile.savedAt, type: 'profile', detail: 'Enfòmasyon pèsonèl konplete' });
+  if (!has('kyc_submit') && u.kyc && u.kyc.submittedAt) ev.push({ at: u.kyc.submittedAt, type: 'kyc_submit', detail: 'KYC soumèt' });
+  for (const t of u.swaps || []) {
+    if (logged.has(t.id) || !t.createdAt) continue;
+    const m = t.currency === 'USD' ? '$' + Number(t.amount).toFixed(2) : Number(t.amount).toFixed(2) + ' HTG';
+    const d = t.type === 'deposit' ? 'Depo ' + t.method + ' · ' + m + ' (' + t.status + ')'
+      : t.type === 'withdrawal' ? 'Retrè ' + t.method + ' · ' + m + ' (' + t.status + ')'
+      : t.type === 'adjustment' ? 'Admin ' + (t.amount > 0 ? 'ajoute ' : 'retire ') + m.replace('-', '')
+      : 'Swap ' + m;
+    ev.push({ at: t.createdAt, type: t.type === 'adjustment' ? 'adjustment' : t.type, detail: d });
+  }
+  ev.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const logins = ev.filter((e) => ['login', 'login_pin', 'login_fail', 'logout'].includes(e.type));
+  const ok = logins.filter((e) => e.type === 'login' || e.type === 'login_pin');
+  const done = (type, cur) => (u.swaps || []).filter((t) => t.type === type && t.status === 'done' && t.currency === cur).reduce((a, t) => a + (Number(t.amount) || 0), 0);
+  res.json({
+    user: {
+      id: u.id, uid: u.uid, name: u.name, email: u.email, role: u.role || 'user', banned: !!u.banned,
+      createdAt: u.createdAt, kycStatus: u.kyc ? u.kyc.status : 'none', pinActive: !!u.pinActive,
+      phone: u.profile ? u.profile.phone : null, country: u.profile ? u.profile.country : null,
+      balance: u.balance || 0, usd: u.usd || 0
+    },
+    stats: {
+      lastLogin: ok[0] || null, loginCount: ok.length, failCount: logins.filter((e) => e.type === 'login_fail').length,
+      devices: [...new Set(ok.map((e) => e.device).filter(Boolean))].length, ips: [...new Set(ok.map((e) => e.ip).filter(Boolean))].length,
+      depositedHTG: done('deposit', 'HTG'), depositedUSD: done('deposit', 'USD'), withdrawnHTG: done('withdrawal', 'HTG'), withdrawnUSD: done('withdrawal', 'USD'),
+      swaps: (u.swaps || []).filter((t) => t.type === 'swap').length, pending: (u.swaps || []).filter((t) => t.status === 'pending').length
+    },
+    logins: logins.slice(0, 100), events: ev.slice(0, 400), logStart: (u.activity || [])[0] ? u.activity[0].at : null
+  });
+});
+
 // Ajoute / retire lajan sou kont yon kliyan (HTG oswa USD). Kliyan an wè l nan istwa li.
 app.post('/api/admin/users/:id/balance', adminOnly, async (req, res) => {
   const u = req.users.find((x) => x.id === req.params.id);
@@ -643,8 +734,10 @@ app.post('/api/admin/users/:id/balance', adminOnly, async (req, res) => {
   if (round2((u[field] || 0) + delta) < 0) return res.status(400).json({ error: 'Balans pa ka negatif.' });
   u[field] = round2((u[field] || 0) + delta);
   u.swaps = u.swaps || [];
+  const adjId = crypto.randomUUID();
+  logAct(u, 'adjustment', 'Admin ' + (delta > 0 ? 'ajoute ' : 'retire ') + moneyTxt(Math.abs(delta), currency), null, { ref: adjId, by: req.user.email });
   u.swaps.push({
-    id: crypto.randomUUID(), type: 'adjustment', currency, amount: delta,
+    id: adjId, type: 'adjustment', currency, amount: delta,
     note: String(req.body.note || '').trim().slice(0, 100), status: 'done', createdAt: new Date().toISOString()
   });
   notify(u, delta > 0 ? 'nAdjPlus' : 'nAdjMinus', { a: moneyTxt(Math.abs(delta), currency) });
@@ -658,6 +751,7 @@ app.post('/api/admin/users/:id/ban', adminOnly, async (req, res) => {
   if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka bani yon admin.' });
   u.banned = !!req.body.banned;
+  logAct(u, 'ban', u.banned ? 'Kont bani' : 'Kont debani', null, { by: req.user.email });
   await saveUsers(req.users);
   res.json({ banned: u.banned });
 });
@@ -747,9 +841,11 @@ app.post('/api/admin/deposits/:id/decision', adminOnly, async (req, res) => {
       const field = t.currency === 'USD' ? 'usd' : 'balance';
       u[field] = round2((u[field] || 0) + amt);
       t.requested = t.amount; t.amount = amt; t.status = 'done';
+      logAct(u, 'deposit_decision', 'Depo ' + t.method + ' konfime · ' + moneyTxt(amt, t.currency), null, { by: req.user.email });
       notify(u, 'nDepDone', { a: moneyTxt(amt, t.currency), m: t.method });
     } else {
       t.status = 'rejected'; t.note = String(req.body.reason || '').trim().slice(0, 200);
+      logAct(u, 'deposit_decision', 'Depo ' + t.method + ' refize · ' + moneyTxt(t.amount, t.currency), null, { by: req.user.email });
       notify(u, 'nDepRej', { a: moneyTxt(t.amount, t.currency), m: t.method });
     }
     await saveUsers(req.users);
@@ -804,6 +900,7 @@ app.post('/api/admin/kyc/:id/decision', adminOnly, async (req, res) => {
   user.kyc.status = decision;
   user.kyc.reason = defaults[decision] ? String(reason || '').slice(0, 300) || defaults[decision] : null;
   user.kyc.reviewedAt = new Date().toISOString();
+  logAct(user, 'kyc_decision', 'KYC: ' + ({ approved: 'aksepte', rejected: 'refize', reupload: 're-upload mande', pending: 'remèt an atant' }[decision]), null, { by: req.user.email });
   const kn = { approved: 'nKycOk', rejected: 'nKycRej', reupload: 'nKycRe' }[decision];
   if (kn) notify(user, kn, {});
   await saveUsers(req.users);
@@ -825,6 +922,7 @@ app.post('/api/admin/withdrawals/:id/status', adminOnly, async (req, res) => {
     if (t.type !== 'withdrawal' && t.type) return res.status(400).json({ error: 'Se pa yon retrè.' });
     if (t.status !== 'pending') return res.status(409).json({ error: 'Retrè sa deja trete.' });
     t.status = status;
+    logAct(u, 'withdraw_decision', 'Retrè ' + t.method + ' ' + (status === 'done' ? 'peye' : 'refize + ranbouse') + ' · ' + moneyTxt(t.amount, t.currency || 'HTG'), null, { by: req.user.email });
     if (status === 'rejected') { // ranbouse nan bon balans lan
       const field = (t.currency || 'HTG') === 'HTG' ? 'balance' : 'usd';
       u[field] = round2((u[field] || 0) + t.amount);
@@ -952,6 +1050,7 @@ app.post('/api/admin/users/:id/role', adminOnly, async (req, res) => {
   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka chanje wòl yon admin.' });
   if (!['user', 'support'].includes(role)) return res.status(400).json({ error: 'Wòl pa valid.' });
   u.role = role;
+  logAct(u, 'role', role === 'support' ? 'Wòl Support bay' : 'Wòl Support retire', null, { by: req.user.email });
   await saveUsers(req.users);
   res.json({ role });
 });
