@@ -341,6 +341,25 @@ test('8c. anons VANN yo poze lè kantite oswa minimòm lan pa kouvri; depo ka re
   assert.equal(c.S.q1('SELECT auto_paused FROM ads WHERE id=?', ad.id).auto_paused, 0);
   clean(c.S);
 });
+test('8c. lis mache a poze sèlman anons machann ki pa finanse yo', () => {
+  const c = setup(); fund(c, 'seller-low', 20); fund(c, 'seller-funded', 20);
+  const low = sellAd(c.S, 'seller-low', { total: '10' });
+  const funded = sellAd(c.S, 'seller-funded', { total: '10' });
+  const available = c.S.q1("SELECT id FROM accounts WHERE kind='AVAILABLE' AND owner=?", 'seller-low');
+  const bridge = c.S.q1("SELECT id FROM accounts WHERE kind='SYSTEM' AND owner='BRIDGE'");
+  c.S.tx(() => {
+    const txId = c.S.db.prepare("INSERT INTO ledger_txs(ref,type,order_id,created_at,meta) VALUES(?,?,?,?,?)").run('legacy-adjustment', 'LEGACY_ADJUSTMENT', null, c.clock.t, '{}').lastInsertRowid;
+    c.S.db.prepare('UPDATE accounts SET balance=balance-? WHERE id=?').run(20_000_000, available.id);
+    c.S.db.prepare('UPDATE accounts SET balance=balance+? WHERE id=?').run(20_000_000, bridge.id);
+    c.S.db.prepare("INSERT INTO ledger_entries(tx_id,account_id,dir,amount) VALUES(?,?,?,?)").run(txId, available.id, 'DEBIT', 20_000_000);
+    c.S.db.prepare("INSERT INTO ledger_entries(tx_id,account_id,dir,amount) VALUES(?,?,?,?)").run(txId, bridge.id, 'CREDIT', 20_000_000);
+  }); // simile yon ansyen balans ki poko te deklanche poz otomatik la
+  const listed = c.S.listAds({ type: 'SELL', fiat: 'HTG' });
+  assert.equal(c.S.q1('SELECT status FROM ads WHERE id=?', low.id).status, 'PAUSED');
+  assert.equal(c.S.q1('SELECT status FROM ads WHERE id=?', funded.id).status, 'ACTIVE');
+  assert.deepEqual(listed.map((a) => a.id), [funded.id]);
+  clean(c.S);
+});
 test('8d. anons AWAT (BUY): vandè se moun k pran an; escrow soti nan li', () => {
   const c = setup(); fund(c, 'taker', 50);
   merch(c.S, 'adv');

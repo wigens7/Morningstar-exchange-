@@ -289,16 +289,29 @@ function createService(opts = {}) {
     });
   }
   function listAds({ type, fiat, method, amount, viewerId }) {
-    if (type !== 'BUY') syncAllAdAvailability();
     let sql = "SELECT * FROM ads WHERE status='ACTIVE' AND available_micro>0 AND type=? AND fiat=?";
     const p = [type === 'BUY' ? 'BUY' : 'SELL', fiat === 'USD' ? 'USD' : 'HTG'];
     if (viewerId) { sql += ' AND user_id<>?'; p.push(viewerId); }
     sql += ' ORDER BY price_cents ' + (type === 'BUY' ? 'DESC' : 'ASC') + ' LIMIT 100';
-    let rows = q(sql, ...p);
-    if (method) rows = rows.filter((a) => JSON.parse(a.methods).includes(method));
-    if (amount) {
-      const f = parseUnits(amount, 2);
-      rows = rows.filter((a) => f >= a.min_fiat_cents && f <= Math.min(a.max_fiat_cents, fiatFor(a.available_micro, a.price_cents)));
+    const filterRows = (rows) => {
+      if (method) rows = rows.filter((a) => JSON.parse(a.methods).includes(method));
+      if (amount) {
+        const f = parseUnits(amount, 2);
+        rows = rows.filter((a) => f >= a.min_fiat_cents && f <= Math.min(a.max_fiat_cents, fiatFor(a.available_micro, a.price_cents)));
+      }
+      return rows;
+    };
+    let rows = filterRows(q(sql, ...p));
+    if (type !== 'BUY' && rows.length) {
+      const balances = new Map(), underfundedUsers = new Set();
+      for (const ad of rows) {
+        if (!balances.has(ad.user_id)) balances.set(ad.user_id, wallet(ad.user_id).available);
+        if (!adFundingEnough(ad, balances.get(ad.user_id))) underfundedUsers.add(ad.user_id);
+      }
+      if (underfundedUsers.size) {
+        tx(() => { for (const userId of underfundedUsers) syncAdAvailabilityInTx(userId, { resume: false }); });
+        rows = filterRows(q(sql, ...p));
+      }
     }
     return rows.map((a) => adView(a, userStats(a.user_id)));
   }
@@ -339,16 +352,6 @@ function createService(opts = {}) {
   function syncAdAvailability(userId, options) {
     return tx(() => syncAdAvailabilityInTx(userId, options));
   }
-  function syncAllAdAvailability() {
-    return tx(() => {
-      let changed = 0;
-      for (const row of q("SELECT DISTINCT user_id FROM ads WHERE type='SELL' AND status IN ('ACTIVE','PAUSED')")) {
-        changed += syncAdAvailabilityInTx(row.user_id, { resume: true });
-      }
-      return changed;
-    });
-  }
-
   // ---------- lòd: machin eta ----------
   const getOrder = (id) => q1('SELECT * FROM orders WHERE id=?', id);
   const roleOf = (o, uid) => (uid === o.buyer_id ? 'BUYER' : uid === o.seller_id ? 'SELLER' : null);
