@@ -378,9 +378,12 @@ async function doPaid() {
 function askPin() { return new Promise((res) => { window.__pinRes = res; $('pin-in').value = ''; $('m-pin').classList.remove('hidden'); setTimeout(() => $('pin-in').focus(), 50); }); }
 function pinDone(ok) { $('m-pin').classList.add('hidden'); const r = window.__pinRes; window.__pinRes = null; if (r) r(ok ? $('pin-in').value : null); }
 async function doRelease() {
+  // PIN 6 chif OBLIGATWA pou lage USDT la. San PIN, oswa si PIN lan pa kòrèk, USDT la pa lage.
+  if (!me.pinActive) { toast('Ou dwe kreye yon PIN 6 chif nan Paramèt anvan ou ka lage USDT la.', false); return; }
   if (!(await uiConfirm('Konfime ke lajan an antre sou kont ou? Aksyon sa a pa ka defèt.', { ok: 'Wi, lage USDT la', danger: true }))) return;
-  let pin; if (me.pinActive) { pin = await askPin(); if (pin === null) return; }
-  await act(async () => { await api('POST', `/api/p2p/orders/${openId}/release`, me.pinActive ? { pin } : {}); toast('USDT lage bay achtè a.', true); refreshChip(); poll(); });
+  const pin = await askPin(); if (pin === null) return;
+  if (!/^\d{6}$/.test(pin)) { toast('Antre PIN 6 chif ou.', false); return; }
+  await act(async () => { await api('POST', `/api/p2p/orders/${openId}/release`, { pin }); toast('USDT lage bay achtè a.', true); refreshChip(); poll(); });
 }
 function openCancelSheet() {
   $('sheet').innerHTML = `<div class="flex justify-between items-center mb-2"><h2 class="font-bold">Anile lòd la</h2><button onclick="closeSheet()" class="text-gray-400 text-2xl leading-none">&times;</button></div>
@@ -499,7 +502,9 @@ async function doAd() {
 /* ---------- Pòtfèy ---------- */
 async function vWallet() {
   const w = await act(() => api('GET', '/api/p2p/wallet')); if (!w) return;
-  const pin = me.pinActive ? `<div class="field mt-2"><span>PIN</span><input id="w-pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••"></div>` : '';
+  const pin = me.pinActive
+    ? `<div class="field mt-2"><span>PIN</span><input id="w-pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••"></div>`
+    : `<p class="text-[11px] text-amber-400 mt-2">PIN 6 chif obligatwa pou retounen lajan. Kreye l nan Paramèt.</p>`;
   $('view').innerHTML = `<div class="grid grid-cols-2 gap-3 mb-4"><div class="panel rounded-2xl p-4"><p class="text-[11px] text-gray-400">Disponib</p><p class="text-xl font-bold gold-text">${num(w.availableStr, 2)}</p><p class="text-[11px] text-gray-500">USDT</p></div>
     <div class="panel rounded-2xl p-4"><p class="text-[11px] text-gray-400">Rezève (escrow)</p><p class="text-xl font-bold">${num(w.reservedStr, 2)}</p><p class="text-[11px] text-gray-500">USDT</p></div></div>
     <div class="panel rounded-2xl p-4 mb-3"><p class="text-sm font-semibold mb-1">Mete lajan nan P2P</p><p class="text-[11px] text-gray-400 mb-2">Pran nan balans dola prensipal ou (1 $ = 1 USDT).</p>
@@ -511,7 +516,14 @@ async function bridge(dir) {
   const v = $(dir === 'deposit' ? 'w-in' : 'w-out').value.trim();
   const k = 'br:' + dir + ':' + v;   // menm kle pou menm demann: yon retry apre timeout pa double transfè a
   try {
-    const body = { amount: v }; if (dir === 'withdraw' && me.pinActive) body.pin = $('w-pin').value;
+    const body = { amount: v };
+    if (dir === 'withdraw') {
+      // PIN 6 chif OBLIGATWA pou retounen lajan nan balans prensipal la
+      if (!me.pinActive) return toast('Ou dwe kreye yon PIN 6 chif nan Paramèt anvan ou ka retounen lajan.', false);
+      const p = $('w-pin').value;
+      if (!/^\d{6}$/.test(p)) return toast('Antre PIN 6 chif ou.', false);
+      body.pin = p;
+    }
     await api('POST', '/api/p2p/wallet/' + dir, body, key(k)); delete KEYS[k];
     toast('Transfè fèt.', true); vWallet(); refreshChip();
   } catch (e) { if (e.code) delete KEYS[k]; if (e.message !== '401') toast(e.message, false); }

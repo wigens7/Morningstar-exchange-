@@ -297,11 +297,14 @@ async function checkPin(u, pin) {
   }
   return ok;
 }
-// Si PIN aktif, chak retrè mande PIN lan
+// PIN 6 chif OBLIGATWA: chak retrè, transfè ak lage crypto (P2P) mande PIN lan.
+// Kliyan ki poko gen PIN pa ka fè okenn nan aksyon sa yo (kòd PIN_REQUIRED), epi si PIN lan pa kòrèk, anyen pa pase.
 async function pinGuard(req, res, next) {
-  if (!req.user.pinActive) return next();
-  if (pinLocked(req.user)) return res.status(429).json({ error: 'PIN bloke pou 30 minit.' });
-  if (!(await checkPin(req.user, req.body.pin))) return res.status(403).json({ error: 'PIN pa kòrèk.' });
+  if (!req.user.pinActive || !req.user.pinHash) {
+    return res.status(403).json({ error: 'Ou dwe kreye yon PIN 6 chif nan Paramèt anvan ou ka fè aksyon sa a.', code: 'PIN_REQUIRED' });
+  }
+  if (pinLocked(req.user)) return res.status(429).json({ error: 'PIN bloke pou 30 minit.', code: 'PIN_LOCKED' });
+  if (!(await checkPin(req.user, req.body && req.body.pin))) return res.status(403).json({ error: 'PIN pa kòrèk.', code: 'PIN_INVALID' });
   req.users = loadUsers(); // re-li apre await pou pa pèdi chanjman lòt moun
   req.user = req.users.find((x) => x.id === req.user.id);
   next();
