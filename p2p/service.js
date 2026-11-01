@@ -102,12 +102,16 @@ function createService(opts = {}) {
       case 'PAYMENT_MARKED_BY_PROVIDER':
         type = 'P2P_PAYMENT_VERIFIED'; recipients = [...participants, adminRecipient]; break;
       case 'SELLER_RELEASED':
-      case 'ADMIN_RELEASED':
         type = 'P2P_RELEASED'; recipients = [...participants, adminRecipient]; break;
+      case 'ADMIN_RELEASED':
+        type = details && details.disputeResolution ? 'P2P_DISPUTE_RESOLVED' : 'P2P_ADMIN_RELEASED';
+        recipients = [...participants, adminRecipient]; break;
       case 'BUYER_CANCELLED':
-      case 'ADMIN_RETURNED':
       case 'RECOVERED_CANCEL':
         type = 'P2P_CANCELLED'; recipients = [...participants, adminRecipient]; break;
+      case 'ADMIN_RETURNED':
+        type = details && details.disputeResolution ? 'P2P_DISPUTE_RESOLVED' : 'P2P_ADMIN_RETURNED';
+        recipients = [...participants, adminRecipient]; break;
       case 'EXPIRED':
         type = 'P2P_EXPIRED'; recipients = [...participants, adminRecipient]; break;
       case 'DISPUTE_OPENED':
@@ -676,12 +680,12 @@ function createService(opts = {}) {
         else if (o.late_claim && e.status === 'RETURNED_TO_SELLER') // reklamasyon an reta: escrow te deja tounen; re-debi dirèkteman vandè a
           post(`order:${o.id}:late_release`, 'LATE_RELEASE', o.id, acct('AVAILABLE', o.seller_id), acct('AVAILABLE', o.buyer_id), o.crypto_micro, { admin: staff.id });
         else throw E('ESCROW_NOT_LOCKED', 409, 'Escrow la pa bloke.');
-        o = transition(o, 'COMPLETED', ['ADMIN'], 'ADMIN_RELEASED', staff.id, { reason: why });
+        o = transition(o, 'COMPLETED', ['ADMIN'], 'ADMIN_RELEASED', staff.id, { reason: why, disputeResolution: true });
         run('UPDATE orders SET completed_at=? WHERE id=?', now(), o.id);
       } else {
         if (e.status === 'LOCKED') returnEscrow(o);
         else if (!(o.late_claim && e.status === 'RETURNED_TO_SELLER')) throw E('ESCROW_NOT_LOCKED', 409, 'Escrow la pa bloke.');
-        o = transition(o, 'CANCELLED', ['ADMIN'], 'ADMIN_RETURNED', staff.id, { reason: why });
+        o = transition(o, 'CANCELLED', ['ADMIN'], 'ADMIN_RETURNED', staff.id, { reason: why, disputeResolution: true });
         run("UPDATE orders SET closed_reason='ADMIN_RETURNED' WHERE id=?", o.id);
       }
       crash('resolve.beforeCommit');

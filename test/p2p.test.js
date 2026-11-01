@@ -248,6 +248,9 @@ test('6c. reklamasyon peman an reta: dispit sou lòd EXPIRED, admin rezoud, laja
   const d = c.S.q1('SELECT id FROM disputes').id;
   c.S.takeDispute(ADMIN, d);
   c.S.resolveDispute(ADMIN, d, 'RELEASE_TO_BUYER', 'Prèv peman verifye pa sipò.');
+  const resolved = c.S.pendingEmailNotifications(20).filter((j) => j.event_type === 'P2P_DISPUTE_RESOLVED');
+  assert.equal(resolved.length, 3);
+  assert.ok(resolved.every((j) => JSON.parse(j.payload).decision === 'RELEASE_TO_BUYER'));
   c.S.resolveDispute(ADMIN, d, 'RELEASE_TO_BUYER', 'Prèv peman verifye pa sipò.'); // retry
   assert.equal(bal(c.S, 'buyer').available, 30_000_000); assert.equal(bal(c.S, 'seller').available, 70_000_000);
   throwsCode(() => c.S.resolveDispute(ADMIN, d, 'RETURN_TO_SELLER', 'Chanje lide mwen kounye a.'), 'ALREADY_RESOLVED');
