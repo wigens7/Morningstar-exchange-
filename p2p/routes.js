@@ -16,7 +16,9 @@ function verifySignature(secret, rawBody, signature) {
 function mount(app, deps) {
   const { auth, rateLimit, service: S, upload, detectExt, evidenceDir, isStaffRole } = deps;
   const files = deps.files || null; // filestore.js (Supabase Storage + ansyen disk). Si pa bay, konpòtman ansyen an sou disk.
-  const pin = deps.pinGuard || ((q, s, n) => n()); // si kliyan an gen PIN, li mande l sou lage USDT ak retrè
+  // PIN 6 chif obligatwa sou lage USDT ak retrè. Pa gen fallback: si pinGuard pa bay, sèvè a refize demare (fail-closed).
+  const pin = deps.pinGuard;
+  if (typeof pin !== 'function') throw new Error('p2p/routes: deps.pinGuard obligatwa pou PIN la pa kontourne');
   fs.mkdirSync(evidenceDir, { recursive: true });
 
   const viewerOf = (req) => ({ id: req.user.id, role: req.user.role || 'user', staff: isStaffRole(req.user.role) });

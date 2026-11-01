@@ -39,7 +39,9 @@ const clean = (S) => { const r = S.reconcile(); assert.deepEqual(r.issues, [], J
 const bal = (S, u) => S.wallet(u);
 const CANCEL_REASON = { code: 'CANNOT_PAY_IN_TIME' };
 
-function invokeP2PRoute(S, route, user, body, params = {}) {
+const PIN_PASS = (req, res, next) => next(); // tès ki pa gen rapò ak PIN: guard la bay pas la EKSPLISITEMAN
+const PIN_REJECT = (req, res) => res.status(403).json({ error: 'PIN pa kòrèk.', code: 'PIN_INVALID' });
+function invokeP2PRoute(S, route, user, body, params = {}, pinGuard = PIN_PASS) {
   const routes = {};
   const app = {
     get: (path, ...handlers) => { routes[`GET ${path}`] = handlers; },
@@ -49,7 +51,7 @@ function invokeP2PRoute(S, route, user, body, params = {}) {
   mountP2P(app, {
     auth: (req, res, next) => { req.user = user; next(); },
     rateLimit: () => (req, res, next) => next(),
-    service: S, upload: () => {}, detectExt: () => null, evidenceDir,
+    service: S, upload: () => {}, detectExt: () => null, evidenceDir, pinGuard,
     isStaffRole: (role) => role === 'admin' || role === 'support'
   });
   const handlers = routes[`POST ${route}`];
@@ -422,6 +424,34 @@ test('9a. demann API dirèk pa ka anile peman make, epi rezon an pase atravè ro
   assert.equal(c.S.getOrderFor({ id: 'buyer' }, paid.id).escrow, 'LOCKED');
   throwsCode(() => c.S.cancel('seller', paid.id, CANCEL_REASON), 'FORBIDDEN');
   clean(c.S);
+});
+test('PIN: release crypto ak retrè pòtfèy P2P pase ANVAN sèvis la; PIN move/manke => anyen pa deplase', () => {
+  const c = setup(); fund(c, 'seller', 100);
+  const ad = sellAd(c.S, 'seller', { total: '50' });
+  const o = order(c.S, 'buyer', ad, '10'); c.S.markPaid('buyer', o.id);
+  const seller = { id: 'seller', role: 'user' };
+  const before = JSON.stringify(c.S.wallet('seller'));
+  // PIN pa bon: release refize, escrow rete bloke
+  const badRel = invokeP2PRoute(c.S, '/api/p2p/orders/:id/release', seller, { pin: '000000' }, { id: o.id }, PIN_REJECT);
+  assert.equal(badRel.status, 403); assert.equal(badRel.body.code, 'PIN_INVALID');
+  assert.equal(c.S.getOrderFor({ id: 'seller' }, o.id).status, 'PAYMENT_MARKED');
+  assert.equal(c.S.getOrderFor({ id: 'seller' }, o.id).escrow, 'LOCKED');
+  // PIN pa bon: retrè pòtfèy P2P refize, balans pa chanje
+  const badWd = invokeP2PRoute(c.S, '/api/p2p/wallet/withdraw', seller, { amount: '1', pin: '000000' }, {}, PIN_REJECT);
+  assert.equal(badWd.status, 403); assert.equal(badWd.body.code, 'PIN_INVALID');
+  assert.equal(JSON.stringify(c.S.wallet('seller')), before);
+  // PIN bon (guard la bay pas): release pase nòmalman
+  const okRel = invokeP2PRoute(c.S, '/api/p2p/orders/:id/release', seller, { pin: '482916' }, { id: o.id }, PIN_PASS);
+  assert.equal(okRel.status, 200);
+  assert.equal(c.S.getOrderFor({ id: 'seller' }, o.id).escrow, 'RELEASED_TO_BUYER');
+  clean(c.S);
+});
+test('PIN: route P2P yo refize monte san pinGuard (fail-closed, pa gen kontou silans)', () => {
+  const routes = {}; const app = { get: (p, ...h) => { routes[p] = h; }, post: (p, ...h) => { routes[p] = h; } };
+  const evidenceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'p2p-route-'));
+  try {
+    assert.throws(() => mountP2P(app, { auth: (q, s, n) => n(), rateLimit: () => (q, s, n) => n(), service: setup().S, upload: () => {}, detectExt: () => null, evidenceDir, isStaffRole: () => false }), /pinGuard/);
+  } finally { fs.rmSync(evidenceDir, { recursive: true, force: true }); }
 });
 test('9a. anilasyon pa pase ansanm ak liberasyon crypto a', () => {
   const c = setup(); fund(c, 'seller', 100);
