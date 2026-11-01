@@ -6,6 +6,7 @@
 <title>MORNINGSTAR EXCHANGE - Mache P2P</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="/ui.css">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0f;background-image:radial-gradient(circle at 10% 0%,rgba(212,175,55,.09),transparent 45%);min-height:100vh;color:#e5e7eb;padding-bottom:3rem;font-variant-numeric:tabular-nums}
@@ -50,15 +51,16 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 #toast.hidden{display:block;opacity:0;transform:translateY(-12px);pointer-events:none}
 </style>
 </head>
-<body>
+<body class="has-bnav">
 <div id="toast" class="hidden px-4 py-3 rounded-xl text-sm font-medium border"></div>
-<div class="max-w-md mx-auto px-4 pt-4">
-  <header class="flex items-center justify-between mb-3">
-    <div class="flex items-center gap-3">
-      <a href="/dashboard.html" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Retounen"><i class="fa-solid fa-arrow-left"></i></a>
-      <h1 class="text-lg font-bold gold-text">Mache P2P</h1>
+<div class="max-w-md mx-auto px-4 pt-4 fadeup">
+  <header class="topbar">
+    <a href="/dashboard.html" class="iconbtn" aria-label="Retounen"><i class="fa-solid fa-arrow-left"></i></a>
+    <div class="grow">
+      <h1 class="t-title gold-text">Mache P2P</h1>
+      <p class="t-sub">Achte ak vann USDT, lajan an pwoteje pa escrow</p>
     </div>
-    <button onclick="go('wallet')" class="panel rounded-full px-3 py-1.5 text-xs font-semibold"><i class="fa-solid fa-wallet text-amber-400 mr-1"></i><span id="chip">—</span> USDT</button>
+    <button onclick="go('wallet')" class="panel rounded-full px-3 py-1.5 text-xs font-semibold flex-shrink-0"><i class="fa-solid fa-wallet text-amber-400 mr-1"></i><span id="chip">—</span> USDT</button>
   </header>
 
   <nav class="grid grid-cols-4 border-b border-white/10 mb-4">
@@ -70,6 +72,12 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   <div id="gate" class="hidden mb-4 px-3.5 py-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-200 text-xs"></div>
   <main id="view"></main>
 </div>
+
+<nav class="bnav">
+  <a href="/dashboard.html"><i class="fa-solid fa-house"></i>Akèy</a>
+  <a href="/p2p.html" class="on" aria-current="page"><i class="fa-solid fa-people-arrows"></i>Mache P2P</a>
+  <a href="/settings.html"><i class="fa-solid fa-gear"></i>Paramèt</a>
+</nav>
 
 <!-- Paj lòd = chat plen ekran -->
 <div id="m-order" class="chatpage hidden">

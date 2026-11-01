@@ -8,7 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+    <link rel="stylesheet" href="/ui.css">
+
     <style>
         /* Typography mimicking Amazon Ember typography style */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -95,11 +96,30 @@
 </head>
 <body class="flex items-center justify-center p-4 sm:p-6 md:p-8">
 
+    <!-- Layout: sou òdinatè = panno mak (goch) + fòm (dwat); sou telefòn = fòm sèlman -->
+    <div class="w-full max-w-5xl mx-auto lg:grid lg:grid-cols-2 lg:gap-16 lg:items-center fadeup">
+
+    <aside class="hidden lg:block">
+        <span class="brand-mark lg"><i class="fa-solid fa-coins"></i></span>
+        <p class="mt-6 text-4xl font-extrabold tracking-wider gold-text uppercase leading-tight">MORNINGSTAR<br>EXCHANGE</p>
+        <p class="mt-3 text-base text-gray-400 max-w-sm">Jere lajan w nan yon sèl kote: echanj, P2P ak retrè lokal.</p>
+        <div class="mt-9 space-y-5 max-w-md">
+            <div class="valueprop"><span class="ico"><i class="fa-solid fa-people-arrows"></i></span>
+                <div><b>Mache P2P ak escrow</b><span>Achte ak vann USDT ant itilizatè. Lajan an rete bloke an sekirite jiskaske tranzaksyon an fini.</span></div></div>
+            <div class="valueprop"><span class="ico"><i class="fa-solid fa-mobile-screen-button"></i></span>
+                <div><b>Retrè MonCash ak NatCash</b><span>Retire goud (HTG) dirèkteman sou MonCash oswa NatCash.</span></div></div>
+            <div class="valueprop"><span class="ico"><i class="fa-solid fa-arrows-rotate"></i></span>
+                <div><b>Swap HTG ↔ dola</b><span>Chanje ant goud ak dola (USD / USDT) dirèkteman nan kont ou.</span></div></div>
+            <div class="valueprop"><span class="ico"><i class="fa-solid fa-shield-halved"></i></span>
+                <div><b>PIN 6 chif ak verifikasyon KYC</b><span>Chak retrè ak lage USDT mande PIN ou, epi idantite w verifye pou pwoteje kont ou.</span></div></div>
+        </div>
+    </aside>
+
     <!-- Container Principal -->
-    <div class="w-full max-w-md mx-auto">
-        
-        <!-- Header ak Logo Platform nan -->
-        <div class="text-center mb-8">
+    <div class="w-full max-w-md mx-auto lg:mx-0 lg:ml-auto">
+
+        <!-- Header ak Logo Platform nan (telefòn sèlman) -->
+        <div class="text-center mb-8 lg:hidden">
             <div class="inline-flex items-center justify-center w-16 h-16 mb-4 rounded-2xl bg-gradient-to-tr from-amber-900/40 via-yellow-600/20 to-black border border-yellow-500/30 shadow-lg shadow-amber-500/10">
                 <i class="fa-solid fa-coins text-3xl text-amber-400"></i>
             </div>
@@ -318,6 +338,7 @@
             <p class="mt-2 text-gray-500">2026 powered by <span class="text-amber-400 font-semibold">ScamKillerdev</span></p>
         </div>
 
+    </div>
     </div>
 
     <!-- JavaScript Logic -->

@@ -6,6 +6,7 @@
     <title>MORNINGSTAR EXCHANGE - Verifikasyon Idantite (KYC)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/ui.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         body {
@@ -41,22 +42,34 @@
     </style>
 </head>
 <body class="flex items-start justify-center p-4 sm:p-6 md:p-8">
-<div class="w-full max-w-xl mx-auto">
+<div class="w-full max-w-xl mx-auto fadeup">
 
-    <div class="text-center mb-6">
-        <div class="inline-flex items-center justify-center w-14 h-14 mb-3 rounded-2xl bg-gradient-to-tr from-amber-900/40 via-yellow-600/20 to-black border border-yellow-500/30">
-            <i class="fa-solid fa-coins text-2xl text-amber-400"></i>
+    <header class="topbar" style="margin-bottom:1.25rem">
+        <span class="brand-mark lg" aria-hidden="true"><i class="fa-solid fa-coins"></i></span>
+        <div class="grow">
+            <h1 class="brand-name gold-text uppercase text-base sm:text-lg" style="letter-spacing:.12em">MORNINGSTAR EXCHANGE</h1>
+            <span class="brand-sub">Verifikasyon idantite (KYC)</span>
         </div>
-        <h1 class="text-2xl sm:text-3xl font-extrabold tracking-wider gold-text uppercase">MORNINGSTAR EXCHANGE</h1>
-    </div>
+    </header>
 
-    <div class="glass-card rounded-2xl p-6 sm:p-8">
+    <div id="kyc-card" class="glass-card rounded-2xl p-6 sm:p-8">
 
-        <div class="flex items-center justify-between mb-6">
-            <span id="who" class="text-xs text-gray-400 truncate"></span>
+        <div class="flex items-center justify-between mb-5 pb-4 border-b border-white/10">
+            <span class="flex items-center gap-2 min-w-0 text-xs text-gray-400">
+                <i class="fa-regular fa-circle-user text-base text-amber-400/80 flex-shrink-0"></i>
+                <span id="who" class="truncate"></span>
+            </span>
             <button onclick="logout()" class="text-xs text-amber-400 hover:underline flex-shrink-0 ml-3">
                 <i class="fa-solid fa-right-from-bracket mr-1"></i>Dekonekte
             </button>
+        </div>
+
+        <div id="stepper" class="stepper" aria-label="Etap yo">
+            <div class="st on" data-s="1"><b>1</b><span>Dokiman</span></div>
+            <i class="bar"></i>
+            <div class="st" data-s="2"><b>2</b><span>Foto</span></div>
+            <i class="bar"></i>
+            <div class="st" data-s="3"><b>3</b><span>Verifikasyon</span></div>
         </div>
 
         <div id="alert-box" class="hidden mb-5 p-3.5 rounded-xl text-xs sm:text-sm font-medium flex items-center gap-3">
@@ -106,9 +119,11 @@
         </div>
     </div>
 
-    <p class="text-center text-xs text-gray-500 mt-6">
-        <i class="fa-solid fa-lock mr-1"></i>Dokiman w yo kripte pandan transfè, epi sèlman ekip verifikasyon an ka wè yo.
-    </p>
+    <div class="trust mt-5">
+        <div><i class="fa-solid fa-lock"></i>Kripte pandan transfè</div>
+        <div><i class="fa-solid fa-user-shield"></i>Sèlman ekip verifikasyon an wè yo</div>
+        <div><i class="fa-regular fa-clock"></i>Apeprè 2 minit</div>
+    </div>
 </div>
 
 <script>
@@ -268,6 +283,24 @@
             show('view-loading');
             $('view-loading').textContent = 'Pa kapab chaje paj la. Rafrechi paj la.';
         }
+    })();
+</script>
+<script>
+    // Endikatè etap yo: li swiv sèlman eta paj la (pa manyen lojik KYC a)
+    (function () {
+        const steps = Array.from(document.querySelectorAll('#stepper .st'));
+        const card = document.getElementById('kyc-card');
+        const hidden = (id) => document.getElementById(id).classList.contains('hidden');
+        function update() {
+            const cur = !hidden('view-status') ? 3 : !hidden('slots-wrap') ? 2 : 1;
+            steps.forEach((el) => {
+                const n = Number(el.dataset.s);
+                el.classList.toggle('done', n < cur);
+                el.classList.toggle('on', n === cur);
+            });
+        }
+        new MutationObserver(update).observe(card, { subtree: true, attributes: true, attributeFilter: ['class'] });
+        update();
     })();
 </script>
 <script src="/support-chat.js" defer></script>
