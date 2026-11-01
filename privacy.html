@@ -5,30 +5,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Règleman sou Konfidansyalite - Morningstar Exchange</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="/ui.css">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
 *{box-sizing:border-box}
 body{margin:0;font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0f;background-image:radial-gradient(circle at 15% 20%,rgba(212,175,55,.08),transparent 40%);color:#d1d5db;line-height:1.65;min-height:100vh}
-.wrap{max-width:720px;margin:0 auto;padding:24px 16px 48px}
-.back{display:inline-flex;align-items:center;gap:8px;color:#fbbf24;text-decoration:none;font-size:14px;font-weight:600;margin-bottom:20px}
+.wrap{max-width:720px;margin:0 auto;padding:20px 16px 56px}
 .card{background:rgba(18,20,29,.75);border:1px solid rgba(212,175,55,.18);border-radius:16px;padding:24px;box-shadow:0 20px 50px rgba(0,0,0,.8)}
 h1{font-size:20px;font-weight:800;letter-spacing:.04em;margin:0 0 4px;background:linear-gradient(135deg,#FFF099,#F1C40F 35%,#D4AF37 70%,#996515);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .sub{font-size:13px;color:#9ca3af;margin:0 0 8px}
-h2{font-size:16px;color:#fbbf24;margin:28px 0 8px}
+h2{font-size:16px;color:#fbbf24;margin:30px 0 10px;padding-top:22px;border-top:1px solid rgba(255,255,255,.07);scroll-margin-top:72px}
 h3{font-size:14px;color:#e5e7eb;margin:16px 0 4px}
 p{margin:0 0 12px;font-size:14px}
 ul{margin:0 0 12px;padding-left:20px;font-size:14px}
 li{margin-bottom:4px}
 .foot{text-align:center;font-size:12px;color:#6b7280;margin-top:24px}
 .foot b{color:#fbbf24}
+.pv-top{position:sticky;top:0;z-index:20;background:rgba(10,11,16,.9);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,.07)}
+.pv-top-in{max-width:720px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pv-brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;min-width:0}
+.pv-brand .brand-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-back{display:inline-flex;align-items:center;gap:8px;color:#fbbf24;text-decoration:none;font-size:13px;font-weight:600;padding:6px 12px;border:1px solid rgba(255,255,255,.12);border-radius:10px;flex-shrink:0;transition:.15s}
+.pv-back:hover{border-color:rgba(212,175,55,.5)}
+.pv-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fbbf24;background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.3);padding:4px 10px;border-radius:999px;margin-bottom:12px}
+.toc{margin:20px 0 4px;padding:14px 16px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(10,11,16,.55)}
+.toc b{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#9ca3af;margin-bottom:8px}
+.toc div{display:grid;grid-template-columns:1fr;gap:2px 20px}
+@media(min-width:600px){.toc div{grid-template-columns:1fr 1fr}}
+.toc a{color:#d1d5db;text-decoration:none;font-size:13px;padding:4px 0;transition:color .15s}
+.toc a:hover{color:#fbbf24}
+@media print{.pv-top,.toc{display:none}body{background:#fff;color:#111}.card{box-shadow:none;border-color:#ddd;background:#fff}h2{color:#111}}
 </style>
 </head>
 <body>
+<header class="pv-top"><div class="pv-top-in">
+<a class="pv-brand" href="/"><span class="brand-mark"><i class="fa-solid fa-coins"></i></span><span class="brand-name">MORNINGSTAR EXCHANGE</span></a>
+<a class="pv-back" href="/"><i class="fa-solid fa-arrow-left"></i> Retounen</a>
+</div></header>
 <div class="wrap">
-<a class="back" href="/"><i class="fa-solid fa-arrow-left"></i> Retounen</a>
 <div class="card">
+<span class="pv-badge"><i class="fa-solid fa-shield-halved"></i> Dokiman legal</span>
 <h1>RÈGLEMAN SOU KONFIDANSYALITE (PRIVACY POLICY)</h1>
 <p class="sub">MORNINGSTAR EXCHANGE · Dènye mizajou: 30 Oktòb 2026</p>
+<nav class="toc" id="toc" aria-label="Tablo matyè"><b>Sou paj sa a</b><div id="toc-list"></div></nav>
 <h2>1. Entwodiksyon</h2>
 <p>Byenveni sou Morningstar Exchange.</p>
 <p>Morningstar Exchange se yon platfòm finansye dijital ki bay itilizatè yo aksè ak plizyè sèvis finansye ak tranzaksyon elektwonik, tankou:</p>
@@ -139,5 +158,14 @@ li{margin-bottom:4px}
 </div>
 <p class="foot">2026 powered by <b>ScamKillerdev</b></p>
 </div>
+<script>
+(function () {
+  var list = document.getElementById('toc-list');
+  document.querySelectorAll('.card h2').forEach(function (h, i) {
+    h.id = 's' + (i + 1);
+    var a = document.createElement('a'); a.href = '#s' + (i + 1); a.textContent = h.textContent; list.appendChild(a);
+  });
+})();
+</script>
 </body>
 </html>

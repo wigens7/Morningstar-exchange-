@@ -143,6 +143,7 @@
     errMethod: ['Chwazi yon metòd.', 'Choisissez une méthode.', 'Choose a method.', 'Elige un método.'],
     errAcc: ['Antre kont destinasyon an.', 'Entrez le compte de destination.', 'Enter the destination account.', 'Ingresa la cuenta de destino.'],
     errPin: ['Antre PIN 6 chif ou.', 'Entrez votre PIN à 6 chiffres.', 'Enter your 6-digit PIN.', 'Ingresa tu PIN de 6 dígitos.'],
+    setSub: ['Kont, sekirite ak preferans', 'Compte, sécurité et préférences', 'Account, security and preferences', 'Cuenta, seguridad y preferencias'],
     pinNeedMsg: ['Ou dwe kreye yon PIN 6 chif nan Paramèt anvan ou ka fè retrè oswa transfè.', 'Vous devez créer un PIN à 6 chiffres dans les Paramètres avant de faire un retrait ou un transfert.', 'You must create a 6-digit PIN in Settings before you can withdraw or transfer.', 'Debes crear un PIN de 6 dígitos en Configuración antes de retirar o transferir.'],
     wdSent: ['Demann retrè a voye. Ekip nou ap trete l.', 'Demande de retrait envoyée. Notre équipe la traite.', 'Withdrawal request sent. Our team is processing it.', 'Solicitud de retiro enviada. Nuestro equipo la procesa.'],
     errGen: ['Erè. Eseye ankò.', 'Erreur. Réessayez.', 'Error. Try again.', 'Error. Inténtalo de nuevo.'],

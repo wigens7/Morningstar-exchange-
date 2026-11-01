@@ -1152,6 +1152,7 @@ app.get('/admin.html', page('admin.html'));
 app.get('/settings.html', page('settings.html'));
 app.get('/p2p.html', page('p2p.html'));
 app.get('/admin-p2p.js', page('admin-p2p.js'));
+app.get('/ui.css', page('ui.css'));
 app.get('/i18n.js', page('i18n.js'));
 app.get('/dialogs.js', page('dialogs.js'));
 app.get('/support-chat.js', page('support-chat.js'));
