@@ -462,7 +462,7 @@ function trfRender() {
     <div class="field mb-4"><span>${trf.cur === 'HTG' ? 'HTG' : '$'}</span><input id="trf-amt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${esc(trf.amount)}" oninput="trf.amount=this.value;trfSum()"></div>
     <label class="text-xs text-gray-300 font-medium block mb-1.5">${t('trfNote')}</label>
     <div class="field mb-4"><input id="trf-note" type="text" maxlength="100" placeholder="${t('trfNotePh')}" value="${esc(trf.note)}" oninput="trf.note=this.value"></div>
-    ${me.pinActive ? `<label class="text-xs text-gray-300 font-medium block mb-1.5">PIN 6 chif</label><div class="field mb-4"><input id="trf-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" value="${esc(trf.pin)}" oninput="trf.pin=this.value"></div>` : `<p class="text-xs text-amber-400 mb-4">${t('pinNeedMsg')}</p>`}
+    ${me.pinActive ? `<label class="text-xs text-gray-300 font-medium block mb-1.5">PIN 6 chif</label><div class="field mb-4"><input id="trf-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" value="${esc(trf.pin)}" oninput="trf.pin=this.value"></div>` : ''}
     <div class="panel rounded-xl px-3.5 py-2.5 mb-4 text-xs space-y-1.5">
       <div class="flex justify-between"><span class="text-gray-400">${t('trfFee')}</span><span class="font-semibold text-emerald-400">${t('trfFree')}</span></div>
       <div class="flex justify-between border-t border-white/10 pt-1.5"><span class="text-gray-300">${t('trfAmount')}</span><span id="trf-sum" class="font-semibold">${fmt(parseFloat(trf.amount) || 0, trf.cur)}</span></div>
@@ -505,14 +505,13 @@ function trfReview() {
   if (!trf.name) return trfErr(trf.lookErr || t('trfNoUser'));
   if (!(a > 0) || Math.abs(a * 100 - Math.round(a * 100)) > 1e-6) return trfErr(t('errAmt'));
   if (a > trfBal()) return trfErr(t('errBal'));
-  if (!me.pinActive) return trfErr(t('pinNeedMsg'));
-  if (!/^\d{6}$/.test(trf.pin)) return trfErr(t('errPin'));
+  if (me.pinActive && !/^\d{6}$/.test(trf.pin)) return trfErr(t('errPin'));
   trf.err = ''; trf.step = 'review'; trfRender();
 }
 async function trfSend() {
   if (trf.busy) return; trf.busy = true; $('trf-go').disabled = true;
   try {
-    const d = await post('/api/transfer', { to: trf.to.trim(), currency: trf.cur, amount: parseFloat(trf.amount), note: trf.note, pin: trf.pin });
+    const d = await post('/api/transfer', { to: trf.to.trim(), currency: trf.cur, amount: parseFloat(trf.amount), note: trf.note, ...(me.pinActive ? { pin: trf.pin } : {}) });
     trf.receipt = d.receipt; delete d.receipt; me = d; render();
     trf.step = 'receipt'; trf.busy = false; trfRender();
   } catch (x) { trf.busy = false; trf.err = x.message; trfRender(); }
@@ -625,8 +624,7 @@ function openWd() {
   if (me.banned) return toast(t('bannedToast'), false);
   if (!me.profile) return toast(t('profileMsg'), false);
   if (me.balance <= 0 && me.usd <= 0) return toast(t('errNoBal'), false);
-  if (!me.pinActive) return toast(t('pinNeedMsg'), false); // PIN 6 chif obligatwa pou nenpòt retrè
-  $('w-pin-wrap').classList.remove('hidden'); $('w-pin').value = '';
+  $('w-pin-wrap').classList.toggle('hidden', !me.pinActive); $('w-pin').value = '';
   $('w-amount').value = ''; $('w-account').value = ''; $('w-ack').checked = false; $('w-err').classList.add('hidden');
   setCur(me.balance > 0 ? 'HTG' : 'USD');
   $('m-wd').classList.remove('hidden');
@@ -676,13 +674,12 @@ async function doWd() {
   }
   if (!(amount > 0)) return e(t('errAmt'));
   if (amount > bal) return e(t('errBal'));
-  if (!me.pinActive) return e(t('pinNeedMsg'));
   const pin = $('w-pin').value;
-  if (!/^\d{6}$/.test(pin)) return e(t('errPin'));
+  if (me.pinActive && !/^\d{6}$/.test(pin)) return e(t('errPin'));
   if ($('w-account').value.trim().length < 3) return e(t('errAcc'));
   if (!$('w-ack').checked) return e(t('errAck'));
   $('w-go').disabled = true;
-  try { me = await post('/api/withdraw', { currency: cur, method, amount, account: $('w-account').value, ack: true, ...extra, pin }); render(); closeModals(); toast(t('wdSent'), true); }
+  try { me = await post('/api/withdraw', { currency: cur, method, amount, account: $('w-account').value, ack: true, ...extra, ...(me.pinActive ? { pin } : {}) }); render(); closeModals(); toast(t('wdSent'), true); }
   catch (x) { e(x.message); }
   $('w-go').disabled = false;
 }
