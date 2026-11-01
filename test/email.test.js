@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createResendClient } = require('../resend');
 const { issueOtp, verifyOtp } = require('../otp');
-const { noticeEmail, otpEmail } = require('../email-templates');
+const { noticeEmail, notificationEmail, otpEmail } = require('../email-templates');
 const { createService } = require('../p2p/service');
 
 test('Resend client uses server credentials, text/html and an idempotency key', async () => {
@@ -145,6 +145,63 @@ test('email templates escape content and include plain-text and brand footer', (
   assert.equal(notice.html.includes('<img src=x>'), false);
   assert.match(notice.html, /&lt;unsafe title&gt;/);
   assert.match(notice.text, /Morningstar Exchange/);
+});
+
+test('all customer and admin email templates stay in Haitian Creole for every account locale', () => {
+  const locales = ['ht', 'en', 'fr', 'es', 'unknown', undefined];
+  const otpPurposes = ['signup', 'email_verification', 'password_change', 'password_reset'];
+  const notificationTypes = [
+    'ACCOUNT_REGISTERED', 'EMAIL_VERIFIED', 'PROFILE_UPDATED', 'PASSWORD_CHANGED',
+    'LOGIN_SECURITY', 'DEPOSIT_REQUESTED', 'DEPOSIT_APPROVED', 'DEPOSIT_REJECTED',
+    'WITHDRAWAL_REQUESTED', 'WITHDRAWAL_PAID', 'WITHDRAWAL_REJECTED',
+    'KYC_APPROVED', 'KYC_REJECTED', 'KYC_REUPLOAD',
+    'P2P_ORDER_CREATED', 'P2P_PAYMENT_REPORTED', 'P2P_PAYMENT_VERIFIED',
+    'P2P_RELEASED', 'P2P_ADMIN_RELEASED', 'P2P_ADMIN_RETURNED',
+    'P2P_DISPUTE_RESOLVED', 'P2P_CANCELLED', 'P2P_EXPIRED',
+    'P2P_DISPUTE_OPENED', 'P2P_DISPUTE_TAKEN', 'P2P_NEW_OFFER',
+    'P2P_AD_STATUS', 'P2P_STATUS', 'P2P_ADMIN_ALERT', 'SYSTEM_OPERATION_ERROR'
+  ];
+  const audiences = ['USER', 'ADMIN', 'BUYER', 'SELLER'];
+
+  for (const purpose of otpPurposes) {
+    const expected = otpEmail({ code: '123456', purpose, locale: 'ht' });
+    for (const locale of locales) {
+      const actual = otpEmail({ code: '123456', purpose, locale });
+      assert.deepEqual(actual, expected, `OTP ${purpose} should render in Haitian Creole for ${locale}`);
+      assert.match(actual.html, /<html lang="ht">/);
+    }
+  }
+
+  const noticeArgs = {
+    title: 'Mizajou kont',
+    summary: 'Enfòmasyon sou kont lan mete ajou.',
+    details: [{ label: 'Estati', value: 'Konplete' }],
+    occurredAt: '2026-11-01T00:00:00.000Z'
+  };
+  const expectedNotice = noticeEmail({ ...noticeArgs, locale: 'ht' });
+  for (const locale of locales) {
+    const actual = noticeEmail({ ...noticeArgs, locale });
+    assert.deepEqual(actual, expectedNotice, `General notice should render in Haitian Creole for ${locale}`);
+    assert.match(actual.html, /<html lang="ht">/);
+  }
+
+  const payload = {
+    orderRef: 'order-123', adRef: 'offer-123', txRef: 'request-123',
+    amount: '10 USDT', method: 'MonCash', status: 'An atant',
+    reasonCode: 'PAYMENT_METHOD_ISSUE', alertType: 'WEBHOOK_MISMATCH',
+    event: 'Nouvo aktivite', occurredAt: '2026-11-01T00:00:00.000Z'
+  };
+  for (const eventType of notificationTypes) {
+    for (const audience of audiences) {
+      const expected = notificationEmail({ eventType, audience, locale: 'ht', payload });
+      assert.ok(expected, `Expected a Haitian Creole template for ${eventType}/${audience}`);
+      for (const locale of locales) {
+        const actual = notificationEmail({ eventType, audience, locale, payload });
+        assert.deepEqual(actual, expected, `${eventType}/${audience} should render in Haitian Creole for ${locale}`);
+        assert.match(actual.html, /<html lang="ht">/);
+      }
+    }
+  }
 });
 
 test('P2P email outbox deduplicates events and retries independently', () => {

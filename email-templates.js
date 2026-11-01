@@ -232,8 +232,8 @@ function escapeHtml(value) {
   })[char]);
 }
 
-function language(value) {
-  return Object.prototype.hasOwnProperty.call(COPY, value) ? value : 'ht';
+function language() {
+  return 'ht';
 }
 
 function shell({ locale = 'ht', title, preheader, content }) {
