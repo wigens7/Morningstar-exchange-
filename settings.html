@@ -71,6 +71,18 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <div id="pin-form"></div>
   </section>
 
+  <p class="sec">Chanje modpas</p>
+  <section class="panel rounded-2xl p-4">
+    <label class="lbl">Modpas aktyèl</label><div class="field"><input id="pw-current" type="password" autocomplete="current-password"></div>
+    <button onclick="requestPasswordCode()" class="gold-btn w-full py-3 rounded-xl font-bold text-sm">Voye kòd sekirite</button>
+    <div id="pw-otp-area" class="hidden mt-4">
+      <label class="lbl">Kòd 6 chif</label><div class="field"><input id="pw-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></div>
+      <label class="lbl">Nouvo modpas</label><div class="field"><input id="pw-new" type="password" autocomplete="new-password"></div>
+      <label class="lbl">Konfime nouvo modpas la</label><div class="field"><input id="pw-confirm" type="password" autocomplete="new-password"></div>
+      <button onclick="confirmPasswordChange()" class="gold-btn w-full py-3 rounded-xl font-bold text-sm">Konfime chanjman</button>
+    </div>
+  </section>
+
   <!-- Envitasyon -->
   <p class="sec">Envite lòt moun</p>
   <section class="panel rounded-2xl p-4">
@@ -199,6 +211,25 @@ async function pinOn() {
 async function pinOff() {
   try { me = await post('/api/pin/disable', { password: $('pin-pw').value }); renderPin(); toast(t('pinOffOk'), true); }
   catch (e) { toast(e.message, false); }
+}
+
+async function requestPasswordCode() {
+  try {
+    await post('/api/password/change/request', { currentPassword: $('pw-current').value });
+    $('pw-otp-area').classList.remove('hidden');
+    toast('Si modpas aktyèl la kòrèk, kòd la voye nan imèl kont ou.', true);
+  } catch (e) { toast(e.message, false); }
+}
+async function confirmPasswordChange() {
+  const password = $('pw-new').value;
+  if (password.length < 8 || password.length > 100) return toast('Nouvo modpas la dwe gen 8 a 100 karaktè.', false);
+  if (password !== $('pw-confirm').value) return toast('Nouvo modpas yo pa menm.', false);
+  try {
+    await post('/api/password/change/confirm', { code: $('pw-code').value, password });
+    $('pw-current').value = $('pw-code').value = $('pw-new').value = $('pw-confirm').value = '';
+    $('pw-otp-area').classList.add('hidden');
+    toast('Modpas la chanje avèk siksè.', true);
+  } catch (e) { toast(e.message, false); }
 }
 
 function renderAll() {

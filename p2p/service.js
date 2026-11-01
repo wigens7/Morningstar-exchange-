@@ -69,12 +69,124 @@ function createService(opts = {}) {
     catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
   }
 
+  function queueEmailInTx(eventKey, eventType, recipients, payload = {}) {
+    const t = now();
+    let inserted = 0;
+    for (const recipient of recipients) {
+      const type = recipient.type === 'admin' ? 'admin' : 'user';
+      const id = type === 'admin' ? '' : String(recipient.id || '');
+      if (type === 'user' && !id) continue;
+      try {
+        inserted += run(`INSERT OR IGNORE INTO email_outbox
+          (event_key,recipient_type,recipient_id,event_type,payload,created_at,next_attempt_at,expires_at)
+          VALUES(?,?,?,?,?,?,?,?)`,
+        String(eventKey).slice(0, 180), type, id, eventType, JSON.stringify(payload), t, t, t + 23 * HOUR).changes;
+      } catch {
+        try { if (hooks.notificationError) hooks.notificationError(); } catch {}
+      }
+    }
+    return inserted;
+  }
+
+  const userRecipient = (id) => ({ type: 'user', id });
+  const adminRecipient = { type: 'admin' };
+
+  function queueOrderNotice(o, action, from, to, details) {
+    let type = null, recipients = [];
+    const participants = [userRecipient(o.buyer_id), userRecipient(o.seller_id)];
+    switch (action) {
+      case 'ORDER_CREATED':
+        type = 'P2P_ORDER_CREATED'; recipients = [...participants, adminRecipient]; break;
+      case 'PAYMENT_MARKED':
+        type = 'P2P_PAYMENT_REPORTED'; recipients = [userRecipient(o.seller_id), adminRecipient]; break;
+      case 'PAYMENT_MARKED_BY_PROVIDER':
+        type = 'P2P_PAYMENT_VERIFIED'; recipients = [...participants, adminRecipient]; break;
+      case 'SELLER_RELEASED':
+      case 'ADMIN_RELEASED':
+        type = 'P2P_RELEASED'; recipients = [...participants, adminRecipient]; break;
+      case 'BUYER_CANCELLED':
+      case 'ADMIN_RETURNED':
+      case 'RECOVERED_CANCEL':
+        type = 'P2P_CANCELLED'; recipients = [...participants, adminRecipient]; break;
+      case 'EXPIRED':
+        type = 'P2P_EXPIRED'; recipients = [...participants, adminRecipient]; break;
+      case 'DISPUTE_OPENED':
+        type = 'P2P_DISPUTE_OPENED'; recipients = [...participants, adminRecipient]; break;
+      case 'DISPUTE_TAKEN':
+        type = 'P2P_DISPUTE_TAKEN'; recipients = participants; break;
+      case 'RECOVERED':
+        type = 'P2P_STATUS'; recipients = participants; break;
+      default:
+        return;
+    }
+    const payload = {
+      orderRef: String(o.id).slice(-8),
+      from: from || null,
+      to: to || null,
+      crypto: micro(o.crypto_micro),
+      fiatAmount: cents(o.fiat_cents),
+      amount: `${micro(o.crypto_micro)} USDT · ${cents(o.fiat_cents)} ${o.fiat}`,
+      fiat: o.fiat,
+      method: o.method,
+      reasonCode: details && ['NO_LONGER_NEEDED', 'PAYMENT_METHOD_ISSUE', 'ORDER_DETAILS_INCORRECT', 'CANNOT_PAY_IN_TIME', 'OTHER'].includes(details.reason)
+        ? details.reason
+        : null,
+      decision: action === 'ADMIN_RELEASED' ? 'RELEASE_TO_BUYER'
+        : action === 'ADMIN_RETURNED' ? 'RETURN_TO_SELLER'
+          : null,
+      occurredAt: new Date(now()).toISOString()
+    };
+    queueEmailInTx(`p2p:${action}:${o.id}`, type, recipients, payload);
+  }
+
+  function queueAdminAlert(kind, details, alertId) {
+    const watch = new Set([
+      'RAPID_ORDERS', 'LARGE_ORDER', 'FREQUENT_CANCEL', 'REPEATED_DISPUTES',
+      'WEBHOOK_MISMATCH', 'JOB_ERROR', 'RECONCILIATION'
+    ]);
+    if (!watch.has(kind)) return;
+    const reference = details && (details.orderId || details.id);
+    const bucket = reference ? String(reference) : String(Math.floor(now() / HOUR));
+    queueEmailInTx(`p2p:alert:${kind}:${bucket}`, 'P2P_ADMIN_ALERT', [adminRecipient], {
+      alertType: kind,
+      reference: reference ? String(reference).slice(-8) : null,
+      alertId: String(alertId),
+      occurredAt: new Date(now()).toISOString()
+    });
+  }
+
+  function enqueueNotification(eventKey, eventType, recipients, payload = {}) {
+    return tx(() => queueEmailInTx(eventKey, eventType, recipients, payload));
+  }
+  function pendingEmailNotifications(limit = 25) {
+    const n = Math.min(Math.max(Number(limit) || 25, 1), 100);
+    return q("SELECT * FROM email_outbox WHERE status='pending' AND next_attempt_at<=? ORDER BY id LIMIT " + n, now());
+  }
+  function markEmailNotificationSent(id) {
+    return run("UPDATE email_outbox SET status='sent',sent_at=?,last_error=NULL WHERE id=? AND status='pending'", now(), Number(id)).changes === 1;
+  }
+  function retryEmailNotification(id, errorCode) {
+    const row = q1("SELECT attempts,created_at,expires_at FROM email_outbox WHERE id=? AND status='pending'", Number(id));
+    if (!row) return { updated: false, failed: false };
+    const attempts = row.attempts + 1;
+    const failed = attempts >= 8 || now() >= row.expires_at;
+    const code = /^[a-z0-9_-]{1,64}$/i.test(String(errorCode || '')) ? String(errorCode) : 'EMAIL_SEND_FAILED';
+    const delay = Math.min(60 * 60 * 1000, 15 * 1000 * (2 ** Math.min(attempts, 8)));
+    run(`UPDATE email_outbox SET attempts=?,next_attempt_at=?,status=?,last_error=?
+      WHERE id=? AND status='pending'`,
+    attempts, failed ? row.expires_at : now() + delay, failed ? 'failed' : 'pending', code, Number(id));
+    return { updated: true, failed, attempts };
+  }
+
   // ---------- odit ----------
   const audit = (actor, role, action, entity, id, details, ip) =>
     run('INSERT INTO audit_log(ts,actor,role,action,entity,entity_id,details,ip) VALUES(?,?,?,?,?,?,?,?)',
       now(), actor || null, role || null, action, entity || null, id == null ? null : String(id), details ? JSON.stringify(details) : null, ip || null);
-  const alert = (userId, kind, details) =>
-    run('INSERT INTO alerts(ts,user_id,kind,details) VALUES(?,?,?,?)', now(), userId || null, kind, JSON.stringify(details || {}));
+  const alert = (userId, kind, details) => {
+    const r = run('INSERT INTO alerts(ts,user_id,kind,details) VALUES(?,?,?,?)', now(), userId || null, kind, JSON.stringify(details || {}));
+    queueAdminAlert(kind, details || {}, r.lastInsertRowid);
+    return r;
+  };
   const sysMsg = (orderId, body, kind) => run('INSERT INTO messages(order_id,sender_id,role,body,ts,kind) VALUES(?,?,?,?,?,?)', orderId, null, 'SYSTEM', body, now(), kind || null);
   const requirePerm = (staff, perm) => { if (!staff || !can(staff.role, perm)) throw E('FORBIDDEN', 403, 'Ou pa gen pèmisyon pou aksyon sa a.'); };
   const needReason = (r) => { const s = String(r || '').trim(); if (s.length < 10) throw E('REASON_REQUIRED', 400, 'Yon rezon (omwen 10 karaktè) obligatwa.'); return s.slice(0, 500); };
@@ -264,6 +376,9 @@ function createService(opts = {}) {
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, userId, type, ASSET, fiat, price, total, total, minF, maxF, JSON.stringify(methods), pay ? JSON.stringify(pay) : null, win, 'ACTIVE', displayName(userId), String(input.terms || '').slice(0, 300), idem, now(), now());
       if (type === 'SELL') syncAdAvailabilityInTx(userId, { resume: true });
       audit(userId, 'USER', 'AD_CREATE', 'ad', id, { type, fiat, price, total }, ip);
+       queueEmailInTx(`p2p:ad:new:${id}`, 'P2P_NEW_OFFER', [userRecipient(userId), adminRecipient], {
+         adRef: id.slice(-8), type, fiat, occurredAt: new Date(now()).toISOString()
+       });
       return adView(q1('SELECT * FROM ads WHERE id=?', id));
     });
   }
@@ -283,8 +398,13 @@ function createService(opts = {}) {
           if (a.type === 'SELL' && !adFundingEnough(a, wallet(actor.id).available)) throw E('INSUFFICIENT_FUNDS', 400, 'Balans USDT disponib la pa kouvri kantite ki rete sou anons sa a oswa minimòm lan.');
         }
       }
-      run('UPDATE ads SET status=?, auto_paused=0, updated_at=? WHERE id=?', status, now(), adId);
+      const changed = a.status !== status;
+      const updatedAt = now();
+      run('UPDATE ads SET status=?, auto_paused=0, updated_at=? WHERE id=?', status, updatedAt, adId);
       audit(actor.id, actor.role || 'USER', 'AD_' + status, 'ad', adId, { reason: reason || null }, ip);
+      if (changed) queueEmailInTx(`p2p:ad:status:${adId}:${updatedAt}`, 'P2P_AD_STATUS',
+        [userRecipient(a.user_id), ...(status === 'SUSPENDED' ? [adminRecipient] : [])],
+        { adRef: String(adId).slice(-8), status, occurredAt: new Date(updatedAt).toISOString() });
       return adView(q1('SELECT * FROM ads WHERE id=?', adId));
     });
   }
@@ -358,6 +478,7 @@ function createService(opts = {}) {
   function event(o, actor, actorRole, from, to, action, details) {
     run('INSERT INTO order_events(order_id,ts,actor,actor_role,from_status,to_status,action,details) VALUES(?,?,?,?,?,?,?,?)',
       o.id, now(), actor || null, actorRole, from, to, action, details ? JSON.stringify(details) : null);
+    queueOrderNotice(o, action, from, to, details);
   }
   function transition(o, to, roles, action, actor, details) {
     const allowed = (TRANSITIONS[o.status] || {})[to];
@@ -821,7 +942,8 @@ function createService(opts = {}) {
     db, tx, q, q1, P2PError, can, parseUnits, fmtUnits, fiatFor, wallet, bridgeIn, bridgeOut, finishBridge, recoverBridge,
     getMerchant: merchantView, saveMerchant, createAd, setAdStatus, listAds, myAds, createOrder, markPaid, release, cancel, openDispute, takeDispute, resolveDispute,
     postMessage, listMessages, markMessagesRead, addEvidence, evidenceFile, getOrderFor, myOrders, processProviderEvent,
-    expireDue, recoverStuck, runJobs, reconcile, report, admin, close: () => db.close()
+    expireDue, recoverStuck, runJobs, reconcile, report, admin, enqueueNotification,
+    pendingEmailNotifications, markEmailNotificationSent, retryEmailNotification, close: () => db.close()
   };
 }
 module.exports = { createService, P2PError, parseUnits, fmtUnits, fiatFor, can, FIATS };

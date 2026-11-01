@@ -175,7 +175,7 @@
                             <label for="signin-password" class="lbl">
                                 Mòdpas
                             </label>
-                            <a href="#" onclick="showNotification('Mande yon lyen pou reinitialise mòdpas ou nan imèl ou.', 'info')" class="text-xs lnk">
+                            <a href="#" onclick="showPasswordReset();return false;" class="text-xs lnk">
                                 Mòdpas bliye?
                             </a>
                         </div>
@@ -298,6 +298,34 @@
                 </p>
             </form>
 
+            <form id="form-verify-email" class="form-container form-hidden" onsubmit="handleEmailVerify(event)">
+                <p class="ctitle">Verifye imèl ou</p>
+                <p class="csub">Antre kòd nou voye nan adrès sa a:</p>
+                <p id="verify-email-label" class="text-sm text-gray-300 mb-4"></p>
+                <input id="verify-email" type="hidden">
+                <label for="verify-code" class="lbl">Kòd 6 chif</label>
+                <input id="verify-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required class="custom-input pl-4 pr-4">
+                <button type="submit" class="btn-primary">Verifye imèl la</button>
+                <button type="button" onclick="resendSignupCode()" class="w-full mt-3 text-sm lnk">Renvoye kòd la</button>
+                <p class="text-center text-sm text-gray-400 mt-4"><button type="button" onclick="switchTab('signin')" class="lnk">Retounen nan koneksyon</button></p>
+            </form>
+
+            <form id="form-password-reset" class="form-container form-hidden" onsubmit="completePasswordReset(event)">
+                <p class="ctitle">Reyinisyalize modpas</p>
+                <p class="csub">Verifye imel ou anvan ou chanje modpas la.</p>
+                <label for="reset-email" class="lbl">Adrès imèl</label>
+                <input id="reset-email" type="email" required autocomplete="email" class="custom-input pl-4 pr-4">
+                <button type="button" onclick="requestPasswordResetCode()" class="btn-primary">Voye kòd sekirite</button>
+                <label for="reset-code" class="lbl mt-4">Kòd 6 chif</label>
+                <input id="reset-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required class="custom-input pl-4 pr-4">
+                <label for="reset-password" class="lbl mt-3">Nouvo modpas</label>
+                <input id="reset-password" type="password" minlength="8" maxlength="100" required autocomplete="new-password" class="custom-input pl-4 pr-4">
+                <label for="reset-password-confirm" class="lbl mt-3">Konfime modpas la</label>
+                <input id="reset-password-confirm" type="password" minlength="8" maxlength="100" required autocomplete="new-password" class="custom-input pl-4 pr-4">
+                <button type="submit" class="btn-primary">Chanje modpas la</button>
+                <p class="text-center text-sm text-gray-400 mt-4"><button type="button" onclick="switchTab('signin')" class="lnk">Retounen nan koneksyon</button></p>
+            </form>
+
 
             <div class="secure"><i class="fa-solid fa-lock"></i><span>Koneksyon sekirize · Done ou yo pwoteje</span></div>
         </div>
@@ -333,6 +361,9 @@
             const tabSignUp = document.getElementById('tab-signup');
             const alertBox = document.getElementById('alert-box');
 
+            document.getElementById('form-verify-email').classList.replace('form-visible', 'form-hidden');
+            document.getElementById('form-password-reset').classList.replace('form-visible', 'form-hidden');
+            tabSignIn.parentElement.classList.remove('hidden');
             // Kache mesaj avètisman yo lè n ap pase nan yon lòt tab
             alertBox.classList.add('hidden');
             document.getElementById('form-pin').classList.add('hidden');
@@ -407,7 +438,7 @@
                 body: JSON.stringify(body)
             });
             const d = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(d.error || 'Gen yon erè. Tanpri eseye ankò.');
+            if (!r.ok) { const err = new Error(d.error || 'Gen yon erè. Tanpri eseye ankò.'); err.data = d; throw err; }
             return d;
         }
 
@@ -433,6 +464,7 @@
                 });
                 goToKyc(u);
             } catch (err) {
+                if (err.data && err.data.needsVerification) showEmailVerification(err.data.email || document.getElementById('signin-email').value);
                 showNotification(err.message, 'error');
                 btn.disabled = false;
             }
@@ -458,11 +490,84 @@
                     email: document.getElementById('signup-email').value,
                     password
                 });
-                goToKyc(u);
+                if (u.pendingVerification) {
+                    showEmailVerification(u.email);
+                    showNotification('Nou voye yon kòd verifikasyon nan imèl ou.', 'info');
+                } else goToKyc(u);
             } catch (err) {
+                if (err.data && err.data.pendingVerification) showEmailVerification(err.data.email || document.getElementById('signup-email').value);
                 showNotification(err.message, 'error');
                 btn.disabled = false;
             }
+        }
+
+        function showEmailVerification(email) {
+            for (const id of ['form-signin', 'form-signup', 'form-verify-email']) {
+                const form = document.getElementById(id);
+                form.classList.remove('form-visible');
+                form.classList.add('form-hidden');
+            }
+            document.getElementById('verify-email').value = email || '';
+            document.getElementById('verify-email-label').textContent = email || '';
+            document.getElementById('form-verify-email').classList.remove('form-hidden');
+            document.getElementById('form-verify-email').classList.add('form-visible');
+            document.getElementById('tab-signin').parentElement.classList.add('hidden');
+            document.getElementById('card-title').textContent = 'Verifye imèl ou';
+            document.getElementById('card-sub').textContent = 'Kòd la valab pandan 10 minit.';
+        }
+
+        async function handleEmailVerify(e) {
+            e.preventDefault();
+            try {
+                const user = await api('/api/email/signup/verify', {
+                    email: document.getElementById('verify-email').value,
+                    code: document.getElementById('verify-code').value
+                });
+                goToKyc(user);
+            } catch (err) { showNotification(err.message, 'error'); }
+        }
+
+        async function resendSignupCode() {
+            try {
+                await api('/api/email/signup/resend', { email: document.getElementById('verify-email').value });
+                showNotification('Si kont lan ap tann verifikasyon, yon nouvo kòd ap voye.', 'info');
+            } catch (err) { showNotification(err.message, 'error'); }
+        }
+
+        function showPasswordReset() {
+            for (const id of ['form-signin', 'form-signup', 'form-verify-email', 'form-password-reset']) {
+                const form = document.getElementById(id);
+                form.classList.remove('form-visible');
+                form.classList.add('form-hidden');
+            }
+            document.getElementById('tab-signin').parentElement.classList.add('hidden');
+            document.getElementById('card-title').textContent = 'Reyinisyalize modpas';
+            document.getElementById('card-sub').textContent = 'Verifye imel ou anvan ou chanje modpas la.';
+            document.getElementById('form-password-reset').classList.remove('form-hidden');
+            document.getElementById('form-password-reset').classList.add('form-visible');
+            document.getElementById('reset-email').value = document.getElementById('signin-email').value;
+        }
+
+        async function requestPasswordResetCode() {
+            try {
+                await api('/api/password/reset/request', { email: document.getElementById('reset-email').value });
+                showNotification('Si imel la asosye ak yon kont, kòd la ap rive nan bwat resepsyon an.', 'info');
+            } catch (err) { showNotification(err.message, 'error'); }
+        }
+
+        async function completePasswordReset(e) {
+            e.preventDefault();
+            const password = document.getElementById('reset-password').value;
+            if (password !== document.getElementById('reset-password-confirm').value) return showNotification('Nouvo modpas yo pa menm.', 'error');
+            try {
+                await api('/api/password/reset/confirm', {
+                    email: document.getElementById('reset-email').value,
+                    code: document.getElementById('reset-code').value,
+                    password
+                });
+                switchTab('signin');
+                showNotification('Modpas la chanje. Konekte ankò ak nouvo modpas la.', 'success');
+            } catch (err) { showNotification(err.message, 'error'); }
         }
 
 

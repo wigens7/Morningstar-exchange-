@@ -138,6 +138,22 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, ok INTEGER, processed INTEGER, error TEXT
 );
+CREATE TABLE IF NOT EXISTS email_outbox (
+  id INTEGER PRIMARY KEY,
+  event_key TEXT NOT NULL,
+  recipient_type TEXT NOT NULL CHECK (recipient_type IN ('user','admin')),
+  recipient_id TEXT NOT NULL DEFAULT '',
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  next_attempt_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
+  last_error TEXT,
+  sent_at INTEGER,
+  UNIQUE(event_key, recipient_type, recipient_id)
+);
 -- Pwofil machann: non biznis (inik, pa ka chanje) + mesaj otomatik pou tout achtè yo
 CREATE TABLE IF NOT EXISTS merchants (
   user_id TEXT PRIMARY KEY,

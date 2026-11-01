@@ -742,3 +742,25 @@ test('non biznis parèt kote non reyèl la ta dwe: anons, lòd; staff wè non re
   assert.ok(c.S.admin.audit(ADMIN).some((a) => a.action === 'MERCHANT_RESET'));
   clean(c.S);
 });
+
+test('imel P2P: order, deklarasyon peman, release; dedupe ak bon destinatè', () => {
+  const c = setup(); fund(c, 'seller', 100);
+  const ad = sellAd(c.S, 'seller');
+  const o = order(c.S, 'buyer', ad, '10');
+  let jobs = c.S.pendingEmailNotifications(20).filter((j) => j.event_type === 'P2P_ORDER_CREATED');
+  assert.equal(jobs.length, 3);
+  assert.deepEqual(new Set(jobs.map((j) => j.recipient_type === 'admin' ? 'admin' : j.recipient_id)), new Set(['buyer', 'seller', 'admin']));
+
+  c.S.markPaid('buyer', o.id, '');
+  c.S.markPaid('buyer', o.id, '');
+  jobs = c.S.pendingEmailNotifications(20).filter((j) => j.event_type === 'P2P_PAYMENT_REPORTED');
+  assert.equal(jobs.length, 2);
+  assert.ok(jobs.every((j) => j.recipient_type === 'admin' || j.recipient_id === 'seller'));
+  assert.ok(jobs.every((j) => !/confirmed|konfime/i.test(JSON.parse(j.payload).eventType || '')));
+
+  c.S.release('seller', o.id);
+  c.S.release('seller', o.id);
+  jobs = c.S.pendingEmailNotifications(20).filter((j) => j.event_type === 'P2P_RELEASED');
+  assert.equal(jobs.length, 3);
+  assert.equal(c.S.q1('SELECT COUNT(*) c FROM ledger_txs WHERE order_id=?', o.id).c, 2);
+});

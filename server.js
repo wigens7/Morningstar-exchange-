@@ -6,6 +6,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const cookieParser = require('cookie-parser');
+const { createResendClient } = require('./resend');
+const { issueOtp, verifyOtp } = require('./otp');
+const { otpEmail, notificationEmail } = require('./email-templates');
 
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
@@ -15,6 +18,7 @@ const KYC_DIR = path.join(DATA_DIR, 'kyc');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const JWT_SECRET = process.env.JWT_SECRET || (isProd ? null : 'dev-secret-change-me');
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
+const resendClient = createResendClient();
 
 if (!JWT_SECRET) {
   console.error('JWT_SECRET manke. Ajoute l nan Variables Railway.');
@@ -117,6 +121,7 @@ const moneyTxt = (n, cur) => (cur === 'USD' ? '$' + Number(n).toFixed(2) : Numbe
 const publicUser = (u) => ({
   notifs: (u.notifs || []).slice(-30).reverse(), unread: (u.notifs || []).filter((n) => !n.read).length,
   id: u.id, name: u.name, email: u.email, role: u.role || 'user',
+  emailVerified: !!u.emailVerifiedAt,
   balance: u.balance || 0, usd: u.usd || 0, rate: getSettings().rate,
   fee: { active: getSettings().feeActive, percent: getSettings().feePercent, byAsset: getSettings().feeByAsset }, banned: !!u.banned,
   uid: u.uid || null, lang: u.lang || 'ht', profile: u.profile || null, pinActive: !!u.pinActive,
@@ -127,6 +132,48 @@ const publicUser = (u) => ({
 // Kont admin kreye soti nan Variables (pa janm ekri nan kòd la)
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+function emailFailure(scope, result) {
+  console.error(`[email] ${scope} failed (${result && result.code || 'EMAIL_SEND_FAILED'})`);
+}
+async function sendOtpEmail(user, purpose, challenge) {
+  const message = otpEmail({ code: challenge.code, purpose, locale: user.lang || 'ht' });
+  const result = await resendClient.send({
+    to: user.email,
+    ...message,
+    idempotencyKey: `msx:otp:${purpose}:${user.id}:${challenge.id}`
+  });
+  if (!result.ok) {
+    emailFailure(`${purpose}_otp`, result);
+    queueEmailNotification(`email-failure:${purpose}:${Math.floor(Date.now() / (15 * 60 * 1000))}`,
+      'SYSTEM_OPERATION_ERROR', [{ type: 'admin' }], {
+        event: `OTP ${purpose}`, alertType: result.code, occurredAt: new Date().toISOString()
+      });
+  }
+  return result;
+}
+function queueEmailNotification(eventKey, eventType, recipients, payload = {}) {
+  try {
+    return p2p.enqueueNotification(eventKey, eventType, recipients, payload);
+  } catch {
+    console.error(`[email] outbox enqueue failed (${eventType})`);
+    return 0;
+  }
+}
+function queueUserEmail(user, eventKey, eventType, payload = {}) {
+  return queueEmailNotification(eventKey, eventType, [{ type: 'user', id: user.id }], {
+    occurredAt: payload.occurredAt || new Date().toISOString(),
+    ...payload
+  });
+}
+function queueUserAndAdminEmail(user, eventKey, eventType, payload = {}) {
+  return queueEmailNotification(eventKey, eventType, [
+    { type: 'user', id: user.id },
+    { type: 'admin' }
+  ], {
+    occurredAt: payload.occurredAt || new Date().toISOString(),
+    ...payload
+  });
+}
 // ID 7 chif inik pou chak itilizatè
 const genUid = (users) => {
   let id;
@@ -235,9 +282,25 @@ async function recordAct(userId, type, detail, req, extra) {
     await saveUsers(users);
   } catch (e) { console.error('[activity]', e.message); }
 }
+async function queueLoginSecurityNotice(userId) {
+  try {
+    const users = loadUsers();
+    const user = users.find((u) => u.id === userId);
+    if (!user) return;
+    const t = Date.now();
+    if (t - Number(user.lastLoginNoticeAt || 0) < 6 * 60 * 60 * 1000) return;
+    user.lastLoginNoticeAt = t;
+    await saveUsers(users);
+    queueUserEmail(user, `security:login:${user.id}:${Math.floor(t / (6 * 60 * 60 * 1000))}`, 'LOGIN_SECURITY', {
+      occurredAt: new Date(t).toISOString()
+    });
+  } catch {
+    console.error('[email] security notice scheduling failed');
+  }
+}
 
 function setSession(res, user, remember) {
-  const token = jwt.sign({ sub: user.id }, JWT_SECRET, { expiresIn: remember ? '30d' : '1d' });
+  const token = jwt.sign({ sub: user.id, v: Number(user.tokenVersion || 0) }, JWT_SECRET, { expiresIn: remember ? '30d' : '1d' });
   res.cookie('token', token, {
     httpOnly: true, sameSite: 'lax', secure: isProd,
     maxAge: (remember ? 30 : 1) * 24 * 3600 * 1000
@@ -249,7 +312,7 @@ function setSession(res, user, remember) {
 // epi sesyon aparèy la poko ekspire. Li pa konekte pesonn pou kont li: PIN lan toujou obligatwa.
 function setPinHint(res, user) {
   if (!user.pinActive) return res.clearCookie('pinhint');
-  const t = jwt.sign({ sub: user.id, k: 'pinhint' }, JWT_SECRET, { expiresIn: '30d' });
+  const t = jwt.sign({ sub: user.id, k: 'pinhint', v: Number(user.tokenVersion || 0) }, JWT_SECRET, { expiresIn: '30d' });
   res.cookie('pinhint', t, { httpOnly: true, sameSite: 'lax', secure: isProd, maxAge: 30 * 24 * 3600 * 1000 });
 }
 function pinHintUser(req) {
@@ -257,6 +320,7 @@ function pinHintUser(req) {
     const p = jwt.verify(req.cookies.pinhint, JWT_SECRET);
     if (p.k !== 'pinhint') return null;
     const u = loadUsers().find((x) => x.id === p.sub);
+    if (Number(p.v || 0) !== Number(u && u.tokenVersion || 0)) return null;
     return u && u.pinActive && u.pinHash ? u : null;
   } catch { return null; }
 }
@@ -264,10 +328,11 @@ const maskEmail = (e) => { const [a, b] = String(e).split('@'); return (a.length
 
 function auth(req, res, next) {
   try {
-    const { sub } = jwt.verify(req.cookies.token, JWT_SECRET);
+    const { sub, v = 0 } = jwt.verify(req.cookies.token, JWT_SECRET);
     const users = loadUsers();
     const user = users.find((u) => u.id === sub);
     if (!user) throw new Error('no user');
+    if (Number(v) !== Number(user.tokenVersion || 0)) throw new Error('stale session');
     req.users = users;
     req.user = user;
     next();
@@ -334,17 +399,134 @@ app.post('/api/signup', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
     id: crypto.randomUUID(), uid: genUid(users), name, email, passwordHash,
     referredBy: refUser ? refUser.uid : null,
     createdAt: new Date().toISOString(),
-    role: 'user', balance: 0, swaps: [],
+    role: 'user', balance: 0, swaps: [], tokenVersion: 0,
+    emailVerifiedAt: null, emailVerificationRequired: true,
     kyc: { status: 'none' }
   };
+  const challenge = issueOtp(user, 'signup', JWT_SECRET);
+  if (!challenge.ok) return res.status(429).json({ error: 'Tanpri tann anvan ou mande yon lòt kòd.' });
   logAct(user, 'signup', 'Kont kreye', req);
   users.push(user);
   try { await saveUsers(users); } catch (e) {
     if (e instanceof ConflictError) return res.status(409).json({ error: 'Imèl sa a deja itilize.' });
     throw e;
   }
+  const sent = await sendOtpEmail(user, 'signup', challenge);
+  if (!sent.ok) return res.status(503).json({
+    error: 'Demann kont lan anrejistre, men nou pa ka voye kòd la kounye a. Eseye mande yon lòt kòd pita.',
+    pendingVerification: true, email
+  });
+  res.status(202).json({ pendingVerification: true, email });
+});
+
+app.post('/api/email/signup/resend', rateLimit(5, 15 * 60 * 1000), async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) return res.json({ ok: true });
+  const users = loadUsers();
+  const user = users.find((u) => u.email === email && u.emailVerificationRequired);
+  if (!user) return res.json({ ok: true });
+  const challenge = issueOtp(user, 'signup', JWT_SECRET);
+  if (!challenge.ok) return res.status(429).json({ error: challenge.reason === 'COOLDOWN'
+    ? 'Tann yon ti moman anvan ou mande yon lòt kòd.'
+    : 'Ou mande twòp kòd. Eseye ankò pita.' });
+  await saveUsers(users);
+  const sent = await sendOtpEmail(user, 'signup', challenge);
+  if (!sent.ok) return res.status(503).json({ error: 'Nou pa ka voye kòd la kounye a. Eseye ankò pita.' });
+  res.json({ ok: true });
+});
+
+app.post('/api/email/signup/verify', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const users = loadUsers();
+  const user = users.find((u) => u.email === email && u.emailVerificationRequired);
+  if (!user) return res.status(400).json({ error: 'Imèl oswa kòd la pa kòrèk.' });
+  const verified = verifyOtp(user, 'signup', String(req.body.code || ''), JWT_SECRET);
+  if (!verified.ok) {
+    await saveUsers(users);
+    return res.status(400).json({ error: verified.reason === 'EXPIRED' ? 'Kòd la ekspire. Mande yon nouvo kòd.' : 'Imèl oswa kòd la pa kòrèk.' });
+  }
+  user.emailVerifiedAt = new Date().toISOString();
+  user.emailVerificationRequired = false;
+  delete user.emailOtpLimits?.signup;
+  logAct(user, 'email_verified', 'Imèl verifye', req);
+  await saveUsers(users);
   setSession(res, user, false);
-  res.status(201).json(publicUser(user));
+  queueUserAndAdminEmail(user, `signup:verified:${user.id}`, 'ACCOUNT_REGISTERED', { occurredAt: user.emailVerifiedAt });
+  res.json(publicUser(user));
+});
+
+app.post('/api/password/change/request', auth, rateLimit(5, 15 * 60 * 1000), async (req, res) => {
+  if (!(await bcrypt.compare(String(req.body.currentPassword || ''), req.user.passwordHash))) {
+    return res.status(403).json({ error: 'Modpas aktyèl la pa kòrèk.' });
+  }
+  const challenge = issueOtp(req.user, 'password_change', JWT_SECRET);
+  if (!challenge.ok) return res.status(429).json({ error: challenge.reason === 'COOLDOWN'
+    ? 'Tann yon ti moman anvan ou mande yon lòt kòd.'
+    : 'Ou mande twòp kòd. Eseye ankò pita.' });
+  await saveUsers(req.users);
+  const sent = await sendOtpEmail(req.user, 'password_change', challenge);
+  if (!sent.ok) return res.status(503).json({ error: 'Nou pa ka voye kòd la kounye a. Eseye ankò pita.' });
+  res.json({ ok: true, expiresInSeconds: 600 });
+});
+
+app.post('/api/password/change/confirm', auth, rateLimit(10, 15 * 60 * 1000), async (req, res) => {
+  const password = String(req.body.password || '');
+  if (password.length < 8 || password.length > 100) return res.status(400).json({ error: 'Nouvo modpas la dwe gen 8 a 100 karaktè.' });
+  const verified = verifyOtp(req.user, 'password_change', String(req.body.code || ''), JWT_SECRET);
+  if (!verified.ok) {
+    await saveUsers(req.users);
+    return res.status(400).json({ error: verified.reason === 'EXPIRED' ? 'Kòd la ekspire. Mande yon nouvo kòd.' : 'Kòd la pa kòrèk oswa li deja sèvi.' });
+  }
+  req.user.passwordHash = await bcrypt.hash(password, 12);
+  req.user.tokenVersion = Number(req.user.tokenVersion || 0) + 1;
+  req.user.passwordChangedAt = new Date().toISOString();
+  delete req.user.emailOtpLimits?.password_change;
+  logAct(req.user, 'password_changed', 'Modpas chanje', req);
+  await saveUsers(req.users);
+  queueUserAndAdminEmail(req.user, `password:changed:${req.user.id}:${req.user.tokenVersion}`, 'PASSWORD_CHANGED', { occurredAt: req.user.passwordChangedAt });
+  setSession(res, req.user, false);
+  res.json({ ok: true });
+});
+
+app.post('/api/password/reset/request', rateLimit(5, 15 * 60 * 1000), async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) return res.json({ ok: true });
+  const users = loadUsers();
+  const user = users.find((u) => u.email === email);
+  if (user) {
+    const challenge = issueOtp(user, 'password_reset', JWT_SECRET);
+    if (challenge.ok) {
+      await saveUsers(users);
+      await sendOtpEmail(user, 'password_reset', challenge);
+    }
+  }
+  res.json({ ok: true }); // menm repons lan pou pa revele ki imel ki gen kont
+});
+
+app.post('/api/password/reset/confirm', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+  if (!EMAIL_RE.test(email) || password.length < 8 || password.length > 100) {
+    return res.status(400).json({ error: 'Imèl, kòd oswa nouvo modpas la pa valab.' });
+  }
+  const users = loadUsers();
+  const user = users.find((u) => u.email === email);
+  if (!user) return res.status(400).json({ error: 'Imèl oswa kòd la pa kòrèk.' });
+  const verified = verifyOtp(user, 'password_reset', String(req.body.code || ''), JWT_SECRET);
+  if (!verified.ok) {
+    await saveUsers(users);
+    return res.status(400).json({ error: verified.reason === 'EXPIRED' ? 'Kòd la ekspire. Mande yon nouvo kòd.' : 'Imèl oswa kòd la pa kòrèk.' });
+  }
+  user.passwordHash = await bcrypt.hash(password, 12);
+  user.tokenVersion = Number(user.tokenVersion || 0) + 1;
+  user.passwordChangedAt = new Date().toISOString();
+  delete user.emailOtpLimits?.password_reset;
+  logAct(user, 'password_changed', 'Modpas reinitialise ak kòd sekirite', req);
+  await saveUsers(users);
+  queueUserAndAdminEmail(user, `password:changed:${user.id}:${user.tokenVersion}`, 'PASSWORD_CHANGED', { occurredAt: user.passwordChangedAt });
+  res.clearCookie('token');
+  res.clearCookie('pinhint');
+  res.json({ ok: true });
 });
 
 app.post('/api/login', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
@@ -356,7 +538,12 @@ app.post('/api/login', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
     if (user) await recordAct(user.id, 'login_fail', 'Eseye konekte: mòdpas pa kòrèk', req);
     return res.status(401).json({ error: 'Imèl oswa mòdpas la pa kòrèk.' });
   }
+  if (user.emailVerificationRequired) return res.status(403).json({
+    error: 'Verifye imèl ou anvan ou konekte.',
+    needsVerification: true, email
+  });
   await recordAct(user.id, 'login', 'Koneksyon ak mòdpas' + (req.body.remember ? ' (sonje aparèy)' : ''), req);
+  await queueLoginSecurityNotice(user.id);
   setSession(res, user, !!req.body.remember);
   res.json(publicUser(user));
 });
@@ -471,6 +658,7 @@ app.post('/api/profile', auth, async (req, res) => {
   u.profile = { firstName, lastName, dob, country, phone, address, savedAt: new Date().toISOString() };
   logAct(u, 'profile', 'Enfòmasyon pèsonèl konplete', req);
   await saveUsers(req.users);
+  queueUserEmail(u, `profile:updated:${u.id}`, 'PROFILE_UPDATED');
   res.json(publicUser(u));
 });
 
@@ -574,6 +762,9 @@ app.post('/api/deposit', auth, async (req, res) => {
   u.swaps.push({ id: depId, type: 'deposit', currency: D_METHODS[method], method, ...(dest ? { dest } : {}), ...(idType ? { idType } : {}), ...(network ? { network } : {}), amount, reference, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
   notify(u, 'nDepPending', { a: moneyTxt(amount, D_METHODS[method]), m: method });
   await saveUsers(req.users);
+  queueUserAndAdminEmail(u, `deposit:requested:${depId}`, 'DEPOSIT_REQUESTED', {
+    txRef: depId.slice(-8), amount: moneyTxt(amount, D_METHODS[method]), method
+  });
   res.status(201).json(publicUser(u));
 });
 
@@ -665,6 +856,9 @@ app.post('/api/withdraw', auth, notBanned, needProfile, pinGuard, async (req, re
   u.swaps.push({ id: wdId, type: 'withdrawal', currency, method, amount, account: destAccount, ...extra, status: 'pending', ackAt: new Date().toISOString(), createdAt: new Date().toISOString() });
   notify(u, 'nWdPending', { a: moneyTxt(amount, currency), m: method });
   await saveUsers(req.users);
+  queueUserAndAdminEmail(u, `withdrawal:requested:${wdId}`, 'WITHDRAWAL_REQUESTED', {
+    txRef: wdId.slice(-8), amount: moneyTxt(amount, currency), method
+  });
   res.status(201).json(publicUser(u));
 });
 
@@ -933,6 +1127,9 @@ app.post('/api/admin/deposits/:id/decision', adminOnly, async (req, res) => {
       notify(u, 'nDepRej', { a: moneyTxt(t.amount, t.currency), m: t.method });
     }
     await saveUsers(req.users);
+    queueUserEmail(u, `deposit:${t.id}:${t.status}`, t.status === 'done' ? 'DEPOSIT_APPROVED' : 'DEPOSIT_REJECTED', {
+      txRef: t.id.slice(-8), amount: moneyTxt(t.amount, t.currency), method: t.method
+    });
     return res.json({ ok: true });
   }
   res.status(404).json({ error: 'Pa jwenn.' });
@@ -988,6 +1185,9 @@ app.post('/api/admin/kyc/:id/decision', adminOnly, async (req, res) => {
   const kn = { approved: 'nKycOk', rejected: 'nKycRej', reupload: 'nKycRe' }[decision];
   if (kn) notify(user, kn, {});
   await saveUsers(req.users);
+  if (decision === 'approved') queueUserEmail(user, `kyc:${user.id}:approved:${user.kyc.reviewedAt}`, 'KYC_APPROVED');
+  if (decision === 'rejected') queueUserEmail(user, `kyc:${user.id}:rejected:${user.kyc.reviewedAt}`, 'KYC_REJECTED');
+  if (decision === 'reupload') queueUserEmail(user, `kyc:${user.id}:reupload:${user.kyc.reviewedAt}`, 'KYC_REUPLOAD');
   res.json({ ok: true });
 });
 
@@ -1013,6 +1213,9 @@ app.post('/api/admin/withdrawals/:id/status', adminOnly, async (req, res) => {
     }
     notify(u, status === 'done' ? 'nWdDone' : 'nWdRej', { a: moneyTxt(t.amount, t.currency || 'HTG'), m: t.method });
     await saveUsers(req.users);
+    queueUserEmail(u, `withdrawal:${t.id}:${status}`, status === 'done' ? 'WITHDRAWAL_PAID' : 'WITHDRAWAL_REJECTED', {
+      txRef: t.id.slice(-8), amount: moneyTxt(t.amount, t.currency || 'HTG'), method: t.method
+    });
     return res.json({ ok: true });
   }
   res.status(404).json({ error: 'Pa jwenn.' });
@@ -1117,6 +1320,55 @@ const p2pName = (id) => {
   return nameCache.m.get(id) || 'Itilizatè';
 };
 const p2p = createService({ dbPath: path.join(DATA_DIR, 'p2p.sqlite'), eligible: p2pEligible, nameOf: p2pName, main: mainStore });
+let emailDrainRunning = false;
+async function drainEmailOutbox() {
+  if (emailDrainRunning || !resendClient.configured) return;
+  emailDrainRunning = true;
+  try {
+    const users = new Map(loadUsers().map((u) => [u.id, u]));
+    for (const job of p2p.pendingEmailNotifications(20)) {
+      const admin = job.recipient_type === 'admin';
+      const user = admin ? null : users.get(job.recipient_id);
+      const to = admin ? ADMIN_EMAIL : user && user.email;
+      if (!to) {
+        p2p.retryEmailNotification(job.id, admin ? 'ADMIN_EMAIL_MISSING' : 'RECIPIENT_MISSING');
+        continue;
+      }
+      let payload;
+      try { payload = JSON.parse(job.payload); } catch {
+        p2p.retryEmailNotification(job.id, 'INVALID_OUTBOX_PAYLOAD');
+        continue;
+      }
+      const message = notificationEmail({
+        eventType: job.event_type,
+        audience: admin ? 'ADMIN' : 'USER',
+        locale: admin ? 'ht' : user.lang || 'ht',
+        payload
+      });
+      if (!message) {
+        p2p.retryEmailNotification(job.id, 'UNKNOWN_NOTIFICATION_TYPE');
+        continue;
+      }
+      const result = await resendClient.send({
+        to, ...message, idempotencyKey: `msx:outbox:${job.id}`
+      });
+      if (result.ok) p2p.markEmailNotificationSent(job.id);
+      else {
+        emailFailure('notification', result);
+        const retry = p2p.retryEmailNotification(job.id, result.code);
+        if (retry.failed && job.event_type !== 'SYSTEM_OPERATION_ERROR') {
+          queueEmailNotification(`email-delivery-failed:${job.id}`, 'SYSTEM_OPERATION_ERROR', [{ type: 'admin' }], {
+            event: job.event_type, alertType: result.code, occurredAt: new Date().toISOString()
+          });
+        }
+      }
+    }
+  } catch {
+    console.error('[email] outbox worker failed');
+  } finally {
+    emailDrainRunning = false;
+  }
+}
 mountP2P(app, {
   auth, rateLimit, service: p2p, detectExt, isStaffRole, pinGuard,
   upload: multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } }).single('file'),
@@ -1177,7 +1429,11 @@ app.use((err, req, res, next) => {
 
 ready.then(() => {
   try { p2p.recoverBridge(0); p2p.recoverStuck(); } catch (e) { console.error('[p2p] recovery', e); }
-  setInterval(() => { try { p2p.runJobs(); } catch (e) { console.error('[p2p] jobs', e); } }, 30 * 1000).unref();
+  setInterval(() => {
+    try { p2p.runJobs(); } catch { console.error('[p2p] jobs failed'); }
+    void drainEmailOutbox();
+  }, 30 * 1000).unref();
+  void drainEmailOutbox();
   app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT} (itilizatè: ${useSupabase ? 'Supabase' : 'users.json'})`));
 }).catch((e) => { console.error('Pa ka demare:', e.message); process.exit(1); });
 
