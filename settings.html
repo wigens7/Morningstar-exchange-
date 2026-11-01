@@ -6,7 +6,6 @@
 <title>MORNINGSTAR EXCHANGE - Paramèt</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link rel="stylesheet" href="/ui.css">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0f;background-image:radial-gradient(circle at 10% 0%,rgba(212,175,55,.09),transparent 45%);min-height:100vh;color:#e5e7eb;padding-bottom:3rem;font-variant-numeric:tabular-nums}
@@ -14,6 +13,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 .gold-btn{background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B);color:#000}
 .gold-btn:disabled{opacity:.45}
 .panel{background:rgba(18,20,29,.78);border:1px solid rgba(255,255,255,.07)}
+.sec{font-size:.7rem;text-transform:uppercase;letter-spacing:.14em;color:#9ca3af;font-weight:600;margin:1.4rem 0 .6rem}
 .field{display:flex;align-items:center;gap:.5rem;background:rgba(10,11,16,.9);border:1px solid rgba(255,255,255,.14);border-radius:.85rem;padding:0 .85rem;margin-bottom:.7rem}
 .field:focus-within{border-color:#D4AF37;box-shadow:0 0 0 3px rgba(212,175,55,.15)}
 .field input,.field select{flex:1;min-width:0;background:transparent;border:0;outline:0;color:#fff;padding:.75rem 0;font-size:.9rem}
@@ -28,34 +28,27 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 #toast.hidden{display:block;opacity:0;transform:translateY(-12px);pointer-events:none}
 </style>
 </head>
-<body class="has-bnav">
+<body>
 <div id="toast" class="hidden px-4 py-3 rounded-xl text-sm font-medium border"></div>
-<div class="max-w-md mx-auto px-4 pt-4 fadeup">
+<div class="max-w-md mx-auto px-4 pt-4">
 
-  <header class="topbar">
-    <a href="/dashboard.html" class="iconbtn" aria-label="Retounen"><i class="fa-solid fa-arrow-left"></i></a>
-    <div class="grow">
-      <h1 class="t-title gold-text">Paramèt</h1>
-      <p class="t-sub">Kont, sekirite ak preferans</p>
-    </div>
-    <span class="brand-mark" aria-hidden="true"><i class="fa-solid fa-coins"></i></span>
+  <header class="flex items-center gap-3 mb-4">
+    <a href="/dashboard.html" class="panel w-9 h-9 rounded-full flex items-center justify-center text-gray-300 text-sm" aria-label="Retounen"><i class="fa-solid fa-arrow-left"></i></a>
+    <h1 class="text-lg font-bold gold-text">Paramèt</h1>
   </header>
 
   <!-- ID -->
-  <section class="hero rounded-3xl p-5">
-    <div class="flex items-center gap-3.5">
-      <div id="avatar" class="avatar" aria-hidden="true">?</div>
-      <div class="min-w-0 flex-1">
-        <p class="text-[11px] uppercase tracking-wider text-gray-400">Idantifyan ou</p>
-        <p id="uid" class="text-2xl font-bold tracking-[.18em] gold-text leading-tight">·······</p>
-      </div>
-      <button onclick="copy($('uid').textContent)" class="gold-btn px-3.5 py-2 rounded-xl text-xs font-bold flex-shrink-0">Kopye</button>
+  <section class="panel rounded-2xl p-4 flex items-center justify-between gap-3">
+    <div class="min-w-0">
+      <p class="text-[11px] uppercase tracking-wider text-gray-400">Idantifyan ou</p>
+      <p id="uid" class="text-2xl font-bold tracking-[.18em] gold-text">·······</p>
+      <p id="who" class="text-xs text-gray-400 truncate mt-0.5"></p>
     </div>
-    <p id="who" class="text-xs text-gray-400 truncate mt-3.5 pt-3 border-t border-white/10"></p>
+    <button onclick="copy($('uid').textContent)" class="gold-btn px-3.5 py-2 rounded-xl text-xs font-bold flex-shrink-0">Kopye</button>
   </section>
 
   <!-- Lang -->
-  <p class="sec"><i class="fa-solid fa-language"></i>Lang</p>
+  <p class="sec">Lang</p>
   <div class="grid grid-cols-4 gap-2">
     <button class="lang" data-l="ht" onclick="chooseLang('ht')">Kreyòl</button>
     <button class="lang" data-l="fr" onclick="chooseLang('fr')">Français</button>
@@ -64,11 +57,11 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   </div>
 
   <!-- Enfòmasyon pèsonèl -->
-  <p class="sec"><i class="fa-solid fa-user"></i>Enfòmasyon pèsonèl</p>
+  <p class="sec">Enfòmasyon pèsonèl</p>
   <section id="profile" class="panel rounded-2xl p-4"></section>
 
   <!-- Sekirite / PIN -->
-  <p class="sec"><i class="fa-solid fa-shield-halved"></i>Sekirite</p>
+  <p class="sec">Sekirite</p>
   <section class="panel rounded-2xl p-4">
     <div class="flex items-center justify-between mb-2">
       <p class="font-semibold text-sm">PIN 6 chif</p>
@@ -79,7 +72,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   </section>
 
   <!-- Envitasyon -->
-  <p class="sec"><i class="fa-solid fa-user-plus"></i>Envite lòt moun</p>
+  <p class="sec">Envite lòt moun</p>
   <section class="panel rounded-2xl p-4">
     <p class="text-xs text-gray-400 leading-snug mb-3">Pataje lyen ou a. Moun ki enskri ak li yo konte nan envitasyon ou yo.</p>
     <div class="field"><input id="link" readonly onclick="this.select()"></div>
@@ -90,22 +83,27 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
     <p id="inv-count" class="text-xs text-gray-400 mt-3"></p>
   </section>
 
-  <!-- KYC + dekonekte -->
-  <section class="group mt-5">
-    <div class="item">
-      <span class="ico"><i class="fa-solid fa-id-badge"></i></span>
-      <span class="flex-1 text-gray-300">Verifikasyon idantite</span>
-      <span id="kyc" class="text-[11px] font-semibold px-2 py-0.5 rounded-full"></span>
-    </div>
+  <!-- Kontakte nou -->
+  <p class="sec">Kontakte nou</p>
+  <section class="panel rounded-2xl p-4 space-y-2.5">
+    <p class="text-xs text-gray-400 leading-snug">Swiv nou sou WhatsApp pou nouvèl, mizajou ak sipò.</p>
+    <a href="https://whatsapp.com/channel/0029VbDu9e9BA1f54bJriu1y" target="_blank" rel="noopener noreferrer" class="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[.03] px-3.5 py-3">
+      <span class="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0" style="background:rgba(37,211,102,.15);color:#25D366"><i class="fa-brands fa-whatsapp"></i></span>
+      <span class="flex-1 min-w-0"><span class="block text-sm font-semibold">Chanèl WhatsApp</span><span class="block text-[11px] text-gray-400">MORNINGSTAR EXCHANGE</span></span>
+      <i class="fa-solid fa-arrow-up-right-from-square text-gray-500 text-xs"></i></a>
+    <a href="https://chat.whatsapp.com/FWjieoSY7GkGyY7pwqzmYT?s=sw&amp;p=a&amp;mlu=4&amp;ilr=4" target="_blank" rel="noopener noreferrer" class="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[.03] px-3.5 py-3">
+      <span class="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0" style="background:rgba(37,211,102,.15);color:#25D366"><i class="fa-solid fa-user-group"></i></span>
+      <span class="flex-1 min-w-0"><span class="block text-sm font-semibold">Gwoup WhatsApp</span><span class="block text-[11px] text-gray-400">Pale ak kominote a</span></span>
+      <i class="fa-solid fa-arrow-up-right-from-square text-gray-500 text-xs"></i></a>
   </section>
-  <button onclick="logout()" class="w-full mt-4 py-3.5 rounded-xl border border-white/10 text-sm font-semibold text-gray-200 hover:border-amber-500/40 transition-colors"><i class="fa-solid fa-right-from-bracket mr-2 text-amber-400"></i>Dekonekte</button>
-</div>
 
-<nav class="bnav">
-  <a href="/dashboard.html"><i class="fa-solid fa-house"></i>Akèy</a>
-  <a href="/p2p.html"><i class="fa-solid fa-people-arrows"></i>Mache P2P</a>
-  <a href="/settings.html" class="on" aria-current="page"><i class="fa-solid fa-gear"></i>Paramèt</a>
-</nav>
+  <!-- KYC + dekonekte -->
+  <section class="panel rounded-2xl p-4 mt-4 flex items-center justify-between text-sm">
+    <span class="text-gray-400">Verifikasyon idantite</span>
+    <span id="kyc" class="text-[11px] font-semibold px-2 py-0.5 rounded-full"></span>
+  </section>
+  <button onclick="logout()" class="w-full mt-4 py-3.5 rounded-xl border border-white/10 text-sm font-semibold text-gray-200"><i class="fa-solid fa-right-from-bracket mr-2 text-amber-400"></i>Dekonekte</button>
+</div>
 
 <script src="/dialogs.js"></script>
 <script src="/i18n.js"></script>
@@ -207,7 +205,6 @@ function renderAll() {
   document.querySelectorAll('.lang').forEach((b) => b.classList.toggle('on', b.dataset.l === LANG));
   $('uid').textContent = me.uid || '·······';
   $('who').textContent = me.name + ' · ' + me.email;
-  $('avatar').textContent = String(me.name || me.email || '?').trim().charAt(0).toUpperCase() || '?';
   renderProfile(); renderPin();
   const v = me.kyc.status === 'approved', k = $('kyc');
   k.textContent = v ? t('verified') : t('notVerified');
