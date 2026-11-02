@@ -169,6 +169,7 @@
     depSendTo: ['Voye lajan an sou kont sa a', 'Envoyez l’argent sur ce compte', 'Send the money to this account', 'Envía el dinero a esta cuenta'],
     depAccount: ['Kont / Nimewo', 'Compte / Numéro', 'Account / Number', 'Cuenta / Número'],
     depPayHow: ['Kijan ou vle fè peman an?', 'Comment voulez-vous payer ?', 'How would you like to pay?', '¿Cómo quieres pagar?'],
+    depDeclaration: ['Deklarasyon depo', 'Déclaration de dépôt', 'Deposit declaration', 'Declaración de depósito'],
     depPayNumber: ['Kont / Nimewo', 'Compte / Numéro', 'Account / Number', 'Cuenta / Número'],
     depPayQr: ['QR peman', 'QR de paiement', 'Payment QR', 'QR de pago'],
     depQrHelp: ['Skan oswa telechaje QR la. Verifye non, kont ak rezo a nan aplikasyon peman ou anvan ou voye lajan. QR la pa yon konfimasyon peman.', 'Scannez ou téléchargez le QR. Vérifiez le nom, le compte et le réseau dans votre application de paiement avant d’envoyer. Le QR ne confirme pas le paiement.', 'Scan or download the QR. Check the name, account and network in your payment app before sending. The QR does not confirm payment.', 'Escanea o descarga el QR. Verifica el nombre, la cuenta y la red en tu aplicación de pago antes de enviar. El QR no confirma el pago.'],
