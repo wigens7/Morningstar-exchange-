@@ -122,6 +122,50 @@ test('signup OTP verification and password-change OTP work end to end with mocke
       body: JSON.stringify({ email: 'customer@example.test', password: 'new-pass-456' })
     });
     assert.equal(newLogin.status, 200);
+
+    // Valid logins must never exhaust a shared-IP request counter.
+    for (let i = 0; i < 12; i++) {
+      const response = await fetch(`${base}/api/login`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'customer@example.test', password: 'new-pass-456' })
+      });
+      assert.equal(response.status, 200, `valid login ${i + 1} must not be rate-limited`);
+      sessionCookie(response);
+    }
+    // Bad credentials still fail without locking out a subsequent correct login.
+    for (let i = 0; i < 12; i++) {
+      const response = await fetch(`${base}/api/login`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'customer@example.test', password: 'incorrect-test-password' })
+      });
+      assert.equal(response.status, 401);
+      assert.equal(response.headers.get('set-cookie'), null);
+    }
+    const afterFailures = await fetch(`${base}/api/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'customer@example.test', password: 'new-pass-456' })
+    });
+    assert.equal(afterFailures.status, 200);
+    sessionCookie(afterFailures);
+
+    // Removing the generic PIN-login limiter must not bypass device verification.
+    for (let i = 0; i < 12; i++) {
+      const response = await fetch(`${base}/api/login-pin`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pin: '000000' })
+      });
+      assert.equal(response.status, 401);
+      assert.equal(response.headers.get('set-cookie'), null);
+    }
+
+    // OTP protection remains independent of the removed login request limit.
+    for (let i = 0; i < 6; i++) {
+      const response = await fetch(`${base}/api/password/reset/request`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'not-an-email' })
+      });
+      assert.equal(response.status, i < 5 ? 200 : 429);
+    }
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => {
