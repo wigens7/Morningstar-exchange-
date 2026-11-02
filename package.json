@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:browser": "node test/mobile-ui.browser.cjs"
   },
   "engines": {
     "node": ">=22.13"
@@ -17,5 +18,8 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }

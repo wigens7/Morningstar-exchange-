@@ -15,7 +15,7 @@
     if (r) role = r;
     const tabs = ALL.filter(([k]) => role === 'admin' || !STAFF_ONLY_HIDDEN.includes(k));
     if (!tabs.some(([k]) => k === sub)) sub = 'orders';
-    $('list').innerHTML = `<div class="flex gap-2 overflow-x-auto pb-1 mb-1">${tabs.map(([k, l]) => `<button class="b tab ${k === sub ? 'on' : ''}" onclick="p2pGo('${k}')">${l}</button>`).join('')}</div>
+    $('list').innerHTML = `<div class="admin-subnav mb-1" role="navigation" aria-label="Seksyon P2P">${tabs.map(([k, l]) => `<button class="b tab ${k === sub ? 'on' : ''}" onclick="p2pGo('${k}')">${l}</button>`).join('')}</div>
       ${role === 'admin' ? `<div class="flex gap-2 mb-1"><button class="b bg-sky-600 text-white" onclick="p2pReconcile()">Reconciliation</button><button class="b tab" onclick="p2pRunJobs()">Kouri travay yo kounye a</button></div><div id="p2p-recon"></div>` : ''}
       <div id="p2p-body" class="space-y-2"><p class="text-gray-400">Chajman...</p></div>`;
     await ({ orders: pOrders, disputes: pDisputes, escrows: pEscrows, ledger: pLedger, audit: pAudit, alerts: pAlerts, reports: pReports, ads: pAds, jobs: pJobs })[sub]();

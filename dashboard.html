@@ -338,9 +338,9 @@ function depStep1() {
         `<button type="button" onclick="depPick('${i.method}')" class="opt">${logo(i.method, 32)}<span class="text-[11px] font-semibold block mt-1">${i.method}</span><span class="text-[10px] text-gray-500">${i.currency}</span></button>`).join('')}</div>`
     : `<p class="text-sm text-gray-400 py-8 text-center">${t('depNone')}</p>`;
 }
-let depNet = null, depDest = null, depBin = null;
+let depNet = null, depDest = null, depBin = null, depView = 'account';
 function depPick(m) {
-  depM = depInfos.find((i) => i.method === m); depNet = depDest = depBin = null;
+  depM = depInfos.find((i) => i.method === m); depNet = depDest = depBin = null; depView = 'account';
   if (m === 'USDT') { // si admin lan mete yon sèl chwa, nou chwazi l pou kliyan an
     const hasB = Object.keys(depM.binance || {}).length, nets = Object.keys(depM.networks || {});
     if (hasB && !nets.length) { depDest = 'binance'; const k = Object.keys(depM.binance); if (k.length === 1) depBin = k[0]; }
@@ -350,11 +350,15 @@ function depPick(m) {
 }
 function depSet(k, v) {
   const amt = $('d-amount') ? $('d-amount').value : '', ref = $('d-ref') ? $('d-ref').value : '';
+  const ack = !!$('d-ack')?.checked;
+  if (k === 'view') depView = v;
+  else depView = 'account';
   if (k === 'dest') { depDest = v; depNet = depBin = null; if (v === 'binance' && Object.keys(depM.binance).length === 1) depBin = Object.keys(depM.binance)[0]; if (v === 'wallet' && Object.keys(depM.networks).length === 1) depNet = Object.keys(depM.networks)[0]; }
   if (k === 'bin') depBin = v;
   if (k === 'net') depNet = v;
   depRender();
   if ($('d-amount')) { $('d-amount').value = amt; $('d-ref').value = ref; }
+  if ($('d-ack')) $('d-ack').checked = ack;
 }
 function depRender() {
   const m = depM.method, isU = m === 'USDT';
@@ -377,10 +381,25 @@ function depRender() {
       ready = !!depNet; refLbl = t('depTxid'); refPh = t('depTxidPh');
     } else ready = false;
   } else dest = `<div class="panel rounded-xl px-3.5 mb-3">${row(t('depAccount'), depM.account)}${row(t('depHolder'), depM.name)}${row(t('depNote'), depM.note)}</div>`;
+  const qrSlot = !isU ? 'account' : depDest === 'binance' && depBin ? 'binance-' + depBin : depDest === 'wallet' ? depNet : null;
+  const qrUrl = ready && qrSlot ? depM.qr?.[qrSlot] : null;
+  const usingQr = !!qrUrl && depView === 'qr';
+  const qrChoice = qrUrl ? `<div role="group" aria-label="${esc(t('depPayHow'))}" class="mb-3">
+    <p class="text-sm font-medium mb-2">${t('depPayHow')}</p><div class="grid grid-cols-2 gap-2">
+    <button type="button" class="opt ${usingQr ? '' : 'on'}" style="min-height:44px" aria-pressed="${!usingQr}" onclick="depSet('view','account')">${t('depPayNumber')}</button>
+    <button type="button" class="opt ${usingQr ? 'on' : ''}" style="min-height:44px" aria-pressed="${usingQr}" onclick="depSet('view','qr')">${t('depPayQr')}</button></div></div>` : '';
+  if (usingQr) dest = `<div class="panel rounded-xl p-4 mb-3 text-center">
+    <p class="font-semibold text-sm mb-2">${esc(m)}${isU ? ' · ' + esc(depDest === 'wallet' ? depNet : depBin === 'id' ? 'Binance ID' : t('binEmail')) : ''}</p>
+    <img src="${esc(qrUrl)}" alt="${esc(t('depPayQr'))} ${esc(m)}" style="width:240px;max-width:100%;height:auto;max-height:320px;object-fit:contain;background:white;padding:12px;margin:0 auto 12px;border-radius:12px"
+      onerror="this.hidden=true;document.getElementById('d-qr-error').classList.remove('hidden')">
+    <p id="d-qr-error" role="alert" class="hidden text-red-400 text-sm mb-2">${t('depQrError')}</p>
+    <p class="text-xs text-gray-400 mb-3">${t('depQrHelp')}</p>
+    <a href="${esc(qrUrl)}?download=1" download class="inline-block text-amber-400 text-sm underline py-2">${t('depQrDownload')}</a>
+    ${row(t('depNote'), depM.note)}</div>`;
   $('dep-body').innerHTML = `<div class="flex items-center gap-2.5 mb-3">${logo(m, 36)}<div><p class="font-semibold text-sm">${m}</p><p class="text-[11px] text-gray-400">${depM.currency}</p></div>
       <button onclick="depStep1()" class="ml-auto text-xs text-gray-400 underline">${t('depChange')}</button></div>
     ${pick}
-    ${ready ? `<p class="text-xs text-gray-300 font-medium mb-1">${t('depSendTo')}</p>${dest}
+    ${ready ? `${qrChoice}<p class="text-xs text-gray-300 font-medium mb-1">${t('depSendTo')}</p>${dest}
     <p class="text-[11px] text-gray-400 mb-3">${t('depPaid')}</p>
     <label class="text-xs text-gray-300 font-medium block mb-1.5">${t('depAmount')}</label>
     <div class="field mb-3"><span>${depM.currency}</span><input id="d-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
