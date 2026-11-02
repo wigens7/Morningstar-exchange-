@@ -717,13 +717,14 @@ const TXID = { TRC20: /^[a-fA-F0-9]{64}$/, BEP20: /^(0x)?[a-fA-F0-9]{64}$/ };
 const depBinance = (d) => Object.fromEntries(['id', 'email'].filter((k) => d && d.binance && typeof d.binance[k] === 'string' && d.binance[k]).map((k) => [k, d.binance[k]]));
 const depNetworks = (d) => Object.fromEntries(Object.keys(USDT_NETWORKS).filter((n) => d && d.networks && typeof d.networks[n] === 'string' && d.networks[n]).map((n) => [n, d.networks[n]]));
 const D_METHODS = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD', Wise: 'USD', USDT: 'USD' };
+const { mount: mountDepositQr, qrUrls, preservedQr } = require('./deposit-qr');
 
 app.get('/api/deposit-info', auth, async (req, res) => {
   const dep = getSettings().deposit;
   res.json(Object.keys(D_METHODS).filter((m) => dep[m] && dep[m].active && dep[m].account)
     .map((m) => m === 'USDT'
-      ? { method: m, currency: 'USD', account: '', name: '', note: dep[m].note || '', binance: depBinance(dep[m]), networks: depNetworks(dep[m]) }
-      : { method: m, currency: D_METHODS[m], account: dep[m].account, name: dep[m].name || '', note: dep[m].note || '' }));
+      ? { method: m, currency: 'USD', account: '', name: '', note: dep[m].note || '', binance: depBinance(dep[m]), networks: depNetworks(dep[m]), qr: qrUrls(m, dep[m]) }
+      : { method: m, currency: D_METHODS[m], account: dep[m].account, name: dep[m].name || '', note: dep[m].note || '', qr: qrUrls(m, dep[m]) }));
 });
 
 // Kliyan an di li voye lajan an; admin verifye epi kredite. (Kont bani ka fè depo tou.)
@@ -1068,7 +1069,7 @@ app.post('/api/admin/settings', adminOnly, async (req, res) => {
 app.get('/api/admin/deposit-info', adminOnly, async (req, res) => {
   const dep = getSettings().deposit, out = {};
   for (const m of Object.keys(D_METHODS)) {
-    out[m] = { active: !!(dep[m] && dep[m].active), account: (dep[m] && dep[m].account) || '', name: (dep[m] && dep[m].name) || '', note: (dep[m] && dep[m].note) || '' };
+    out[m] = { active: !!(dep[m] && dep[m].active), account: (dep[m] && dep[m].account) || '', name: (dep[m] && dep[m].name) || '', note: (dep[m] && dep[m].note) || '', qr: qrUrls(m, dep[m]) };
     if (m === 'USDT') { out[m].networks = depNetworks(dep[m]); out[m].binance = depBinance(dep[m]); }
   }
   res.json(out);
@@ -1076,6 +1077,7 @@ app.get('/api/admin/deposit-info', adminOnly, async (req, res) => {
 
 app.post('/api/admin/deposit-info', adminOnly, async (req, res) => {
   const inp = req.body.info || {}, dep = {};
+  const current = getSettings().deposit;
   const cut = (v, n) => String(v || '').trim().slice(0, n);
   for (const m of Object.keys(D_METHODS)) {
     const i = inp[m] || {};
@@ -1092,12 +1094,21 @@ app.post('/api/admin/deposit-info', adminOnly, async (req, res) => {
       if (bid) bin.id = bid;
       if (bem) bin.email = bem;
       dep[m] = { active: !!i.active, account: bin.id || bin.email || Object.values(nets)[0] || '', name: '', note: cut(i.note, 300), binance: bin, networks: nets };
+      dep[m].qr = preservedQr(m, current[m], dep[m]);
       continue;
     }
     dep[m] = { active: !!i.active, account: cut(i.account, 150), name: cut(i.name, 100), note: cut(i.note, 300) };
+    dep[m].qr = preservedQr(m, current[m], dep[m]);
   }
   saveSettings({ ...getSettings(), deposit: dep });
+  depositQrStore.prune(current, dep);
   res.json({ ok: true, visible: Object.keys(D_METHODS).filter((m) => dep[m].active && dep[m].account) });
+});
+
+const depositQrStore = mountDepositQr(app, {
+  dataDir: DATA_DIR, auth, adminOnly, rateLimit, detectExt, getSettings, saveSettings,
+  // Busboy emits partsLimit at the limit itself; allow its closing part, but never a second file/field.
+  upload: multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0, parts: 2 } }).single('file')
 });
 
 app.get('/api/admin/deposits', adminOnly, (req, res) =>

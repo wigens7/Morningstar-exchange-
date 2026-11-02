@@ -13,7 +13,9 @@
 body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:var(--bg);background-image:radial-gradient(900px 400px at 10% -10%,rgba(212,175,55,.09),transparent 60%);min-height:100vh;color:#e5e7eb}
 .gold-text{background:linear-gradient(135deg,#FFF099,#F1C40F 35%,#D4AF37 70%,#996515);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 /* layout */
-.shell{display:grid;grid-template-columns:1fr;min-height:100vh}
+.shell{display:grid;grid-template-columns:minmax(0,1fr);min-height:100vh}
+.side,.main{min-width:0}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .side{position:sticky;top:0;z-index:30;background:rgba(10,11,16,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:.7rem .9rem .6rem}
 .brand{display:flex;align-items:center;gap:.65rem}
 .brand-mark{width:2.1rem;height:2.1rem;border-radius:.65rem;display:grid;place-items:center;background:linear-gradient(135deg,rgba(212,175,55,.25),rgba(212,175,55,.05));border:1px solid rgba(212,175,55,.35);color:#F1C40F;font-size:.95rem}
@@ -22,9 +24,12 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:var(--
 .logout{margin-left:auto;font-size:.75rem;color:var(--muted);border:1px solid var(--line2);border-radius:.6rem;padding:.4rem .65rem;transition:.15s}
 .logout-d{display:none}
 .logout:hover{color:#fff;border-color:rgba(212,175,55,.5)}
-.nav{display:flex;gap:.4rem;overflow-x:auto;padding:.7rem 0 .1rem;scrollbar-width:none}
-.nav::-webkit-scrollbar{display:none}
-.nav .tab{display:flex;align-items:center;gap:.5rem;white-space:nowrap;font-size:.78rem;font-weight:600;color:#aab1bf;padding:.5rem .8rem;border-radius:.7rem;border:1px solid transparent;transition:.15s;position:relative}
+.nav-wrap{display:grid;grid-template-columns:2.5rem minmax(0,1fr) 2.5rem;align-items:center;gap:.3rem;margin-top:.6rem}
+.nav-arrow{min-height:44px;border:1px solid var(--line2);border-radius:.65rem;color:#F5D76E;background:var(--panel2);font-size:1.2rem}
+.nav-arrow:disabled{opacity:.3;cursor:default}
+.nav-arrow:focus-visible,.nav .tab:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.nav{display:flex;min-width:0;gap:.4rem;overflow-x:auto;padding:.25rem 0 .4rem;scrollbar-width:thin;scrollbar-color:var(--gold) transparent;overscroll-behavior-x:contain}
+.nav .tab{display:flex;flex:0 0 auto;align-items:center;gap:.5rem;white-space:nowrap;font-size:.95rem;font-weight:600;color:#aab1bf;padding:.65rem .8rem;min-height:44px;border-radius:.7rem;border:1px solid transparent;transition:.15s;position:relative}
 .nav .tab i{font-size:.8rem;width:1rem;text-align:center;opacity:.85}
 .nav .tab:hover{background:rgba(255,255,255,.05);color:#fff}
 .nav .tab.on{background:linear-gradient(135deg,rgba(212,175,55,.2),rgba(212,175,55,.07));border-color:rgba(212,175,55,.4);color:#F5D76E}
@@ -35,8 +40,10 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:var(--
 .pagehead h2{font-size:1.25rem;font-weight:800;letter-spacing:-.01em}
 .pagehead p{font-size:.78rem;color:var(--muted);margin-top:.15rem}
 @media(min-width:900px){
-  .shell{grid-template-columns:15.5rem 1fr}
+  .shell{grid-template-columns:15.5rem minmax(0,1fr)}
   .side{top:0;height:100vh;border-bottom:0;border-right:1px solid var(--line);display:flex;flex-direction:column;padding:1.2rem .9rem}
+  .nav-wrap{display:block;min-height:0;overflow-y:auto;margin-top:0}
+  .nav-arrow{display:none}
   .nav{flex-direction:column;overflow:visible;padding:1.4rem 0 0;gap:.2rem}
   .nav .tab{padding:.65rem .8rem;font-size:.84rem}
   .logout-m{display:none}.logout-d{display:block;margin:auto 0 0;text-align:center}
@@ -96,6 +103,27 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:var(--
 .kv-stage{position:relative;background:#050608;min-height:16rem;flex:1;display:grid;place-items:center;overflow:auto}
 .kv-stage img{max-width:100%;max-height:62dvh;object-fit:contain;user-select:none;-webkit-user-drag:none}
 .kv-note{font-size:.7rem;color:var(--muted)}
+.qr-editor{border:1px solid var(--line2);border-radius:.8rem;padding:.75rem}
+.qr-editor summary{cursor:pointer;font-weight:600;padding:.25rem 0}
+.qr-slot{margin-top:.8rem;padding-top:.8rem;border-top:1px solid var(--line)}
+.qr-slot input{max-width:100%;font-size:1rem}
+.qr-preview img{display:block;width:12rem;max-width:100%;height:12rem;object-fit:contain;background:#fff;padding:.5rem;border-radius:.6rem;margin:.6rem 0}
+.qr-status{font-size:.875rem;color:var(--muted);margin-top:.5rem;overflow-wrap:anywhere}
+.admin-subnav{display:flex;min-width:0;gap:.5rem;overflow-x:auto;padding-bottom:.5rem;overscroll-behavior-x:contain}
+.admin-subnav .b{flex:0 0 auto;white-space:nowrap}
+@media(max-width:899px){
+  .brand h1{font-size:.95rem;letter-spacing:.08em}
+  .brand small,.logout{font-size:.8rem}
+  .pagehead p,.stat .l,.pill,.chip,.sec-t,.kv-note{font-size:.875rem}
+  .main .text-sm,#p-body .text-sm{font-size:1rem;line-height:1.5}
+  .main .text-xs,.main [class~="text-[11px]"],.main [class~="text-[10px]"],#p-body .text-xs{font-size:.875rem;line-height:1.5}
+  .inp,.search input{font-size:1rem;min-width:0}
+  .b{font-size:.9375rem;min-height:44px}
+  .chips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:.5rem}
+  .chips .chip{flex:0 0 auto;white-space:nowrap;min-height:40px}
+  #list .card{min-width:0;overflow-wrap:anywhere}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
@@ -105,7 +133,9 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:var(--
       <div><h1 class="gold-text uppercase" style="line-height:1.25">Morningstar Exchange</h1><small id="role-label">Admin Panel</small></div>
       <button onclick="logout()" class="logout logout-m"><i class="fa-solid fa-right-from-bracket mr-1"></i>Soti</button>
     </div>
-    <nav class="nav" id="nav">
+    <div class="nav-wrap">
+    <button type="button" id="nav-left" class="nav-arrow" onclick="scrollNav(-1)" aria-label="Defile meni an agoch" aria-controls="nav">&#8249;</button>
+    <nav class="nav" id="nav" aria-label="Seksyon administrasyon">
       <button class="tab on" data-t="kyc" onclick="go('kyc')"><i class="fa-regular fa-id-card"></i>KYC<span class="nbadge hidden" id="nb-kyc"></span></button>
       <button class="tab" data-t="users" onclick="go('users')"><i class="fa-solid fa-users"></i>Itilizatè</button>
       <button class="tab" data-t="wd" onclick="go('wd')"><i class="fa-solid fa-arrow-up-from-bracket"></i>Retrè<span class="nbadge hidden" id="nb-wd"></span></button>
@@ -115,6 +145,8 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:var(--
       <button class="tab" data-t="chat" onclick="go('chat')"><i class="fa-regular fa-comments"></i>Chat<span id="chat-badge" class="nbadge hidden">0</span></button>
       <button class="tab" data-t="set" onclick="go('set')"><i class="fa-solid fa-sliders"></i>To &amp; Frè</button>
     </nav>
+    <button type="button" id="nav-right" class="nav-arrow" onclick="scrollNav(1)" aria-label="Defile meni an adwat" aria-controls="nav">&#8250;</button>
+    </div>
     <button onclick="logout()" class="logout logout-d"><i class="fa-solid fa-right-from-bracket mr-1"></i>Dekonekte</button>
   </aside>
   <main class="main">
@@ -208,12 +240,28 @@ async function api(url, body, method) {
   return d;
 }
 async function logout() { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; }
+function updateNavScroll() {
+  const n = $('nav');
+  $('nav-left').disabled = n.scrollLeft <= 1;
+  $('nav-right').disabled = n.scrollLeft + n.clientWidth >= n.scrollWidth - 2;
+}
+function scrollNav(direction) {
+  $('nav').scrollBy({ left: direction * Math.max(180, $('nav').clientWidth * .75),
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+}
+$('nav').addEventListener('scroll', updateNavScroll, { passive: true });
+window.addEventListener('resize', updateNavScroll);
+requestAnimationFrame(updateNavScroll);
+document.fonts.ready.then(updateNavScroll);
 function go(t) {
   tab = t;
   q = ''; buildToolbar();
   const T = TITLES[t] || [t, '']; $('page-title').textContent = T[0]; $('page-sub').textContent = T[1];
   $('stats').classList.toggle('hidden', t !== 'kyc' || window.ME_ROLE !== 'admin');
-  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+  document.querySelectorAll('#nav .tab').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+  const selected = document.querySelector(`#nav [data-t="${t}"]`);
+  if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  requestAnimationFrame(updateNavScroll);
   load();
 }
 
@@ -459,10 +507,65 @@ async function depDecide(id, decision, amount) {
   load();
 }
 
+let depositQrBusy = 0;
+function qrPreview(url, m, slot) {
+  return url ? `<img src="${esc(url)}" alt="QR peman ${esc(m)} ${esc(slot)}">
+    <button type="button" class="b ghost" onclick="deleteDepositQr(this,'${m}','${slot}')">Retire QR sa a</button>`
+    : '<p class="text-xs text-gray-400">Pa gen QR pou destinasyon sa a.</p>';
+}
+function qrControl(m, slot, label, url) {
+  return `<div class="qr-slot" data-qr-slot="${slot}"><label class="block font-medium" for="qr-${m}-${slot}">${esc(label)}</label>
+    <div class="qr-preview">${qrPreview(url, m, slot)}</div>
+    <input id="qr-${m}-${slot}" type="file" accept="image/png,image/jpeg,image/webp" onchange="uploadDepositQr(this,'${m}','${slot}')">
+    <p class="qr-status" role="status" aria-live="polite"></p></div>`;
+}
+async function uploadDepositQr(input, m, slot) {
+  const file = input.files[0];
+  if (!file) return;
+  const field = input.closest('[data-m]').querySelector(m !== 'USDT' ? '.d-acc'
+    : ({ 'binance-id': '.d-bid', 'binance-email': '.d-bem', TRC20: '.d-trc', BEP20: '.d-bep' })[slot]);
+  if (!field.value.trim() || field.value.trim() !== field.defaultValue.trim()) {
+    input.closest('.qr-slot').querySelector('.qr-status').textContent = 'Peze Sove pou kont/rezo sa a anvan ou ajoute QR li.';
+    input.value = ''; return;
+  }
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || !file.size || file.size > 5 * 1024 * 1024) {
+    input.closest('.qr-slot').querySelector('.qr-status').textContent = 'Chwazi PNG, JPEG oswa WebP, 5 MB maksimòm.';
+    input.value = ''; return;
+  }
+  await writeDepositQr(input.closest('.qr-slot'), m, slot, file);
+  input.value = '';
+}
+async function deleteDepositQr(button, m, slot) {
+  if (!(await uiConfirm('Retire QR peman sa a? Kont/nimewo a ap rete disponib.', { ok: 'Retire QR', danger: true }))) return;
+  await writeDepositQr(button.closest('.qr-slot'), m, slot, null);
+}
+async function writeDepositQr(el, m, slot, file) {
+  if (el.dataset.busy) return;
+  el.dataset.busy = '1'; depositQrBusy++;
+  el.querySelectorAll('button,input').forEach((b) => b.disabled = true);
+  const status = el.querySelector('.qr-status');
+  status.textContent = file ? 'QR la ap monte…' : 'QR la ap retire…';
+  try {
+    const body = file ? new FormData() : undefined;
+    if (file) body.append('file', file);
+    const r = await fetch(`/api/admin/deposit-info/${m}/qr/${slot}`, {
+      method: file ? 'POST' : 'DELETE', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body
+    });
+    if (r.status === 401) { location.href = '/'; throw new Error('Sesyon an ekspire.'); }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Pa ka sove QR la. Eseye ankò.');
+    el.querySelector('.qr-preview').innerHTML = qrPreview(data.url || '', m, slot);
+    status.textContent = file ? 'QR la sove. Peze Sove anba paj la pou lòt enfòmasyon kont lan.' : 'QR la retire. Kont/nimewo a pa chanje.';
+  } catch (err) { status.textContent = err.message || 'Pwoblèm rezo. Eseye ankò.'; }
+  finally {
+    delete el.dataset.busy; depositQrBusy--;
+    el.querySelectorAll('button,input').forEach((b) => b.disabled = false);
+  }
+}
 async function loadDInfo() {
   const info = await api('/api/admin/deposit-info');
-  $('list').innerHTML = `<p class="text-xs text-gray-400">Sa kliyan yo wè lè yo peze Depo. Yon metòd parèt sèlman si li aktif epi li gen yon kont/nimewo.</p>` +
-    Object.keys(DM).map((m) => { const i = info[m]; const on = i.account ? i.active : true; return `<div class="card rounded-2xl p-4 space-y-2" data-m="${m}">
+  $('list').innerHTML = `<p class="text-xs text-gray-400">Sa kliyan yo wè lè yo peze Depo. Yon metòd parèt sèlman si li aktif epi li gen yon kont/nimewo. QR la se yon lòt fason pou peye menm kont sa a; verifye li avan ou pibliye l.</p>` +
+    Object.keys(DM).map((m) => { const i = info[m] || {}, qr = i.qr || {}; const on = i.account ? i.active : true; return `<div class="card rounded-2xl p-4 space-y-2" data-m="${m}">
       <div class="flex items-center justify-between"><div class="flex items-center gap-2">${logo(m, 30)}<div><p class="font-semibold text-sm">${m}</p><p class="text-[11px] text-gray-400">${DM[m] === 'HTG' ? 'Kredite balans HTG' : 'Kredite balans dola'}</p></div></div>
       <button class="b tab d-act ${on ? 'on' : ''}" onclick="this.classList.toggle('on');this.textContent=this.classList.contains('on')?'Aktif':'Dezaktive'">${on ? 'Aktif' : 'Dezaktive'}</button></div>
       ${m === 'USDT'
@@ -473,11 +576,17 @@ async function loadDInfo() {
       <input class="inp d-bep" placeholder="Adrès BEP20 (kòmanse ak 0x)" value="${esc((i.networks && i.networks.BEP20) || '')}">`
         : `<input class="inp d-acc" placeholder="Kont / nimewo / imèl / $cashtag" value="${esc(i.account)}">
       <input class="inp d-name" placeholder="Non sou kont lan" value="${esc(i.name)}">`}
-      <textarea class="inp d-note" rows="2" placeholder="Enstriksyon pou kliyan an (opsyonèl)">${esc(i.note)}</textarea></div>`; }).join('') +
+      <textarea class="inp d-note" rows="2" placeholder="Enstriksyon pou kliyan an (opsyonèl)">${esc(i.note)}</textarea>
+      <details class="qr-editor"><summary>Ajoute / jere QR peman (opsyonèl)</summary>
+      <p class="text-xs text-gray-400 mt-2">PNG, JPEG oswa WebP, 5 MB maksimòm. Sove kont/rezo a anvan ou ajoute QR li. Upload la sove touswit sou depo pèmanan an. Si ou chanje kont/rezo a, ansyen QR li retire otomatikman.</p>
+      ${m === 'USDT' ? [['binance-id', 'QR pou Binance ID'], ['binance-email', 'QR pou imèl Binance'], ['TRC20', 'QR pou wallet TRC20'], ['BEP20', 'QR pou wallet BEP20']].map(([slot, label]) => qrControl(m, slot, label, qr[slot])).join('')
+        : qrControl(m, 'account', 'QR pou ' + m, qr.account)}
+      </details></div>`; }).join('') +
     `<button onclick="saveDInfo()" class="w-full py-3 rounded-xl font-bold text-black" style="background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B)">Sove</button>
      <p id="di-ok" class="text-emerald-400 text-xs hidden">Sove! Kliyan yo wè nouvo enfòmasyon yo touswit.</p>`;
 }
 async function saveDInfo() {
+  if (depositQrBusy) return fail('Tann upload QR la fini anvan ou sove lòt enfòmasyon yo.');
   const out = {}, warn = [];
   document.querySelectorAll('[data-m]').forEach((c) => {
     const m = c.dataset.m, active = c.querySelector('.d-act').classList.contains('on');
@@ -497,6 +606,14 @@ async function saveDInfo() {
   });
   if (warn.length && !(await uiConfirm('Kliyan yo p ap wè metòd sa yo:\n' + warn.join('\n') + '\n\nKontinye sove?', { ok: 'Sove kanmenm' }))) return;
   const r = await api('/api/admin/deposit-info', { info: out });
+  const fresh = await api('/api/admin/deposit-info');
+  document.querySelectorAll('[data-m]').forEach((c) => {
+    c.querySelectorAll('.inp').forEach((field) => field.defaultValue = field.value);
+    c.querySelectorAll('[data-qr-slot]').forEach((el) => {
+      const slot = el.dataset.qrSlot;
+      el.querySelector('.qr-preview').innerHTML = qrPreview(fresh[c.dataset.m]?.qr?.[slot] || '', c.dataset.m, slot);
+    });
+  });
   const ok = r.visible.length > 0, el = $('di-ok');
   el.textContent = ok ? 'Sove! Kliyan yo wè kounye a: ' + r.visible.join(', ') : 'Sove, men okenn metòd pa aktif ak yon kont. Kliyan yo pa wè anyen.';
   el.className = 'text-xs ' + (ok ? 'text-emerald-400' : 'text-amber-400');
