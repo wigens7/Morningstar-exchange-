@@ -16,7 +16,7 @@ const report = [];
 let child, browser, lastPage;
 const token = (role) => jwt.sign({ sub: role, v: 0 }, secret);
 const info = {
-  MonCash: { active: true, account: '50937000000', name: 'Kont tès lokal', note: 'Verifye non an avan ou peye.' },
+  MonCash: { active: true, account: '50937000000', name: 'Nadia Pierre', note: 'Toujou verifye non moun k ap resevwa a anvan ou konfime depo a. Asire w enfòmasyon yo kòrèk pou evite erè.' },
   USDT: { active: true, account: '12345678', binance: { id: '12345678' }, networks: { TRC20: 'T' + '1'.repeat(33), BEP20: '0x' + '1'.repeat(40) } }
 };
 async function run() {
@@ -192,6 +192,49 @@ async function run() {
   assert.ok(await customer.locator('#dep-body').textContent().then((s) => s.includes(info.MonCash.account)));
   assert.equal(await customer.locator('#d-ref').inputValue(), 'LOCAL-REFERENCE');
   report.push({ check: 'customer QR/number choice, image rendering, download and form-state retention', passed: true });
+  await customerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+  for (const width of [320, 360, 390, 430, 768, 1280]) {
+    await customer.setViewportSize({ width, height: 844 });
+    const detail = await customer.locator('.dep-detail').evaluateAll((rows) => rows.map((row) => {
+      const value = row.querySelector('.dep-value'), label = row.querySelector('.dep-label'), copy = row.querySelector('.dep-copy');
+      const v = value.getBoundingClientRect(), l = label.getBoundingClientRect(), c = copy.getBoundingClientRect();
+      const style = getComputedStyle(value);
+      return { x: v.x, font: style.fontSize, weight: style.fontWeight, color: style.color,
+        wordBreak: style.wordBreak, width: v.width, labelTop: l.y, copyBottom: c.bottom, valueTop: v.y,
+        copyHeight: c.height, copyWidth: c.width };
+    }));
+    assert.equal(detail.length, 3);
+    assert.ok(detail.every((v) => v.font === '16px' && v.weight === detail[0].weight && v.color === detail[0].color));
+    assert.ok(detail.every((v) => Math.abs(v.x - detail[0].x) < 1 && v.wordBreak === 'normal'));
+    assert.ok(detail.every((v) => v.valueTop >= v.copyBottom && v.copyHeight >= 44 && v.copyWidth >= 44));
+    assert.ok(await customer.locator('#m-dep .sheet').evaluate((el) => el.scrollWidth <= el.clientWidth + 1));
+    assert.ok(await customer.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await customer.getByRole('button', { name: 'Kopye: Kont / Nimewo', exact: true }).click();
+    assert.equal(await customer.evaluate(() => navigator.clipboard.readText()), info.MonCash.account);
+    await customer.getByRole('button', { name: 'Kopye: Non sou kont lan', exact: true }).click();
+    assert.equal(await customer.evaluate(() => navigator.clipboard.readText()), info.MonCash.name);
+    await customer.getByRole('button', { name: 'Kopye: Enstriksyon', exact: true }).click();
+    assert.equal(await customer.evaluate(() => navigator.clipboard.readText()), info.MonCash.note);
+  }
+  await customer.locator('#d-ack').uncheck();
+  await customer.locator('#d-go').click();
+  assert.equal(deposits, 0);
+  await customer.locator('#d-err').waitFor({ state: 'visible' });
+  assert.ok(await customer.locator('#d-err').textContent());
+  // All existing interface languages retain the same values and field hierarchy.
+  await customer.setViewportSize({ width: 320, height: 844 });
+  for (const lang of ['fr', 'en', 'es', 'ht']) {
+    await customer.evaluate((lang) => { setLang(lang); depRender(); }, lang);
+    assert.equal(await customer.locator('.dep-value').first().textContent(), info.MonCash.account);
+    assert.equal(await customer.locator('.dep-detail').count(), 3);
+    assert.ok(!(await customer.locator('#dep-declaration-title').textContent()).includes('depDeclaration'));
+    assert.ok(await customer.locator('#m-dep .sheet').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), lang + ' overflow');
+  }
+  await customer.setViewportSize({ width: 390, height: 1400 });
+  await customer.locator('#m-dep .sheet').evaluate((el) => el.scrollTop = 0);
+  await customer.locator('#m-dep .sheet').screenshot({ path: path.join(artifacts, 'customer-account-professional-390.png') });
+  await customer.setViewportSize({ width: 390, height: 844 });
+  report.push({ check: 'uniform deposit fields, natural wrapping, 44px copy targets, real clipboard, acknowledgement, 6 viewport sizes and 4 languages', passed: true });
   await customer.evaluate(() => depPick('USDT'));
   await customer.evaluate(() => depSet('dest', 'wallet'));
   await customer.evaluate(() => depSet('net', 'TRC20'));
