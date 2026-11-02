@@ -242,7 +242,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Limit senp pou login/signup (anti brute-force)
+// Limit pou enskripsyon, OTP ak aksyon sansib; pa aplike sou koneksyon.
 const hits = new Map();
 function rateLimit(max, windowMs) {
   return (req, res, next) => {
@@ -529,7 +529,8 @@ app.post('/api/password/reset/confirm', rateLimit(10, 15 * 60 * 1000), async (re
   res.json({ ok: true });
 });
 
-app.post('/api/login', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
+// Pa bloke koneksyon ak yon kontè demann pa IP (menm rezo ka gen plizyè kliyan).
+app.post('/api/login', async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
   const password = String(req.body.password || '');
   const user = loadUsers().find((u) => u.email === email);
@@ -554,7 +555,8 @@ app.get('/api/pin-hint', (req, res) => {
   res.json(u ? { available: true, email: maskEmail(u.email), name: String(u.name).split(' ')[0] } : { available: false });
 });
 
-app.post('/api/login-pin', rateLimit(10, 15 * 60 * 1000), async (req, res) => {
+// Kenbe verifikasyon aparèy ak blokaj move PIN yo, san limit demann pa IP.
+app.post('/api/login-pin', async (req, res) => {
   const user = pinHintUser(req);
   if (!user) return res.status(401).json({ error: 'Sesyon PIN lan ekspire. Itilize imèl ak mòdpas ou.' });
   if (pinLocked(user)) return res.status(429).json({ error: 'PIN bloke pou 30 minit. Itilize mòdpas ou.' });
