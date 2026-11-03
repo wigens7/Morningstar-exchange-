@@ -27,6 +27,36 @@ function setup(extra = {}) {
   const S = createService({ now: () => clock.t, main, ...extra });
   return { S, clock, main };
 }
+test('login emails disabled: no new jobs or retries; important notifications preserved', () => {
+  const { S, clock } = setup();
+  try {
+    assert.equal(S.enqueueNotification('new-login', 'LOGIN_SECURITY', [{ type: 'user', id: 'customer' }]), 0);
+    assert.equal(S.q1("SELECT COUNT(*) AS n FROM email_outbox WHERE event_type='LOGIN_SECURITY'").n, 0);
+    const seed = S.db.prepare(`INSERT INTO email_outbox
+      (event_key,recipient_type,recipient_id,event_type,payload,created_at,next_attempt_at,expires_at,status)
+      VALUES(?,?,?,?,?,?,?,?,?)`);
+    for (const [key, status, due] of [
+      ['old-due', 'pending', clock.t], ['old-future', 'pending', clock.t + 60000],
+      ['old-sent', 'sent', clock.t], ['old-failed', 'failed', clock.t]
+    ]) seed.run(key, 'user', 'customer', 'LOGIN_SECURITY', '{}', clock.t, due, clock.t + 3600000, status);
+    for (const eventType of ['PASSWORD_CHANGED', 'DEPOSIT_APPROVED', 'P2P_ORDER_CREATED', 'SYSTEM_OPERATION_ERROR']) {
+      assert.equal(S.enqueueNotification(eventType, eventType, [{ type: 'user', id: 'customer' }]), 1);
+    }
+    const jobs = S.pendingEmailNotifications(100);
+    assert.deepEqual(jobs.map((j) => j.event_type).sort(),
+      ['PASSWORD_CHANGED', 'DEPOSIT_APPROVED', 'P2P_ORDER_CREATED', 'SYSTEM_OPERATION_ERROR'].sort());
+    for (const key of ['old-due', 'old-future']) {
+      const row = S.q1('SELECT * FROM email_outbox WHERE event_key=?', key);
+      assert.equal(row.status, 'failed');
+      assert.equal(row.last_error, 'NOTIFICATION_DISABLED');
+      assert.equal(row.sent_at, null);
+      assert.equal(row.attempts, 0);
+    }
+    assert.equal(S.q1("SELECT status FROM email_outbox WHERE event_key='old-sent'").status, 'sent');
+    assert.equal(S.q1("SELECT last_error FROM email_outbox WHERE event_key='old-failed'").last_error, null);
+    assert.equal(S.pendingEmailNotifications(100).length, 4);
+  } finally { S.close(); }
+});
 const fund = (ctx, user, usdt) => { ctx.main.set(user, ctx.main.get(user) + usdt * 100); ctx.S.bridgeIn(user, usdt * 100, 'fund-' + user + '-' + crypto.randomUUID()); };
 const merch = (S, u) => { if (!S.getMerchant(u).businessName) S.saveMerchant(u, { businessName: 'Biz ' + u, autoMessage: '' }); };
 const sellAd = (S, user, over = {}) => (merch(S, user), S.createAd(user, {

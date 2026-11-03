@@ -282,23 +282,6 @@ async function recordAct(userId, type, detail, req, extra) {
     await saveUsers(users);
   } catch (e) { console.error('[activity]', e.message); }
 }
-async function queueLoginSecurityNotice(userId) {
-  try {
-    const users = loadUsers();
-    const user = users.find((u) => u.id === userId);
-    if (!user) return;
-    const t = Date.now();
-    if (t - Number(user.lastLoginNoticeAt || 0) < 6 * 60 * 60 * 1000) return;
-    user.lastLoginNoticeAt = t;
-    await saveUsers(users);
-    queueUserEmail(user, `security:login:${user.id}:${Math.floor(t / (6 * 60 * 60 * 1000))}`, 'LOGIN_SECURITY', {
-      occurredAt: new Date(t).toISOString()
-    });
-  } catch {
-    console.error('[email] security notice scheduling failed');
-  }
-}
-
 function setSession(res, user, remember) {
   const token = jwt.sign({ sub: user.id, v: Number(user.tokenVersion || 0) }, JWT_SECRET, { expiresIn: remember ? '30d' : '1d' });
   res.cookie('token', token, {
@@ -544,7 +527,6 @@ app.post('/api/login', async (req, res) => {
     needsVerification: true, email
   });
   await recordAct(user.id, 'login', 'Koneksyon ak mòdpas' + (req.body.remember ? ' (sonje aparèy)' : ''), req);
-  await queueLoginSecurityNotice(user.id);
   setSession(res, user, !!req.body.remember);
   res.json(publicUser(user));
 });
