@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
+const { DatabaseSync } = require('node:sqlite');
 
 async function freePort() {
   const server = net.createServer();
@@ -166,6 +167,18 @@ test('signup OTP verification and password-change OTP work end to end with mocke
       });
       assert.equal(response.status, i < 5 ? 200 : 429);
     }
+    // Even the first valid login must not schedule mail; OTP and password
+    // notifications remain enabled, and successful logins retain audit history.
+    const db = new DatabaseSync(path.join(dir, 'p2p.sqlite'), { readOnly: true });
+    try {
+      assert.equal(db.prepare("SELECT COUNT(*) AS n FROM email_outbox WHERE event_type='LOGIN_SECURITY'").get().n, 0);
+      assert.ok(db.prepare("SELECT COUNT(*) AS n FROM email_outbox WHERE event_type='PASSWORD_CHANGED'").get().n > 0);
+    } finally { db.close(); }
+    assert.equal(readMail(capture).filter((mail) => /Nouvo koneksyon sou kont ou/.test(mail.subject)).length, 0);
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'users.json'), 'utf8'))
+      .find((user) => user.email === 'customer@example.test');
+    assert.equal(saved.lastLoginNoticeAt, undefined);
+    assert.ok(saved.activity.some((entry) => entry.type === 'login'));
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => {

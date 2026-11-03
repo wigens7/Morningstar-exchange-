@@ -70,6 +70,8 @@ function createService(opts = {}) {
   }
 
   function queueEmailInTx(eventKey, eventType, recipients, payload = {}) {
+    // Imèl koneksyon dezaktive pou konsève kota; lòt notifikasyon yo rete aktif.
+    if (eventType === 'LOGIN_SECURITY') return 0;
     const t = now();
     let inserted = 0;
     for (const recipient of recipients) {
@@ -163,6 +165,9 @@ function createService(opts = {}) {
     return tx(() => queueEmailInTx(eventKey, eventType, recipients, payload));
   }
   function pendingEmailNotifications(limit = 25) {
+    // Pa voye ansyen imèl koneksyon ki te an atant anvan mizajou a.
+    // Kenbe tras la san fè kwè yo te voye, san retry oswa alèt echèk.
+    run("UPDATE email_outbox SET status='failed',last_error='NOTIFICATION_DISABLED' WHERE status='pending' AND event_type='LOGIN_SECURITY'");
     const n = Math.min(Math.max(Number(limit) || 25, 1), 100);
     return q("SELECT * FROM email_outbox WHERE status='pending' AND next_attempt_at<=? ORDER BY id LIMIT " + n, now());
   }
