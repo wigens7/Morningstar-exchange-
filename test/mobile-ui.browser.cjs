@@ -180,7 +180,7 @@ async function run() {
   await admin.locator('#vc-price-save:not([disabled])').waitFor();
   await admin.locator('#vc-price').fill('12.30');
   await admin.locator('#vc-price-save').click();
-  await admin.locator('#vc-price-result').filter({ hasText: 'Pri kat la sove: 12.30 USD' }).waitFor();
+  await admin.locator('#vc-price-result').filter({ hasText: 'Frè kreasyon an sove: 12.30 USD' }).waitFor();
   await admin.evaluate(() => go('set'));
   await admin.locator('#vc-price-save:not([disabled])').waitFor();
   assert.equal(await admin.locator('#vc-price').inputValue(), '12.30');
@@ -223,14 +223,46 @@ async function run() {
   await admin.evaluate(() => { void saveManualCardholder(); void saveManualCardholder(); });
   await admin.locator('#ch-result').filter({ hasText: 'Cardholder apwouve epi asosye.' }).waitFor();
   assert.equal(manualPosts, 1);
-  assert.match(await admin.locator('#ch-result').textContent(), /Kat la poko kreye; acha kat poko aktive/);
+  assert.match(await admin.locator('#ch-result').textContent(), /Asosiyasyon an pa kreye yon kat otomatikman/);
   await admin.evaluate(() => loadManualCardholder('customer'));
   assert.equal(await admin.locator('#ch-id').inputValue(), 'provider-browser-fixture');
   assert.equal(manualPosts, 1);
   await admin.setViewportSize({ width: 390, height: 844 });
   await admin.screenshot({ path: path.join(artifacts, 'admin-manual-cardholder-390.png'), fullPage: false });
+  let cardRefunds = 0, cardRefunded = false;
+  const reviewId = '1b8d7dcb-f9aa-49b5-90da-9371c2d98530';
+  await admin.route('**/api/admin/virtual-cards/orders**', async (route) => {
+    if (route.request().method() === 'POST') {
+      assert.match(route.request().url(), /\/refund$/);
+      const body = route.request().postDataJSON();
+      assert.equal(body.confirmation, 'CONFIRMED_NO_CARD_IN_ZIIROPAY'); assert.match(body.pin, /^\d{6}$/);
+      cardRefunds++; cardRefunded = true;
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ state: 'FAILED' }) });
+    }
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ orders: [{
+      id: reviewId, state: cardRefunded ? 'FAILED' : 'REVIEW', totalUSD: '8.00',
+      message: cardRefunded ? 'Rezèv la anile.' : 'Admin dwe verifye demann lan.'
+    }] }) });
+  });
+  await admin.evaluate(() => loadCardOrders('customer'));
+  await admin.locator('#card-order-list input[type=password]').waitFor();
+  await admin.locator('#card-order-list button').filter({ hasText: 'Anile demann' }).click();
+  assert.equal(cardRefunds, 0);
+  await admin.locator('#card-order-list input[type=password]').fill('123456');
+  await admin.locator('#card-order-list input[type=checkbox]').check();
+  await admin.locator('#card-order-list button').filter({ hasText: 'Anile demann' }).click();
+  await admin.locator('#card-order-list').filter({ hasText: 'FAILED' }).waitFor();
+  assert.equal(cardRefunds, 1);
+  assert.equal(await admin.locator('#card-order-list input[type=password]').count(), 0);
+  report.push({ check: 'admin review requires no-provider-card attestation and PIN; one simulated refund and safe reload', passed: true });
   await admin.evaluate(() => close360());
   report.push({ check: 'manual cardholder paste/verify, duplicate-click guard, reload and responsive 320/390/768px; no KYC or card creation', passed: true });
+  if (process.env.BROWSER_CARD_ADMIN_ONLY === '1') {
+    await adminContext.close();
+    console.log(JSON.stringify({ passed: report.length, scope: 'admin/card-price/cardholder/card-order-review only',
+      checks: report, screenshots: artifacts }, null, 2));
+    return;
+  }
   const { c: customerContext, p: customer } = await context('customer', 390);
   const kycPreview = await customerContext.newPage();
   await kycPreview.goto(base + '/card-kyc.html');

@@ -215,7 +215,7 @@ test('ZiiroPay admin UI parses, uses safe status text and never implies card iss
   assert.match(functionSource, /Sa pa konfime dwa emisyon kat/);
   assert.doesNotMatch(functionSource, /ZIIROPAY_API_KEY|ZIIROPAY_WEBHOOK_SECRET/);
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /mountZiiroPayDiagnostics\(app, \{ adminOnly, rateLimit, client: ziiropayClient \}\)/);
+  assert.match(server, /mountZiiroPayDiagnostics\(app, \{ adminOnly, rateLimit, client: ziiropayClient, issuanceEnabled: cardIssuingEnabled \}\)/);
 });
 
 test('ZiiroPay boot check requires explicit opt-in and logs only allowlisted codes', async () => {

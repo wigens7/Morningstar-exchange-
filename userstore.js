@@ -81,8 +81,14 @@ function fileBackend(file) {
   let rows = [];
   const write = () => {
     const tmp = file + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(rows.map((r) => r.data), null, 2));
+    const fd = fs.openSync(tmp, 'w', 0o600);
+    try {
+      fs.writeFileSync(fd, JSON.stringify(rows.map((r) => r.data), null, 2));
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, file);
+    const dir = fs.openSync(require('node:path').dirname(file), 'r');
+    try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
   };
   return {
     name: 'file',
@@ -227,6 +233,18 @@ function createStore({ backend, pendingFile = null, legacyFile = null, autoMigra
     return e ? structuredClone(e.data) : null;
   }
 
+  // Card financial acknowledgements must be checked against persisted state,
+  // including a write whose HTTP acknowledgement was lost. Existing callers
+  // and calculations are unchanged. Dirty bridge changes are flushed first;
+  // reloadUser never overwrites a concurrent dirty revision.
+  async function refreshUser(id) {
+    return lock(id, async () => {
+      await flush(id);
+      await reloadUser(id);
+      return getUser(id);
+    });
+  }
+
   async function persistChange({ u, b, isNew }, base) {
     const id = u.id;
     let e = cache.get(id), prev = null;
@@ -303,7 +321,7 @@ function createStore({ backend, pendingFile = null, legacyFile = null, autoMigra
     }
   }
 
-  return { init, loadUsers, getUser, saveUsers, applySync, removeUser, flushAll, _cache: cache };
+  return { init, loadUsers, getUser, refreshUser, saveUsers, applySync, removeUser, flushAll, _cache: cache };
 }
 
 module.exports = { createStore, supabaseBackend, fileBackend, ConflictError };

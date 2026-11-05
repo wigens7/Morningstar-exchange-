@@ -1,4 +1,9 @@
-# ZiiroPay integration — diagnostics, pricing and opt-in KYC preparation
+# ZiiroPay integration — manual cardholders and opt-in card issuance
+
+The new financial implementation, activation controls, pricing policy, recovery
+and verification limits are documented in [CARD_ISSUANCE.md](CARD_ISSUANCE.md).
+The sections below describe its existing cardholder prerequisite and the earlier
+preparation stages; they are not a claim that live issuing was tested.
 
 ## Current operator workflow: manual cardholder creation on ZiiroPay
 
@@ -25,13 +30,13 @@ cardholder that the admin already created and ZiiroPay approved.
 
 Changed account identity/local KYC or a banned customer invalidates readiness.
 ID replacement/reassignment is intentionally blocked; this UI is not a bypass
-for provider approval. The isolated manual binding is the intended source for
-the future card-issuance service; the automatic KYC path stays disabled.
+for provider approval. The isolated manual binding is the source for the
+opt-in card-issuance service; the automatic KYC path stays disabled.
 
 IMPORTANT: cardholder-approved is not card-issued or financial-operations-enabled.
-The notice says the file is ready, the card is not yet created, and purchases are
-not yet active. No change to the dashboard's coming-soon card menu, creation/
-funding/withdrawal operations, balances, fees or webhook handling.
+The association notice now directs customers to check card pricing/availability
+and explicitly says it is not a card-creation confirmation. Only the separate,
+PIN-authorized issuance flow can confirm an independently verified issued card.
 
 Verification: 122 automated tests passed. Manual-workflow tests cover full-admin
 authorization, input/CSRF/session guards, pending/wrong ID/name/email, duplicate
@@ -300,9 +305,9 @@ issuance permissions, business verification, prefunding or webhook authenticity.
 - Add customer UI for creation, card management, history, funding and withdrawal
   only when those operations can actually be executed safely.
 
-## Scope and rollout
+## Historical preparation-only scope (before card issuance)
 
-This change modifies no balances, swap/deposit/withdrawal/P2P calculations,
+Those preparation changes modified no balances, swap/deposit/withdrawal/P2P calculations,
 existing financial records, existing database schema or deployment configuration.
 It adds a separate settings file only after an explicit admin save, and an
 isolated encrypted KYC database only when that flow is explicitly configured.

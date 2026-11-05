@@ -80,8 +80,9 @@ function publicSetup(value) {
   };
 }
 
-function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageFile, kycEnabled = false, settings = createCardSettings(dataDir) }) {
-  const setup = (value) => ({ ...publicSetup(value), kycSubmissionEnabled: kycEnabled });
+function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageFile, kycEnabled = false, issuanceEnabled = false, settings = createCardSettings(dataDir) }) {
+  const setup = (value) => ({ ...publicSetup(value), kycSubmissionEnabled: kycEnabled,
+    cardOperationsEnabled: Boolean(issuanceEnabled), cardPath: '/virtual-card.html' });
   const noStore = (req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); };
   app.get('/api/admin/virtual-cards/settings', noStore, adminOnly, (req, res) => {
     try {

@@ -368,7 +368,7 @@ async function copy(txt) {
 }
 
 /* Menu */
-const MENU = [['p2p', 'fa-people-arrows', '/p2p.html'], ['vcard', 'fa-credit-card'], ['topup', 'fa-mobile-screen-button'], ['gift', 'fa-gift']];
+const MENU = [['p2p', 'fa-people-arrows', '/p2p.html'], ['vcard', 'fa-credit-card', '/virtual-card.html'], ['topup', 'fa-mobile-screen-button'], ['gift', 'fa-gift']];
 function openMenu() {
   $('menu-items').innerHTML = MENU.map(([k, ic, href]) => href ? `<a href="${href}" class="panel w-full rounded-xl px-3.5 py-3 flex items-center gap-3 text-left"><span class="aico !w-10 !h-10 !rounded-xl"><i class="fa-solid ${ic}"></i></span><span class="flex-1 text-sm font-medium">${t(k)}</span><i class="fa-solid fa-chevron-right text-gray-500 text-xs"></i></a>` : `<button onclick="toast(t('soon', { n: t('${k}') }), true)" class="panel w-full rounded-xl px-3.5 py-3 flex items-center gap-3 text-left">
     <span class="aico !w-10 !h-10 !rounded-xl"><i class="fa-solid ${ic}"></i></span>

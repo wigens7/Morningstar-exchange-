@@ -99,11 +99,12 @@ function createZiiroPayClient(options = {}) {
   return { readiness, checkConnection };
 }
 
-function mountZiiroPayDiagnostics(app, { adminOnly, rateLimit, client = createZiiroPayClient() }) {
+function mountZiiroPayDiagnostics(app, { adminOnly, rateLimit, client = createZiiroPayClient(), issuanceEnabled = false }) {
   // No public or customer endpoint exposes configuration or merchant balances.
   app.get('/api/admin/virtual-cards/readiness', adminOnly, (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json(client.readiness());
+    res.json(issuanceEnabled ? { ...client.readiness(), cardOperationsEnabled: true, cardIssuanceEnabled: true,
+      cardFundingEnabled: false, cardWithdrawalEnabled: false, stage: 'card_issuance_opt_in' } : client.readiness());
   });
   app.post('/api/admin/virtual-cards/connection-test', adminOnly, (req, res, next) => {
     if (req.get('X-Requested-With') !== 'XMLHttpRequest') {

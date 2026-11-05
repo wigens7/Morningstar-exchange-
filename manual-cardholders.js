@@ -158,7 +158,7 @@ function createManualCardholders(options) {
     close() { if (db) db.close(); db = undefined; }
   };
 }
-function mountManualCardholders(app, { service, auth, adminOnly, rateLimit }) {
+function mountManualCardholders(app, { service, auth, adminOnly, rateLimit, issuanceEnabled = false }) {
   const privateRoute = (req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); };
   const messages = {
     CARDHOLDER_ADMIN_REQUIRED: 'Se admin sèlman ki kapab asosye yon cardholder.',
@@ -186,11 +186,16 @@ function mountManualCardholders(app, { service, auth, adminOnly, rateLimit }) {
     }
   };
   app.get('/api/admin/users/:id/cardholder', privateRoute, adminOnly,
-    handle((req) => service.status(req.users.find((u) => u.id === req.params.id), true)));
+    handle((req) => ({ ...service.status(req.users.find((u) => u.id === req.params.id), true),
+      cardOperationsEnabled: Boolean(issuanceEnabled) })));
   app.post('/api/admin/users/:id/cardholder', privateRoute, adminOnly, (req, res, next) => {
     if (req.get('X-Requested-With') !== 'XMLHttpRequest') return res.status(403).json({ error: 'Demann lan pa otorize.' });
     next();
-  }, rateLimit(10, 15 * 60 * 1000), handle((req) => service.link(req.user, req.params.id, req.body)));
-  app.get('/api/virtual-cards/cardholder', privateRoute, auth, handle((req) => service.status(req.user)));
+  }, rateLimit(10, 15 * 60 * 1000), handle(async (req) => ({
+    ...await service.link(req.user, req.params.id, req.body), cardOperationsEnabled: Boolean(issuanceEnabled)
+  })));
+  app.get('/api/virtual-cards/cardholder', privateRoute, auth, handle((req) => ({
+    ...service.status(req.user), cardOperationsEnabled: Boolean(issuanceEnabled)
+  })));
 }
 module.exports = { createManualCardholders, mountManualCardholders };
