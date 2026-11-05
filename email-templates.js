@@ -109,6 +109,7 @@ const NOTICES = {
     WITHDRAWAL_PAID: { title: 'Retrè make kòm peye', USER: 'Administratè a make retrè ou kòm peye. Imèl sa a pa yon verifikasyon endepandan resepsyon lajan an.' },
     WITHDRAWAL_REJECTED: { title: 'Demann retrè refize', USER: 'Demann retrè ou refize; aplikasyon an retounen kantite a nan balans kont ou.' },
     KYC_APPROVED: { title: 'Verifikasyon idantite apwouve', USER: 'Ekip la apwouve verifikasyon idantite kont ou.' },
+    CARDHOLDER_APPROVED: { title: 'Dosye kat ou pare', USER: 'Cardholder ZiiroPay ou apwouve epi li asosye ak kont Morningstar Exchange ou. Dosye ou pare pou etap kreasyon kat la. Kat la poko kreye; acha kat poko aktive.' },
     KYC_REJECTED: { title: 'Verifikasyon idantite pa apwouve', USER: 'Ekip la pa apwouve verifikasyon an. Gade estati a nan kont ou pou pwochen etap yo.' },
     KYC_REUPLOAD: { title: 'Nou bezwen nouvo dokiman', USER: 'Ekip la mande pou ou voye dokiman verifikasyon yo ankò.' },
     P2P_ORDER_CREATED: { title: 'Nouvo lòd P2P', BUYER: 'Ou kreye yon lòd P2P. Swiv enstriksyon lòd la; pa gen peman ki konfime nan imel sa a.', SELLER: 'Yon achtè kreye yon nouvo lòd. Poko gen peman konfime; tann deklarasyon achtè a epi verifye lajan an anvan ou lage crypto a.', ADMIN: 'Yon nouvo lòd P2P kreye; sa pa konfime peman.' },

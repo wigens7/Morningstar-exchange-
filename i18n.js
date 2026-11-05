@@ -91,6 +91,7 @@
     nSwapHtg: ['Swap fèt: {a} → {b}.', 'Swap effectué : {a} → {b}.', 'Swap done: {a} → {b}.', 'Swap hecho: {a} → {b}.'],
     nSwapUsd: ['Swap fèt: {a} → {b}.', 'Swap effectué : {a} → {b}.', 'Swap done: {a} → {b}.', 'Swap hecho: {a} → {b}.'],
     nKycOk: ['KYC ou apwouve. Ou ka fè depo, swap ak retrè.', 'Votre KYC est approuvé. Vous pouvez déposer, swapper et retirer.', 'Your KYC was approved. You can deposit, swap and withdraw.', 'Tu KYC fue aprobado. Ya puedes depositar, hacer swap y retirar.'],
+    nCardholderReady: Array(4).fill('Cardholder ZiiroPay ou apwouve epi li asosye ak kont ou. Dosye kat ou pare. Kat la poko kreye; acha kat poko aktive.'),
     nKycRej: ['KYC ou refize. Gade rezon an nan Paramèt.', 'Votre KYC a été refusé. Voir la raison dans les paramètres.', 'Your KYC was rejected. See the reason in Settings.', 'Tu KYC fue rechazado. Mira el motivo en Ajustes.'],
     nKycRe: ['Re-voye dokiman KYC ou yo. Foto yo pa t klè.', 'Renvoyez vos documents KYC. Les photos n’étaient pas claires.', 'Please re-upload your KYC documents. The photos were not clear.', 'Vuelve a subir tus documentos KYC. Las fotos no eran claras.'],
     nAdjPlus: ['Admin ajoute {a} nan balans ou.', 'L’admin a ajouté {a} à votre solde.', 'Admin added {a} to your balance.', 'El admin agregó {a} a tu saldo.'],
