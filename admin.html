@@ -632,7 +632,44 @@ async function loadSettings() {
       <div class="space-y-2">${['Meru', 'Zelle', 'USDT', 'CashApp', 'PayPal', 'Wise'].map((m) => `<div class="flex items-center gap-2">${logo(m, 26)}<span class="text-sm w-20">${m}</span>
         <input class="inp fa-in" data-a="${m}" type="number" step="0.01" min="0" max="50" placeholder="${s.feePercent}" value="${s.feeByAsset && s.feeByAsset[m] !== undefined ? s.feeByAsset[m] : ''}"><span class="text-sm">%</span></div>`).join('')}</div></div>
     <button onclick="saveSettings()" class="w-full py-3 rounded-xl font-bold text-black" style="background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B)">Sove</button>
-    <p id="st-ok" class="text-emerald-400 text-xs hidden">Sove! Nouvo valè yo aktif touswit.</p></div>`;
+    <p id="st-ok" class="text-emerald-400 text-xs hidden">Sove! Nouvo valè yo aktif touswit.</p></div>
+    <div class="card rounded-2xl p-4 mt-4 space-y-3">
+      <h3 class="font-semibold">ZiiroPay — koneksyon kat vityèl</h3>
+      <p class="text-sm text-gray-400">Tès sa a verifye koneksyon API a sèlman. Li pa kreye kat, pa voye KYC, pa montre balans founisè a epi pa deplase lajan. Operasyon kat yo poko aktive.</p>
+      <button id="vc-check" class="b tab" onclick="checkZiiroPay()">Verifye koneksyon ZiiroPay</button>
+      <p id="vc-result" class="text-sm text-gray-300" role="status" aria-live="polite"></p>
+    </div>`;
+}
+async function checkZiiroPay() {
+  const button = $('vc-check'), result = $('vc-result');
+  if (!button || !result) return;
+  button.disabled = true;
+  result.textContent = 'Verifikasyon ap fèt…';
+  try {
+    const response = await fetch('/api/admin/virtual-cards/connection-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: '{}'
+    });
+    const data = await response.json();
+    const messages = {
+      ZIIROPAY_NOT_CONFIGURED: 'Kle API ZiiroPay la pa konfigire sou sèvè a.',
+      ZIIROPAY_AUTH_REJECTED: 'ZiiroPay rejte otorizasyon an. Verifye aksè API kont lan.',
+      ZIIROPAY_RATE_LIMITED: 'ZiiroPay mande pou nou tann anvan yon lòt tès.',
+      ZIIROPAY_TIMEOUT: 'ZiiroPay pa reponn nan delè a. Pa gen operasyon finansye ki fèt.',
+      ZIIROPAY_NETWORK_ERROR: 'Nou pa ka kontakte ZiiroPay kounye a.',
+      ZIIROPAY_UNEXPECTED_RESPONSE: 'Repons ZiiroPay la pa matche ak dokimantasyon an.',
+      ZIIROPAY_RESPONSE_TOO_LARGE: 'Repons ZiiroPay la depase limit sekirite a.',
+      ZIIROPAY_HTTP_ERROR: 'ZiiroPay retounen yon erè. Pa gen operasyon finansye ki fèt.'
+    };
+    result.textContent = response.ok && data.connected === true
+      ? 'Koneksyon API a verifye. Sa pa konfime dwa emisyon kat oswa verifikasyon webhook. Operasyon kat yo toujou bloke.'
+      : response.status === 429 ? 'Twòp tès youn apre lòt. Tann kèk minit.'
+        : response.status === 401 || response.status === 403 ? 'Ou bezwen yon sesyon admin ki otorize.'
+          : messages[data.code] || 'Verifikasyon an pa reyisi. Eseye ankò pita.';
+  } catch {
+    result.textContent = 'Verifikasyon an pa disponib. Eseye ankò pita.';
+  } finally { button.disabled = false; }
 }
 async function saveSettings() {
   await api('/api/admin/settings', { rate: parseFloat($('st-rate').value), feeActive: $('st-active').classList.contains('on'), feePercent: parseFloat($('st-pct').value) || 0,

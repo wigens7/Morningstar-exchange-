@@ -9,6 +9,7 @@ const cookieParser = require('cookie-parser');
 const { createResendClient } = require('./resend');
 const { issueOtp, verifyOtp } = require('./otp');
 const { otpEmail, notificationEmail } = require('./email-templates');
+const { createZiiroPayClient, mountZiiroPayDiagnostics, runZiiroPayStartupCheck } = require('./ziiropay');
 
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
@@ -19,6 +20,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const JWT_SECRET = process.env.JWT_SECRET || (isProd ? null : 'dev-secret-change-me');
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 const resendClient = createResendClient();
+const ziiropayClient = createZiiroPayClient();
 
 if (!JWT_SECRET) {
   console.error('JWT_SECRET manke. Ajoute l nan Variables Railway.');
@@ -1386,6 +1388,9 @@ app.post('/api/admin/users/:id/role', adminOnly, async (req, res) => {
   res.json({ role });
 });
 
+// Premye etap ZiiroPay: admin ka verifye koneksyon an, san operasyon finansye.
+mountZiiroPayDiagnostics(app, { adminOnly, rateLimit, client: ziiropayClient });
+
 // ---------- Paj yo ----------
 // Sèlman 2 paj sa yo ki piblik (server.js ak lòt fichye yo pa janm sèvi)
 const page = (file) => (req, res) => res.sendFile(path.join(__dirname, file));
@@ -1429,6 +1434,7 @@ ready.then(() => {
     void drainEmailOutbox();
   }, 30 * 1000).unref();
   void drainEmailOutbox();
+  void runZiiroPayStartupCheck(ziiropayClient);
   app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT} (itilizatè: ${useSupabase ? 'Supabase' : 'users.json'})`));
 }).catch((e) => { console.error('Pa ka demare:', e.message); process.exit(1); });
 
