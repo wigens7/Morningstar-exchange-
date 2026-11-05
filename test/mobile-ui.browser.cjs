@@ -35,7 +35,8 @@ async function run() {
   child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
     env: { ...process.env, PORT: String(port), DATA_DIR: dir, JWT_SECRET: secret, NODE_ENV: 'test',
       SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '', ADMIN_EMAIL: '', ADMIN_PASSWORD: '',
-      TEST_USER_EMAIL: '', TEST2_USER_EMAIL: '', RESEND_API_KEY: '', NODE_OPTIONS: '' },
+      TEST_USER_EMAIL: '', TEST2_USER_EMAIL: '', RESEND_API_KEY: '', NODE_OPTIONS: '',
+      ZIIROPAY_API_KEY: '', ZIIROPAY_WEBHOOK_SECRET: '', ZIIROPAY_CONNECTION_CHECK_ON_BOOT: 'false' },
     stdio: ['ignore', 'ignore', 'pipe']
   });
   let errors = '';
@@ -162,6 +163,20 @@ async function run() {
 
   const trcUrl = await apiUpload('USDT', 'TRC20');
   const binUrl = await apiUpload('USDT', 'binance-id');
+  await admin.evaluate(() => go('set'));
+  await admin.locator('#vc-check').waitFor();
+  await admin.locator('#vc-check').click();
+  await admin.locator('#vc-result').filter({ hasText: 'Kle API ZiiroPay la pa konfigire' }).waitFor();
+  assert.equal(await admin.locator('#vc-check').isEnabled(), true);
+  assert.ok(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await admin.route('**/api/admin/virtual-cards/connection-test', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ connected: true, code: 'ZIIROPAY_CONNECTION_VERIFIED' })
+  }));
+  await admin.locator('#vc-check').click();
+  await admin.locator('#vc-result').filter({ hasText: 'Sa pa konfime dwa emisyon kat' }).waitFor();
+  await admin.unroute('**/api/admin/virtual-cards/connection-test');
+  report.push({ check: 'ZiiroPay admin diagnostic missing key and simulated success, mobile overflow' });
+  console.log('PASS: ZiiroPay admin diagnostic messages at 390px, no financial operations');
   const { c: customerContext, p: customer } = await context('customer', 390);
   let deposits = 0;
   customer.on('request', (req) => { if (req.method() === 'POST' && req.url() === base + '/api/deposit') deposits++; });
