@@ -190,6 +190,47 @@ async function run() {
   assert.equal(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
   report.push({ check: 'admin-only card price saved and reloaded at 390px, invalid cents rejected, no financial operations', passed: true });
   console.log('PASS: card price setup saves/reloads at 390px without changing swap settings');
+  let manualPosts = 0, manualLinked = false;
+  const manualRevision = '550e8400-e29b-41d4-a716-446655440000';
+  await admin.route('**/api/admin/users/customer/cardholder', async (route) => {
+    if (route.request().method() === 'POST') {
+      manualPosts++;
+      assert.deepEqual(route.request().postDataJSON(), { customerId: 'provider-browser-fixture', revision: null });
+      assert.equal(route.request().headers()['x-requested-with'], 'XMLHttpRequest');
+      await new Promise((r) => setTimeout(r, 50));
+      manualLinked = true;
+    }
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      linked: manualLinked, cardholderApproved: manualLinked, cardOperationsEnabled: false,
+      revision: manualLinked ? manualRevision : null, customerId: manualLinked ? 'provider-browser-fixture' : null,
+      notificationPending: false, code: null
+    }) });
+  });
+  console.log('CHECK: opening manual cardholder customer profile');
+  await Promise.race([admin.evaluate(() => open360('customer')),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Manual profile open timeout')), 15000))]);
+  console.log('CHECK: manual cardholder profile open');
+  await admin.locator('#ch-id:not([disabled])').waitFor();
+  console.log('CHECK: manual cardholder form loaded');
+  assert.equal(manualPosts, 0, 'viewing a customer never associates a cardholder');
+  assert.equal(await admin.locator('#ch-id').getAttribute('autocomplete'), 'off');
+  for (const width of [320, 390, 768]) {
+    await admin.setViewportSize({ width, height: 844 });
+    assert.equal(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+    assert.ok(await admin.locator('#ch-id').evaluate((el) => parseFloat(getComputedStyle(el).fontSize) >= 16));
+  }
+  await admin.locator('#ch-id').fill('provider-browser-fixture');
+  await admin.evaluate(() => { void saveManualCardholder(); void saveManualCardholder(); });
+  await admin.locator('#ch-result').filter({ hasText: 'Cardholder apwouve epi asosye.' }).waitFor();
+  assert.equal(manualPosts, 1);
+  assert.match(await admin.locator('#ch-result').textContent(), /Kat la poko kreye; acha kat poko aktive/);
+  await admin.evaluate(() => loadManualCardholder('customer'));
+  assert.equal(await admin.locator('#ch-id').inputValue(), 'provider-browser-fixture');
+  assert.equal(manualPosts, 1);
+  await admin.setViewportSize({ width: 390, height: 844 });
+  await admin.screenshot({ path: path.join(artifacts, 'admin-manual-cardholder-390.png'), fullPage: false });
+  await admin.evaluate(() => close360());
+  report.push({ check: 'manual cardholder paste/verify, duplicate-click guard, reload and responsive 320/390/768px; no KYC or card creation', passed: true });
   const { c: customerContext, p: customer } = await context('customer', 390);
   const kycPreview = await customerContext.newPage();
   await kycPreview.goto(base + '/card-kyc.html');

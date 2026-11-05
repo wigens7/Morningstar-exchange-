@@ -13,6 +13,7 @@ const { createZiiroPayClient, mountZiiroPayDiagnostics, runZiiroPayStartupCheck 
 const { mountVirtualCardSetup, mountZiiroPayWebhook } = require('./virtual-card-setup');
 const { createCardKyc, mountCardKyc } = require('./card-kyc');
 const { runSandboxKycProbe } = require('./ziiropay-sandbox-probe');
+const { createManualCardholders, mountManualCardholders } = require('./manual-cardholders');
 
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
@@ -243,7 +244,8 @@ mountZiiroPayWebhook(app);
 app.use(express.json({ limit: '20kb', verify: (req, res, buf) => { req.rawBody = buf; } })); // rawBody: pou siyati webhook
 // Pa kite erè JSON KYC yo mete fragman PII/PIN nan handler logs jeneral la.
 app.use((err, req, res, next) => {
-  if (req.path === '/api/virtual-cards/kyc' || req.path === '/api/virtual-cards/kyc/refresh') {
+  if (req.path === '/api/virtual-cards/kyc' || req.path === '/api/virtual-cards/kyc/refresh' ||
+      /^\/api\/admin\/users\/[^/]+\/cardholder$/.test(req.path)) {
     return res.status(err.type === 'entity.too.large' ? 413 : 400).json({
       code: 'INVALID_KYC_REQUEST', error: 'Demann KYC a pa valid.'
     });
@@ -1412,6 +1414,26 @@ mountVirtualCardSetup(app, {
   pageFile: path.join(__dirname, 'card-kyc.html'), kycEnabled: cardKyc.enabled
 });
 mountCardKyc(app, { service: cardKyc, auth, pinGuard, rateLimit });
+const manualCardholders = createManualCardholders({
+  dataDir: DATA_DIR, getUser: store.getUser,
+  notifyLinked: async (user, event) => {
+    const users = loadUsers(), latest = users.find((u) => u.id === user.id);
+    if (!latest || latest.banned || latest.email !== user.email ||
+        JSON.stringify(latest.profile) !== JSON.stringify(user.profile) ||
+        latest.kyc.status !== 'approved') return false;
+    if (latest.cardholderNoticeRevision !== event.revision) {
+      notify(latest, 'nCardholderReady', {});
+      latest.cardholderNoticeRevision = event.revision;
+      await saveUsers(users);
+    }
+    const eventKey = `cardholder:linked:${event.revision}`;
+    queueUserEmail(latest, eventKey, 'CARDHOLDER_APPROVED', { occurredAt: event.verifiedAt });
+    // A duplicate outbox row is success; an enqueue failure remains retryable.
+    return Boolean(p2p.db.prepare(`SELECT id FROM email_outbox
+      WHERE event_key=? AND recipient_type='user' AND recipient_id=?`).get(eventKey, user.id));
+  }
+});
+mountManualCardholders(app, { service: manualCardholders, auth, adminOnly, rateLimit });
 
 // ---------- Paj yo ----------
 // Sèlman 2 paj sa yo ki piblik (server.js ak lòt fichye yo pa janm sèvi)
@@ -1454,6 +1476,7 @@ ready.then(() => {
   setInterval(() => {
     try { p2p.runJobs(); } catch { console.error('[p2p] jobs failed'); }
     void drainEmailOutbox();
+    void manualCardholders.retryNotifications().catch(() => {});
   }, 30 * 1000).unref();
   void drainEmailOutbox();
   void runZiiroPayStartupCheck(ziiropayClient);

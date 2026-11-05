@@ -341,8 +341,9 @@ const ago = (iso) => {
   if (h < 24) return `${h} èdtan pase`; const d = Math.floor(h / 24); return d < 30 ? `${d} jou pase` : `${Math.floor(d / 30)} mwa pase`;
 };
 let p360 = null, p360Cat = 'all', p360Q = '', p360Tab = 'act';
+let cardholderView = null;
 
-function close360() { $('m-360').classList.add('hidden'); p360 = null; }
+function close360() { $('m-360').classList.add('hidden'); p360 = null; cardholderView = null; }
 async function open360(id) {
   p360Cat = 'all'; p360Q = ''; p360Tab = 'act';
   $('p-body').innerHTML = '<p class="text-gray-400 text-sm"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Chajman...</p>';
@@ -370,9 +371,79 @@ function paint360() {
     + K('Swap / An atant', `${st.swaps} <span class="text-[11px] text-gray-400 font-normal">· ${st.pending} an atant</span>`);
   const tabs = `<div class="flex gap-2 mt-4 mb-3"><button class="b tab ${p360Tab === 'act' ? 'on' : ''}" onclick="p360Tab='act';paint360()"><i class="fa-solid fa-timeline"></i>Aktivite (${p360.events.length})</button>
     <button class="b tab ${p360Tab === 'log' ? 'on' : ''}" onclick="p360Tab='log';paint360()"><i class="fa-solid fa-clock-rotate-left"></i>Istorik koneksyon (${p360.logins.length})</button></div>`;
-  $('p-body').innerHTML = `<div class="kpis">${kpis}</div>${tabs}<div id="p-view"></div>
+  $('p-body').innerHTML = `<div class="kpis">${kpis}</div>
+    ${window.ME_ROLE === 'admin' && u.role === 'user' ? `<section class="card rounded-2xl p-4 mt-4 space-y-3" aria-labelledby="ch-title">
+      <h3 id="ch-title" class="font-semibold text-base">Cardholder ZiiroPay — manyèl</h3>
+      <p class="text-sm text-gray-400">Kreye cardholder la sou ZiiroPay avèk menm imèl, non ak siyati kliyan sa a. Tann estati APPROVED, epi kole Customer ID a anba a. Pa kole referans KYC a.</p>
+      <a href="https://www.ziiropay.com/login" target="_blank" rel="noopener noreferrer" class="b tab inline-block">Louvri ZiiroPay</a>
+      <label for="ch-id" class="block text-sm font-semibold">Customer ID ZiiroPay</label>
+      <input id="ch-id" class="inp w-full" type="text" maxlength="128" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Kole Customer ID ki apwouve a" disabled>
+      <button id="ch-save" type="button" class="b bg-amber-400 text-black" onclick="saveManualCardholder()" disabled>Verifye epi asosye ak kliyan sa a</button>
+      <button type="button" class="b tab" onclick="loadManualCardholder(p360.user.id)">Rechaje estati</button>
+      <p id="ch-result" class="text-sm text-gray-300 break-words" role="status" aria-live="polite">Chajman…</p>
+      <p class="text-sm text-gray-400">Pa gen nouvo soumisyon KYC ni chanjman balans. Asosiyasyon an pa kreye yon kat oswa aktive acha kat.</p>
+    </section>` : ''}
+    ${tabs}<div id="p-view"></div>
     ${p360.logStart ? `<p class="kv-note mt-3">Jounal detaye (IP + aparèy) kòmanse ${esc(fmtDT(p360.logStart))}. Sa ki anvan sa rekonstwi ak istorik tranzaksyon an.</p>` : '<p class="kv-note mt-3">Pa gen jounal detaye pou kont sa a ankò. Istorik la rekonstwi ak tranzaksyon yo.</p>'}`;
   paint360View();
+  if ($('ch-id')) void loadManualCardholder(u.id);
+}
+function cardholderStatusMessage(data) {
+  if (data.cardholderApproved) return 'Cardholder apwouve epi asosye. ' +
+    (data.notificationPending ? 'Notifikasyon kliyan an ap tann. ' : 'Notifikasyon kliyan an prepare. ') +
+    'Kat la poko kreye; acha kat poko aktive.';
+  if (data.linked) return 'Dosye a mande yon nouvo verifikasyon. Verifye enfòmasyon kliyan an ak estati ZiiroPay la, epi verifye menm Customer ID a ankò.';
+  const messages = {
+    CARDHOLDER_EMAIL_REQUIRED: 'Kliyan an dwe verifye imèl li anvan asosiyasyon an.',
+    CARDHOLDER_LOCAL_KYC_REQUIRED: 'KYC Morningstar kliyan an dwe apwouve anvan asosiyasyon an.',
+    CARDHOLDER_PROFILE_REQUIRED: 'Kliyan an dwe konplete non ak siyati nan pwofil li.'
+  };
+  return messages[data.code] || 'Pa gen cardholder asosye ankò. Kole Customer ID ki gen estati APPROVED la.';
+}
+async function loadManualCardholder(userId) {
+  const input = $('ch-id'), button = $('ch-save'), result = $('ch-result');
+  if (!input || !button || !result || !p360 || p360.user.id !== userId) return;
+  const view = { userId, revision: null, loading: true };
+  cardholderView = view; input.disabled = true; button.disabled = true;
+  try {
+    const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/cardholder`, { cache: 'no-store' });
+    const data = await response.json();
+    if (cardholderView !== view || !p360 || p360.user.id !== userId) return;
+    if (!response.ok) throw new Error('unavailable');
+    view.revision = data.revision; view.loading = false;
+    input.value = data.customerId || '';
+    result.textContent = cardholderStatusMessage(data);
+    input.disabled = false; button.disabled = Boolean(data.code);
+  } catch {
+    if (cardholderView === view) result.textContent = 'Dosye a pa disponib. Klike Rechaje estati anvan ou eseye ankò.';
+  }
+}
+async function saveManualCardholder() {
+  const view = cardholderView;
+  if (!view || view.loading || !p360 || p360.user.id !== view.userId) return;
+  const input = $('ch-id'), button = $('ch-save'), result = $('ch-result');
+  const customerId = input.value.trim();
+  if (!/^[A-Za-z0-9_-]{6,128}$/.test(customerId)) { result.textContent = 'Kole yon Customer ID valid, san espas.'; return; }
+  view.loading = true; input.disabled = true; button.disabled = true;
+  result.textContent = 'Verifikasyon ap fèt ak ZiiroPay…';
+  try {
+    const response = await fetch(`/api/admin/users/${encodeURIComponent(view.userId)}/cardholder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ customerId, revision: view.revision })
+    });
+    const data = await response.json();
+    if (cardholderView !== view || !p360 || p360.user.id !== view.userId) return;
+    if (!response.ok) {
+      result.textContent = data.error || 'Asosiyasyon an pa fini. Rechaje estati a pou verifye.';
+      return;
+    }
+    view.revision = data.revision; input.value = data.customerId;
+    result.textContent = cardholderStatusMessage(data);
+  } catch {
+    if (cardholderView === view) result.textContent = 'Koneksyon koupe. Rechaje estati a pou wè si asosiyasyon an te sove.';
+  } finally {
+    if (cardholderView === view) { view.loading = false; input.disabled = false; button.disabled = false; }
+  }
 }
 function paint360View() {
   const v = $('p-view'); if (!v || !p360) return;
@@ -648,7 +719,7 @@ async function loadSettings() {
       <p id="vc-price-result" class="text-sm text-gray-300" role="status" aria-live="polite">Chajman pri a…</p>
       <p class="text-sm text-gray-400">Webhook prepare a: <code style="overflow-wrap:anywhere">/api/webhooks/ziiropay</code>. Li ap rejte mesaj yo jiskaske verifikasyon siyati a pare. Pa aktive evènman yo ankò.</p>
       <a class="b tab inline-block" href="/card-kyc.html" target="_blank" rel="noopener noreferrer">Gade paj preparasyon KYC kat</a>
-      <p class="text-sm text-gray-400">Paj KYC a mande koneksyon. Soumisyon otomatik rete fèmen pa defo; li mande konsantman, PIN, KYC lokal apwouve ak konfigirasyon sekirite sèvè a. Kat ak retrè poko aktive.</p>
+      <p class="text-sm text-gray-400">Chemen manyèl: Itilizatè → ouvri pwofil 360° kliyan an → Cardholder ZiiroPay. Kreye cardholder la sou ZiiroPay, epi kole Customer ID ki apwouve a nan pwofil kliyan an. Soumisyon KYC otomatik rete fèmen. Kat ak retrè poko aktive.</p>
     </div>`;
   await loadCardPrice();
 }

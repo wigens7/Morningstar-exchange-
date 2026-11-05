@@ -1,5 +1,47 @@
 # ZiiroPay integration — diagnostics, pricing and opt-in KYC preparation
 
+## Current operator workflow: manual cardholder creation on ZiiroPay
+
+The owner selected manual cardholder creation instead of automated KYC submission.
+No missing account-purpose enumeration or webhook signature is needed to link a
+cardholder that the admin already created and ZiiroPay approved.
+
+1. Admin creates the cardholder in the ZiiroPay dashboard with the customer's
+   actual information and waits for APPROVED. Screenshots supplied as examples
+   are not Morningstar records and must never seed a binding.
+2. In Morningstar: Admin -> Itilizatè -> customer's 360-degree profile ->
+   Cardholder ZiiroPay. Paste Customer ID, not the KYC reference.
+3. Only full admin can save. The backend makes one read-only KYC-status lookup
+   by the existing customer's email; requires provider approval and exact ID
+   plus normalized email/first/last-name match. No new KYC document transmission.
+4. The binding is saved in separate private DATA_DIR/ziiropay-cardholders.sqlite,
+   WAL/FULL sync, unique user/provider-ID/email-tag constraints, revision guard,
+   actor/timestamp audit. No new secret or existing-database migration.
+   Customer IDs are private identifiers, not API credentials. Customer responses
+   omit IDs and admin metadata. Existing wallet/user/P2P schemas are untouched.
+5. One Creole in-app notice and one idempotent email-outbox event per verified
+   revision. Pending notification retries survive restart. Email failure never
+   undoes an association. No real emails are sent during automated tests.
+
+Changed account identity/local KYC or a banned customer invalidates readiness.
+ID replacement/reassignment is intentionally blocked; this UI is not a bypass
+for provider approval. The isolated manual binding is the intended source for
+the future card-issuance service; the automatic KYC path stays disabled.
+
+IMPORTANT: cardholder-approved is not card-issued or financial-operations-enabled.
+The notice says the file is ready, the card is not yet created, and purchases are
+not yet active. No change to the dashboard's coming-soon card menu, creation/
+funding/withdrawal operations, balances, fees or webhook handling.
+
+Verification: 122 automated tests passed. Manual-workflow tests cover full-admin
+authorization, input/CSRF/session guards, pending/wrong ID/name/email, duplicate
+ownership, concurrent/idempotent save, stale revision, account/admin changes,
+legacy email policy, definitive failed recheck, durable notification recovery,
+Creole email and actual-server persistence/outbox/wallet-isolation checks using
+a fake read-only provider. The browser suite passed 14 checks, including manual
+paste/verify/reload/double-click protection and 320/390/768px layouts.
+No real customer's ID was linked and no email was sent in these tests.
+
 ## Owner-approved one-shot sandbox diagnostic
 
 `ZIIROPAY_SANDBOX_KYC_PROBE=approved-v1` opts into one POST to the documented
@@ -261,13 +303,16 @@ issuance permissions, business verification, prefunding or webhook authenticity.
 ## Scope and rollout
 
 This change modifies no balances, swap/deposit/withdrawal/P2P calculations,
-existing user records, existing database schema or deployment configuration.
+existing financial records, existing database schema or deployment configuration.
 It adds a separate settings file only after an explicit admin save, and an
 isolated encrypted KYC database only when that flow is explicitly configured.
+The manual workflow uses its own private reference database and the existing
+user-notification/outbox infrastructure; only notification metadata is added to
+user records after a verified admin association.
 Existing customer card-menu behavior is unchanged deliberately. Webhook samples
 are not ingested or stored.
 
-Local verification: 106 automated tests passed, including the actual application
+Earlier automatic-KYC preparation verification: 106 automated tests passed, including the actual application
 with real JWT/PIN middleware and an explicitly preloaded fake provider (no external
 traffic), encrypted restart recovery, concurrent submission suppression, wrong/
 duplicate provider IDs, consent and changed-account checks. The browser suite
