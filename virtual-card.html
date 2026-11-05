@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ht"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Kat vityèl · Morningstar Exchange</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;color:#f4f5f8;background:#090c12}
+*{box-sizing:border-box}body{margin:0}main{max-width:680px;margin:auto;padding:24px 18px 50px}
+a{color:#f7ce43}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:28px}
+.brand{font-size:12px;letter-spacing:.14em;font-weight:800;color:#f7ce43}h1{font-size:28px;margin:12px 0}
+h2{font-size:19px;margin:0 0 16px}p{line-height:1.6}.muted{color:#a6b0c2;font-size:14px}
+.panel{background:#121722;border:1px solid #2b3342;border-radius:20px;padding:22px;margin:16px 0;min-width:0}
+.payment-card{background:linear-gradient(135deg,#242e41,#121722);border-color:#8a743a}.last{font-size:25px;letter-spacing:.14em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.row{display:flex;justify-content:space-between;gap:20px;margin:14px 0;font-size:15px}.row strong{font-variant-numeric:tabular-nums;text-align:right}
+.total{padding-top:15px;border-top:1px solid #343e50;font-size:19px}
+label{display:block;font-size:14px;font-weight:650;margin:18px 0 8px}input{display:block;width:100%;min-height:50px;background:#090d15;border:1px solid #414d63;color:#fff;border-radius:12px;padding:12px 14px;font:inherit;font-size:17px}
+input:focus{outline:2px solid #e8bf3a}button{min-height:48px;cursor:pointer;border:0;border-radius:12px;background:#f2c934;color:#141006;font:inherit;font-weight:750;padding:12px 18px;margin-top:12px}
+button:disabled{opacity:.5;cursor:wait}.secondary{background:#273247;color:#fff}
+.wide{width:100%}.check{display:flex;align-items:flex-start;gap:10px;line-height:1.5}.check input{width:22px;min-height:22px;flex-shrink:0;margin:0}
+#message{white-space:pre-wrap;overflow-wrap:anywhere;border-left:3px solid #e3bb36;padding:12px 15px;background:#1c201f;font-size:15px;line-height:1.5}
+#secret{padding:16px;background:#080b10;border:1px solid #45516a;border-radius:12px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+[hidden]{display:none!important}footer{margin-top:30px;text-align:center;color:#98a4b9;font-size:12px}@media(max-width:360px){main{padding:18px 12px}.panel{padding:17px}.row{gap:10px}.brand{letter-spacing:.06em}h1{font-size:25px}}
+</style></head><body><main>
+<header><span class="brand">MORNINGSTAR EXCHANGE</span><a href="/dashboard.html">← Kont mwen</a></header>
+<h1>Kat vityèl USD</h1><p class="muted">Kreye kat ou avèk cardholder admin te verifye pou ou a. Ou wè pri total la anvan ou otorize acha a.</p>
+<p id="message" role="status" aria-live="polite">N ap verifye dosye ou…</p>
+<button id="refresh" class="secondary">Rechaje estati</button>
+<section id="buy" class="panel" hidden><h2>Kreye kat ou</h2>
+<p class="muted">Frè kreasyon an soti nan pri admin fikse a. Premye montan ou mete sou kat la ajoute sou frè sa a.</p>
+<label for="funding">Premye montan sou kat la (USD)</label><input id="funding" inputmode="decimal" autocomplete="off" value="0.00" maxlength="9">
+<button id="quote" class="secondary wide">Kalkile pri total la</button>
+<div id="offer" hidden>
+<div class="row"><span>Frè kreasyon</span><strong id="fee"></strong></div>
+<div class="row"><span>Premye montan sou kat</span><strong id="initial"></strong></div>
+<div class="row total"><span>Total pou otorize</span><strong id="total"></strong></div>
+<p class="muted">Total la rezève yon sèl fwa nan balans USD ou pandan verifikasyon an. Si demann lan rejte klèman, rezèv la anile. Si rezilta a pa klè, admin dwe verifye l anvan rezèv la lage; pa repete acha a.</p>
+<label class="check"><input id="consent" type="checkbox"><span>Mwen otorize montan total ki parèt anlè a pou kreasyon kat sa a.</span></label>
+<label for="pin">PIN sekirite ou (6 chif)</label><input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+<button id="create" class="wide">Konfime epi kreye kat</button>
+</div></section>
+<section id="orders" aria-live="polite"></section>
+<section id="reveal-box" class="panel" hidden><h2>Detay sekirize kat ou</h2>
+<p class="muted">Antre PIN ou pou wè nimewo kat ak CVV a pandan 30 segonn. Pa pataje enfòmasyon sa yo.</p>
+<label for="reveal-pin">PIN sekirite (6 chif)</label><input id="reveal-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+<button id="reveal" class="wide">Montre detay kat mwen</button>
+<div id="secret" hidden></div><button id="hide-secret" class="secondary" hidden>Kache detay yo</button>
+</section>
+<p class="muted">Rechaj apre kreasyon ak retrè sou kat la poko aktive nan seksyon sa a. Pa voye enfòmasyon kat ou nan chat oswa bay sipò.</p>
+<footer>Morningstar Exchange · Done kat ou prive</footer>
+<script src="/virtual-card.js" defer></script></main></body></html>

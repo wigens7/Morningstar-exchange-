@@ -14,6 +14,10 @@ const { mountVirtualCardSetup, mountZiiroPayWebhook } = require('./virtual-card-
 const { createCardKyc, mountCardKyc } = require('./card-kyc');
 const { runSandboxKycProbe } = require('./ziiropay-sandbox-probe');
 const { createManualCardholders, mountManualCardholders } = require('./manual-cardholders');
+const { createCardProvider } = require('./ziiropay-cards');
+const { createKycProvider } = require('./ziiropay-kyc');
+const { createCardWallet } = require('./card-wallet');
+const { createCardOrders, mountCardOrders } = require('./virtual-card-orders');
 
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
@@ -245,9 +249,10 @@ app.use(express.json({ limit: '20kb', verify: (req, res, buf) => { req.rawBody =
 // Pa kite erè JSON KYC yo mete fragman PII/PIN nan handler logs jeneral la.
 app.use((err, req, res, next) => {
   if (req.path === '/api/virtual-cards/kyc' || req.path === '/api/virtual-cards/kyc/refresh' ||
-      /^\/api\/admin\/users\/[^/]+\/cardholder$/.test(req.path)) {
+      /^\/api\/admin\/users\/[^/]+\/cardholder$/.test(req.path) ||
+      /^\/api\/(?:admin\/)?virtual-cards\/(?:quote|orders)(?:\/|$)/.test(req.path)) {
     return res.status(err.type === 'entity.too.large' ? 413 : 400).json({
-      code: 'INVALID_KYC_REQUEST', error: 'Demann KYC a pa valid.'
+      code: 'INVALID_PRIVATE_REQUEST', error: 'Demann prive a pa valid.'
     });
   }
   next(err);
@@ -1408,10 +1413,15 @@ app.post('/api/admin/users/:id/role', adminOnly, async (req, res) => {
 });
 
 // Premye etap ZiiroPay: admin ka verifye koneksyon an, san operasyon finansye.
-mountZiiroPayDiagnostics(app, { adminOnly, rateLimit, client: ziiropayClient });
+const cardProvider = createCardProvider();
+const cardLookup = createKycProvider();
+const cardIssuingEnabled = process.env.ZIIROPAY_CARD_ISSUING_ENABLED === 'true' &&
+  cardProvider.mode === 'live' && cardProvider.configured && cardLookup.configured;
+mountZiiroPayDiagnostics(app, { adminOnly, rateLimit, client: ziiropayClient, issuanceEnabled: cardIssuingEnabled });
 mountVirtualCardSetup(app, {
   dataDir: DATA_DIR, auth, adminOnly, rateLimit,
-  pageFile: path.join(__dirname, 'card-kyc.html'), kycEnabled: cardKyc.enabled
+  pageFile: path.join(__dirname, 'card-kyc.html'), kycEnabled: cardKyc.enabled,
+  issuanceEnabled: cardIssuingEnabled
 });
 mountCardKyc(app, { service: cardKyc, auth, pinGuard, rateLimit });
 const manualCardholders = createManualCardholders({
@@ -1433,7 +1443,32 @@ const manualCardholders = createManualCardholders({
       WHERE event_key=? AND recipient_type='user' AND recipient_id=?`).get(eventKey, user.id));
   }
 });
-mountManualCardholders(app, { service: manualCardholders, auth, adminOnly, rateLimit });
+mountManualCardholders(app, { service: manualCardholders, auth, adminOnly, rateLimit,
+  issuanceEnabled: cardIssuingEnabled });
+const cardOrders = createCardOrders({
+  dataDir: DATA_DIR, getUser: store.getUser,
+  getBinding: (user) => manualCardholders.status(user, true),
+  wallet: createCardWallet(store), provider: cardProvider, kycProvider: cardLookup,
+  settings: require('./virtual-card-setup').createCardSettings(DATA_DIR),
+  notifyOutcome: async (user, event) => {
+    const users = loadUsers(), latest = users.find((u) => u.id === user?.id);
+    if (!latest) return false;
+    if (!latest.cardOrderNotices?.[event.id]) {
+      notify(latest, event.state === 'READY' ? 'nCardCreated' : 'nCardFailed', {});
+      latest.cardOrderNotices = { ...(latest.cardOrderNotices || {}), [event.id]: true };
+      await saveUsers(users);
+    }
+    if (event.state === 'FAILED' && !event.providerAttempted) return true;
+    const eventKey = `card-order:${event.id}:${event.state}`;
+    queueUserEmail(latest, eventKey, event.state === 'READY' ? 'CARD_CREATED' : 'CARD_ISSUE_FAILED', {
+      occurredAt: event.occurredAt, amount: event.totalUSD + ' USD'
+    });
+    return Boolean(p2p.db.prepare(`SELECT id FROM email_outbox
+      WHERE event_key=? AND recipient_type='user' AND recipient_id=?`).get(eventKey, latest.id));
+  }
+});
+mountCardOrders(app, { service: cardOrders, auth, adminOnly, pinGuard, rateLimit,
+  pageFile: path.join(__dirname, 'virtual-card.html'), scriptFile: path.join(__dirname, 'virtual-card.js') });
 
 // ---------- Paj yo ----------
 // Sèlman 2 paj sa yo ki piblik (server.js ak lòt fichye yo pa janm sèvi)
@@ -1473,10 +1508,12 @@ app.use((err, req, res, next) => {
 
 ready.then(() => {
   try { p2p.recoverBridge(0); p2p.recoverStuck(); } catch (e) { console.error('[p2p] recovery', e); }
+  void cardOrders.recover().catch(() => { console.info('[virtual-cards] RECOVERY_PENDING'); });
   setInterval(() => {
     try { p2p.runJobs(); } catch { console.error('[p2p] jobs failed'); }
     void drainEmailOutbox();
     void manualCardholders.retryNotifications().catch(() => {});
+    void cardOrders.recover().catch(() => {});
   }, 30 * 1000).unref();
   void drainEmailOutbox();
   void runZiiroPayStartupCheck(ziiropayClient);

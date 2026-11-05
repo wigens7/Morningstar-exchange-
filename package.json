@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.js",
-    "test:browser": "node test/mobile-ui.browser.cjs"
+    "test:browser": "node test/mobile-ui.browser.cjs",
+    "test:cards:browser": "node test/virtual-card.browser.cjs"
   },
   "engines": {
     "node": ">=22.13"

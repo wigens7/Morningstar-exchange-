@@ -170,7 +170,7 @@ test('manual cardholder email is Haitian Creole only and does not falsely claim 
     const message = notificationEmail({ eventType: 'CARDHOLDER_APPROVED', audience: 'USER', locale,
       payload: { occurredAt: '2026-11-05T17:00:00Z' } });
     assert.match(message.subject, /Dosye kat ou pare/);
-    assert.match(message.text, /Kat la poko kreye/);
+    assert.match(message.text, /pa yon konfimasyon kreyasyon kat/);
     assert.match(message.html, /lang="ht"/);
     assert.doesNotMatch(message.text, /provider-fixture|Customer ID/);
   }
