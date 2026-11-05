@@ -1,4 +1,4 @@
-# ZiiroPay integration — stage 1, read-only
+# ZiiroPay integration — connection diagnostics + closed setup
 
 ## Implemented
 
@@ -18,6 +18,63 @@
   block service startup. This allows a deployed connection check without
   exporting keys or obtaining an admin session in this conversation.
 - Card financial operations remain disabled. This is not a complete card product.
+
+## Stage 2 preparation (requires merge/deployment approval)
+
+- Only the full admin role can set the customer card-creation price, in USD.
+  User/support roles are denied; the mutation requires the existing authenticated
+  session, AJAX header and request limit. There is no hardcoded customer price.
+- Exact decimal strings are converted to integer cents. An unset price is NULL,
+  not zero; an explicitly saved zero is allowed. Bad precision/exponents,
+  negative amounts and extra properties are rejected server-side.
+- The independent `DATA_DIR/virtual-card-settings.json` contains price/revision/
+  timestamp only (mode 0600). Atomic rename plus file/directory fsync is used.
+  The current single-process service rejects stale revisions. This is NOT a
+  multi-replica financial ledger; money operations remain disabled.
+- Corruption/read errors fail closed with 503, never an inferred free card.
+  Saving card settings never rewrites swap/deposit settings or user balances.
+- `GET /card-kyc.html` is a session-protected **preparation/checklist page only**.
+  The same path uses each customer's own session; no personal information,
+  document or bearer token belongs in the URL. It is NOT a ZiiroPay-hosted link.
+  No hosted/per-customer KYC URL API was found in the official reference index.
+- `GET /api/virtual-cards/setup` returns only the configured price and disabled
+  capability flags. `POST /api/virtual-cards/kyc` returns 503 while disabled.
+  The preview contains no personal-data inputs or uploads. No customer PII is
+  collected, stored or transmitted to ZiiroPay by this stage.
+- Prepared webhook address:
+  `https://morningstarechanj.com/api/webhooks/ziiropay`.
+  Do not enable provider events until signature verification is implemented
+  and deployed. The URL is only a planned address until this PR is deployed.
+  POST always returns **503 ZIIROPAY_WEBHOOK_NOT_ENABLED**, including repeated
+  success events. GET returns 405 (Allow: POST). It does not acknowledge receipt.
+  The route precedes JSON parsing, so malformed payloads cannot leak through JSON
+  parser errors. It stores/logs nothing from the request, calls no provider,
+  sends no mail, and performs no wallet or card operation.
+- Production's existing `/data` volume must remain mounted with `DATA_DIR=/data`.
+  Local process-restart persistence tests are not a real production price save.
+
+### Owner's financial rules (requirements, NOT implemented money operations)
+
+1. Admin exclusively controls the customer creation price; do not borrow swap
+   fee settings. Saving the price does not enable the product or charge anyone.
+2. Failed card creation must not permanently debit the customer's USD balance.
+   Reserve spendable funds durably before calling the provider; finalize a debit
+   once after a verified successful creation, and release on definitive failure.
+   A timeout/unknown outcome requires reconciliation, not blind refund or retry.
+   Reservation integration must prevent spending the same funds via existing
+   transfers/swaps/withdrawals/P2P during a pending operation.
+3. Funding must automatically debit the customer's USD wallet exactly once and
+   show success only after provider funding is confirmed. Definite failure
+   releases funds; ambiguous outcomes remain pending reconciliation.
+4. Card-to-wallet withdrawal stays disabled pending explicit owner approval and
+   verified provider settlement semantics. Never credit from the example alone.
+5. Persistent unique operation IDs/provider references, atomic wallet settlement,
+   ownership checks and replay/crash/redeploy tests are required before financial
+   activation. The current route rejection tests do not prove financial
+   exactly-once execution.
+6. Card KYC must have explicit informed consent, server-side ownership binding,
+   authenticated backend submission and validated provider status. Never email
+   raw KYC documents or embed PII/credentials in customer links.
 
 ## Known source contract
 
@@ -47,9 +104,10 @@ issuance permissions, business verification, prefunding or webhook authenticity.
 
 ## Verification still required before card operations
 
-1. Deploy this approved stage and run the admin diagnostic with the existing
-   Railway key, or explicitly opt in to the boot check and read its sanitized
-   log result. Do not retrieve keys into chat or local development.
+1. Stage 1 was merged in PR #10 and the actual server-side read-only probe logged
+   `ZIIROPAY_CONNECTION_VERIFIED` on deployment
+   `4ee8af9a-22c6-42b0-90be-45c927ed4381`. This does not establish card permissions.
+   Do not retrieve keys into chat or local development.
 2. Confirm webhook signature header, encoding, algorithm, exact signed bytes,
    timestamp/replay policy and retry semantics from ZiiroPay. A secret being
    present is not proof of the verification contract. Never accept an unsigned
@@ -91,8 +149,9 @@ issuance permissions, business verification, prefunding or webhook authenticity.
 ## Scope and rollout
 
 This stage changes no balances, swap/deposit/withdrawal/P2P calculations, user
-data, database schema or deployment configuration. Existing customer card-menu
-behavior is unchanged deliberately. Webhook samples are not ingested or stored.
+data, database schema or deployment configuration. It adds a separate settings
+file only after an explicit admin save. Existing customer card-menu behavior is
+unchanged deliberately. Webhook samples are not ingested or stored.
 No secrets, real card details or customer data belong in tests or this document.
 
 Merge/deployment requires user approval. A final live confirmation requires the

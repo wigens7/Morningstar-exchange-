@@ -638,7 +638,60 @@ async function loadSettings() {
       <p class="text-sm text-gray-400">Tès sa a verifye koneksyon API a sèlman. Li pa kreye kat, pa voye KYC, pa montre balans founisè a epi pa deplase lajan. Operasyon kat yo poko aktive.</p>
       <button id="vc-check" class="b tab" onclick="checkZiiroPay()">Verifye koneksyon ZiiroPay</button>
       <p id="vc-result" class="text-sm text-gray-300" role="status" aria-live="polite"></p>
+    </div>
+    <div class="card rounded-2xl p-4 mt-4 space-y-3">
+      <h3 class="font-semibold">Pri kreasyon kat vityèl</h3>
+      <p class="text-sm text-gray-400">Se admin sèlman ki fikse pri sa a an USD. Li endepandan ak frè swap yo. Sove pri a pa aktive acha, rechaj oswa retrè kat.</p>
+      <label for="vc-price" class="block text-sm">Pri kliyan peye pou kreye yon kat (USD)</label>
+      <input id="vc-price" type="text" inputmode="decimal" maxlength="9" placeholder="Egzanp: 10.00" class="inp" disabled>
+      <button id="vc-price-save" class="b tab" onclick="saveCardPrice()" disabled>Sove pri kat la</button>
+      <p id="vc-price-result" class="text-sm text-gray-300" role="status" aria-live="polite">Chajman pri a…</p>
+      <p class="text-sm text-gray-400">Webhook prepare a: <code style="overflow-wrap:anywhere">/api/webhooks/ziiropay</code>. Li ap rejte mesaj yo jiskaske verifikasyon siyati a pare. Pa aktive evènman yo ankò.</p>
+      <a class="b tab inline-block" href="/card-kyc.html" target="_blank" rel="noopener noreferrer">Gade paj preparasyon KYC kat</a>
+      <p class="text-sm text-gray-400">Paj KYC a mande koneksyon. Li poko kolekte oswa voye enfòmasyon bay ZiiroPay.</p>
     </div>`;
+  await loadCardPrice();
+}
+let cardPriceRevision = null;
+async function loadCardPrice() {
+  const input = $('vc-price'), button = $('vc-price-save'), result = $('vc-price-result');
+  if (!input || !button || !result) return;
+  input.disabled = true; button.disabled = true;
+  try {
+    const response = await fetch('/api/admin/virtual-cards/settings', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error('unavailable');
+    cardPriceRevision = data.revision;
+    input.value = data.creationPriceUSD === null ? '' : data.creationPriceUSD;
+    input.disabled = false; button.disabled = false;
+    result.textContent = data.creationPriceConfigured ? 'Pri konfigire. Operasyon kat yo poko aktive.' : 'Pa gen pri konfigire. Mete yon pri epi sove li.';
+  } catch { result.textContent = 'Pri a pa disponib. Rechaje seksyon an pou eseye ankò.'; }
+}
+async function saveCardPrice() {
+  const input = $('vc-price'), button = $('vc-price-save'), result = $('vc-price-result');
+  if (!input || !button || !result || button.disabled) return;
+  const price = input.value.trim();
+  if (!/^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/.test(price)) {
+    result.textContent = 'Mete yon montan USD valid, avèk 2 desimal maksimòm (egzanp: 10.00).';
+    return;
+  }
+  button.disabled = true; input.disabled = true;
+  result.textContent = 'Pri a ap sove…';
+  try {
+    const response = await fetch('/api/admin/virtual-cards/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ creationPriceUSD: price, revision: cardPriceRevision })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      result.textContent = response.status === 409 ? 'Pri a fèk chanje. Rechaje seksyon an anvan ou sove ankò.' : 'Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.';
+      return;
+    }
+    cardPriceRevision = data.revision;
+    input.value = data.creationPriceUSD;
+    result.textContent = 'Pri kat la sove: ' + data.creationPriceUSD + ' USD. Operasyon kat yo poko aktive.';
+    button.disabled = false; input.disabled = false;
+  } catch { result.textContent = 'Rezilta sovgad la pa sèten. Rechaje seksyon an pou verifye pri a anvan ou eseye ankò.'; }
 }
 async function checkZiiroPay() {
   const button = $('vc-check'), result = $('vc-result');
