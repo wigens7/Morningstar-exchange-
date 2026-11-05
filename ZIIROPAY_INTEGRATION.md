@@ -1,5 +1,33 @@
 # ZiiroPay integration — diagnostics, pricing and opt-in KYC preparation
 
+## Owner-approved one-shot sandbox diagnostic
+
+`ZIIROPAY_SANDBOX_KYC_PROBE=approved-v1` opts into one POST to the documented
+`/bitvcard/cardkyc` endpoint with `mode=sandbox` forced in code. The owner explicitly
+authorized the PR, merge, deployment and one synthetic sandbox submission.
+It does not enable `ZIIROPAY_KYC_ENABLED`, create cards, call status lookup with
+undocumented sandbox semantics, use customer information or move customer money.
+The valid PNG reads TEST ONLY; the email is under example.test, the telephone
+is a reserved fictional number and all other identity fields are fabricated.
+
+`DATA_DIR` must be explicitly configured as an absolute persistent path. The
+probe creates private `ziiropay-sandbox/kyc-attempt-v1.json` using exclusive create,
+fsyncs the STARTED marker and directory before network access, then stores only
+safe result metadata. Any existing marker, even incomplete, prevents another
+request across concurrent startup, crashes or redeploys. No automatic retries
+or redirects. Network and response-body timeout is 15 seconds, response cap 32 KiB.
+HTTP code, boolean success flag, allowlisted field types and known validation
+field names are recorded/logged; no response text, URL, ID, key, image or fixture
+values. An acknowledged submission is not KYC approval or card-issuance proof.
+After observing the result, disable the opt-in without another deployment.
+Do not delete the marker or repeat the probe without separate approval.
+
+Local verification for this probe: 112 tests passed. This includes actual server
+startup with a fake network, restart without another request, unchanged fixture
+wallets/settings, exclusive-create concurrency, timeouts, bounded responses and
+no sensitive response values in logs or the marker. These tests do not establish
+the result of the separately approved real-provider sandbox request.
+
 ## Current rollout boundary
 
 PR #10 established the real read-only provider connection. PR #11 delivered

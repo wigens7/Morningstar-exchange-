@@ -12,6 +12,7 @@ const { otpEmail, notificationEmail } = require('./email-templates');
 const { createZiiroPayClient, mountZiiroPayDiagnostics, runZiiroPayStartupCheck } = require('./ziiropay');
 const { mountVirtualCardSetup, mountZiiroPayWebhook } = require('./virtual-card-setup');
 const { createCardKyc, mountCardKyc } = require('./card-kyc');
+const { runSandboxKycProbe } = require('./ziiropay-sandbox-probe');
 
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
@@ -1456,6 +1457,9 @@ ready.then(() => {
   }, 30 * 1000).unref();
   void drainEmailOutbox();
   void runZiiroPayStartupCheck(ziiropayClient);
+  void runSandboxKycProbe({ dataDir: process.env.DATA_DIR }).catch(() => {
+    console.info('[ziiropay-sandbox] SANDBOX_INTERNAL_ERROR_NO_RETRY');
+  });
   setInterval(() => { void cardKyc.runChecks().catch(() => {}); }, 5 * 60 * 1000).unref();
   app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT} (itilizatè: ${useSupabase ? 'Supabase' : 'users.json'})`));
 }).catch((e) => { console.error('Pa ka demare:', e.message); process.exit(1); });
