@@ -1,4 +1,88 @@
-# ZiiroPay integration — connection diagnostics + closed setup
+# ZiiroPay integration — diagnostics, pricing and opt-in KYC preparation
+
+## Current rollout boundary
+
+PR #10 established the real read-only provider connection. PR #11 delivered
+admin card pricing and a closed preparation page. The next change prepares
+automatic KYC behind explicit server-side opt-in, with fake-provider tests only.
+It does NOT activate production KYC, create cards, fund/withdraw cards or wallets,
+verify webhooks, change swap fees, or send new emails.
+
+## Automatic KYC preparation (not activated)
+
+- `/card-kyc.html` remains authenticated, no-store and no-referrer. When disabled
+  it renders no personal-data form. When explicitly enabled it shows the current
+  customer's profile read-only and asks for provider-required additional fields.
+- Only an unbanned customer with verified email, full immutable profile, active
+  PIN and supported approved local KYC can submit. The existing actual PIN guard,
+  AJAX/JSON defenses and request limits apply. Country alpha-2 from the profile
+  maps to ISO alpha-3; user input cannot change the authoritative country.
+- Names, email, DOB, address, telephone and document type come from the
+  authenticated server-side profile. `user_id`, `customer_id`, caller-provided
+  identity fields, document references and provider mode are rejected.
+- The unchecked, versioned consent explicitly covers the identity/contact/
+  residence/employment/financial declarations and the existing approved front-ID
+  image being sent to ZiiroPay for virtual-card KYC. No new upload is required.
+  The backend rechecks the account after reading the private approved document.
+- Before any provider POST, consent, identity snapshot, document SHA-256 and
+  application state are committed in a separate durable SQLite WAL database,
+  `DATA_DIR/card-kyc/kyc.sqlite` (parent 0700, DB 0600, synchronous FULL).
+  Identity, ID number, consent and provider customer ID are AES-256-GCM encrypted,
+  with per-user authenticated additional data. Email/customer uniqueness uses
+  HMAC tags, not plaintext. The image and PIN are never copied to this database.
+- A dedicated storage key is required. Do not reuse the JWT/API/webhook key.
+  A key fingerprint makes a wrong/rotated key fail closed rather than silently
+  creating another application. Back up database AND stable key securely;
+  never commit or print the key. Key rotation needs a separate reviewed process.
+- At most one provider submission per local application, including double-click,
+  simultaneous requests, process restart or a crash in SUBMITTING. A timeout,
+  rejected/unknown response or persistence failure never triggers an automatic
+  POST retry. Such records need read-only reconciliation/support review.
+- The documented POST query to `/api/bitvcard/cardkyc` is prepared server-side,
+  with no redirects, 12-second deadline, bounded JSON response and sanitized
+  error codes. A 2xx or POST `customer_id` never means approval.
+- Only a successful GET `/api/bitvcard/cardkycstatus` with `success:true`,
+  `status:approved`, valid ID and matching name/email/country/phone/dial code can
+  bind a customer ID. The ID is unique across local users and stays server-side.
+  This verifies the identity fields the GET actually returns, not an independent
+  ID-number/DOB check the endpoint does not document. ZiiroPay performs the KYC.
+- Background read-only verification runs every five minutes only while enabled,
+  at most ten due users per run and at most 24 lookups per application in 24 hours.
+  A persisted five-minute lease also applies to explicit customer refresh.
+  No background task ever retransmits a KYC POST. Unapproved/mismatching,
+  changed-profile/document-version, blocked/deleted or conflicted accounts do
+  not gain a verified association. After limits expire, support reconciliation
+  is required; automated indefinite polling is intentionally absent.
+- Local Morningstar KYC approval and user balances/settings are never modified.
+  The page never claims that approved KYC means a card was bought or issued.
+  Existing customer dashboard card-menu behavior remains unchanged.
+- JSON parser errors on the new KYC paths are sanitized before the generic error
+  logger. Upstream bodies, credential-bearing URLs, ID images/numbers and PINs
+  are not logged or echoed. No browser storage, emails or public KYC links.
+
+### Activation prerequisites — do not set these as part of merge/deploy
+
+- `ZIIROPAY_API_KEY`: already configured merchant key; never retrieve its value.
+- `ZIIROPAY_KYC_ENCRYPTION_KEY`: dedicated 32-byte random key encoded as 64 hex
+  characters, provisioned through the workspace Secrets flow, not chat.
+- `ZIIROPAY_KYC_ENABLED=true`: explicit separate approval to accept real KYC.
+- `ZIIROPAY_KYC_MODE=live`: explicit live-only scope. Missing mode or sandbox keeps
+  this implementation disabled. No sandbox GET status namespace is documented;
+  do not accidentally bind a live status lookup to a sandbox submission.
+- Preserve `/data` volume and `DATA_DIR=/data`.
+
+Before enabling real submissions, verify the provider's POST success/error
+contract and transport limit for query/base64 ID images. The official reference
+puts all fields, including the API key and base64 image, in the POST query;
+large URLs may be rejected, and provider/proxy logs must not retain that PII.
+Do not silently invent a JSON-body API. Confirm declaration units/allowed
+values, retention/deletion policy and a support recovery procedure for declined,
+expired or ambiguous applications. No real KYC or provider sandbox submission
+was performed during development, so production submission compatibility is
+not established by mocks.
+
+Card issuance/funding/withdrawal and webhook signature/replay verification remain
+separate blocked stages. Nothing in this KYC preparation enables them.
 
 ## Implemented
 
@@ -19,7 +103,7 @@
   exporting keys or obtaining an admin session in this conversation.
 - Card financial operations remain disabled. This is not a complete card product.
 
-## Stage 2 preparation (requires merge/deployment approval)
+## Stage 2 delivered in PR #11 (closed-default behavior retained)
 
 - Only the full admin role can set the customer card-creation price, in USD.
   User/support roles are denied; the mutation requires the existing authenticated
@@ -122,13 +206,13 @@ issuance permissions, business verification, prefunding or webhook authenticity.
 6. Confirm where `virtualcard.withdrawal.success.credited` settles first.
    The supplied event alone does not authorize a Morningstar wallet credit.
 
-## Next implementation, after contract verification
+## Remaining financial implementation, after contract verification
 
 - Bind provider customer/card IDs to authenticated Morningstar user IDs;
   ownership must be enforced server-side, never via caller-supplied card IDs.
-- Collect missing card-KYC fields and explicit consent without assuming that
-  local KYC approval satisfies ZiiroPay. Do not submit real customer documents
-  during development.
+- Activate and verify the prepared card-KYC flow only after the documented
+  prerequisites. Local KYC approval does not satisfy ZiiroPay by itself.
+  Do not submit real customer documents during development.
 - Store durable operation state and reservations, using integer USD cents and
   an atomic/compensated integration with the existing user store. Isolate card
   tables from the existing P2P ledger.
@@ -148,10 +232,19 @@ issuance permissions, business verification, prefunding or webhook authenticity.
 
 ## Scope and rollout
 
-This stage changes no balances, swap/deposit/withdrawal/P2P calculations, user
-data, database schema or deployment configuration. It adds a separate settings
-file only after an explicit admin save. Existing customer card-menu behavior is
-unchanged deliberately. Webhook samples are not ingested or stored.
+This change modifies no balances, swap/deposit/withdrawal/P2P calculations,
+existing user records, existing database schema or deployment configuration.
+It adds a separate settings file only after an explicit admin save, and an
+isolated encrypted KYC database only when that flow is explicitly configured.
+Existing customer card-menu behavior is unchanged deliberately. Webhook samples
+are not ingested or stored.
+
+Local verification: 106 automated tests passed, including the actual application
+with real JWT/PIN middleware and an explicitly preloaded fake provider (no external
+traffic), encrypted restart recovery, concurrent submission suppression, wrong/
+duplicate provider IDs, consent and changed-account checks. The browser suite
+passed both disabled-default UI and simulated opt-in form/approval flows at
+320/390/768px. These are not proof of real provider POST compatibility.
 No secrets, real card details or customer data belong in tests or this document.
 
 Merge/deployment requires user approval. A final live confirmation requires the
