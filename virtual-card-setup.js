@@ -1,7 +1,7 @@
 'use strict';
 
-// Preparasyon sèlman: okenn fonksyon nan modil sa a pa rele ZiiroPay,
-// pa resevwa dokiman KYC, ni pa li/modifye balans kliyan.
+// Pri/disponiblite sèlman; soumisyon KYC la nan card-kyc.js.
+// Okenn fonksyon isit la pa li/modifye balans kliyan.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -80,12 +80,13 @@ function publicSetup(value) {
   };
 }
 
-function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageFile, settings = createCardSettings(dataDir) }) {
+function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageFile, kycEnabled = false, settings = createCardSettings(dataDir) }) {
+  const setup = (value) => ({ ...publicSetup(value), kycSubmissionEnabled: kycEnabled });
   const noStore = (req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); };
   app.get('/api/admin/virtual-cards/settings', noStore, adminOnly, (req, res) => {
     try {
       const value = settings.read();
-      res.json({ ...publicSetup(value), revision: value.revision, updatedAt: value.updatedAt, webhookPath: WEBHOOK_PATH });
+      res.json({ ...setup(value), revision: value.revision, updatedAt: value.updatedAt, webhookPath: WEBHOOK_PATH });
     } catch {
       res.status(503).json({ code: 'CARD_SETTINGS_UNAVAILABLE', error: 'Pri kat la pa disponib. Pa gen operasyon finansye ki fèt.' });
     }
@@ -104,13 +105,13 @@ function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageF
       const value = settings.save(body.creationPriceUSD, body.revision);
       if (value.error === 'INVALID_PRICE') return res.status(400).json({ error: 'Mete yon pri USD ant 0 ak 999999.99, avèk 2 desimal maksimòm.' });
       if (value.error === 'STALE_SETTINGS') return res.status(409).json({ error: 'Pri a fèk chanje. Rechaje seksyon an anvan ou sove ankò.' });
-      res.json({ ...publicSetup(value), revision: value.revision, updatedAt: value.updatedAt, webhookPath: WEBHOOK_PATH });
+      res.json({ ...setup(value), revision: value.revision, updatedAt: value.updatedAt, webhookPath: WEBHOOK_PATH });
     } catch {
       res.status(503).json({ code: 'CARD_SETTINGS_UNAVAILABLE', error: 'Nou pa ka sove pri kat la. Rechaje seksyon an pou verifye valè a.' });
     }
   });
   app.get('/api/virtual-cards/setup', noStore, auth, (req, res) => {
-    try { res.json(publicSetup(settings.read())); }
+    try { res.json(setup(settings.read())); }
     catch { res.status(503).json({ code: 'CARD_SETTINGS_UNAVAILABLE', error: 'Preparasyon kat la pa disponib.' }); }
   });
   app.get(KYC_PATH, noStore, (req, res, next) => {
@@ -118,10 +119,6 @@ function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageF
     res.set({ 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' });
     auth(req, res, next);
   }, (req, res) => res.sendFile(pageFile));
-  app.post('/api/virtual-cards/kyc', noStore, auth, (req, res) => {
-    // Pa kolekte, pa estoke, pa retransmèt PII pandan entegrasyon an fèmen.
-    res.status(503).json({ code: 'CARD_KYC_NOT_ENABLED', error: 'Soumisyon KYC kat la poko aktive. Pa voye dokiman kounye a.' });
-  });
 }
 
 function mountZiiroPayWebhook(app) {

@@ -13,12 +13,17 @@
     h2{font-size:19px;margin:0 0 12px}p,li{font-size:16px;line-height:1.6}p{color:#bbc3d2}section{background:#141925;border:1px solid #2b3343;border-radius:18px;padding:22px;margin-bottom:18px}
     .notice{border-color:#7d6829;background:#242116}ul{padding-left:22px;margin-bottom:0}li{margin:12px 0}a{display:inline-block;color:#e9c751;padding:12px 0;min-height:44px}strong{color:#f2f4f8}
     #status{overflow-wrap:anywhere}footer{color:#8e98aa;font-size:13px;margin-top:28px}
+    .fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}label{display:block;font-size:15px;color:#c8d0de}
+    input{display:block;width:100%;min-width:0;min-height:48px;border:1px solid #394356;border-radius:10px;background:#0c111c;color:#f2f4f8;padding:12px;font:inherit;margin-top:7px}
+    input[readonly]{color:#a7b2c4}button{min-height:48px;padding:13px 18px;font:inherit;font-weight:700;border:1px solid #e9c751;background:#e9c751;color:#111827;border-radius:12px;cursor:pointer;width:100%;white-space:normal}
+    button:disabled{opacity:.55;cursor:not-allowed}.consent{display:flex;align-items:flex-start;gap:12px;margin:20px 0;line-height:1.6}.consent input{width:22px;min-width:22px;min-height:22px;margin-top:3px;accent-color:#e9c751}
+    .wide{grid-column:1/-1}#kyc-result{overflow-wrap:anywhere}#refresh{margin-top:14px;background:transparent;color:#e9c751}@media(max-width:520px){.fields{grid-template-columns:1fr}section{padding:18px}}
   </style>
 </head>
 <body>
 <main>
   <header><div class="brand">MORNINGSTAR EXCHANGE</div><h1>Verifikasyon pou kat vityèl</h1><p>Paj prive pou kliyan ki konekte a. Pa pataje sesyon ou, modpas ou oswa dokiman ou ak lòt moun.</p></header>
-  <section class="notice"><h2>Preparasyon sèlman</h2><p><strong>KYC kat ZiiroPay la poko ouvri.</strong> Paj sa a pa soumèt enfòmasyon ni dokiman. KYC Morningstar ki deja apwouve pa vle di ZiiroPay deja apwouve ou.</p><p>Pa voye pyès idantite nan chat oswa pa imel. Lè soumisyon an pare, w ap wè enfòmasyon ki pral pataje yo epi w ap bay konsantman ou anvan transmisyon an.</p></section>
+  <section class="notice" id="kyc-notice"><h2>Preparasyon sèlman</h2><p><strong>KYC kat ZiiroPay la poko ouvri.</strong> Lè sèvis la fèmen, paj sa a pa soumèt enfòmasyon ni dokiman. KYC Morningstar ki deja apwouve pa vle di ZiiroPay deja apwouve ou.</p><p>Pa voye pyès idantite nan chat oswa pa imel. Lè soumisyon an aktive, w ap verifye enfòmasyon ki pral pataje yo epi w ap bay konsantman ou anvan transmisyon an.</p></section>
   <section><h2>Enfòmasyon ZiiroPay mande</h2><ul>
     <li>Non legal, dat ak kote ou fèt.</li>
     <li>Adrès imèl, telefòn avèk kòd peyi ak adrès rezidans konplè.</li>
@@ -26,9 +31,112 @@
     <li>Metye, sitiyasyon travay, objektif kont lan, revni anyèl ak volim mansyèl ou prevwa.</li>
   </ul></section>
   <section><h2>Pri ak disponiblite</h2><p id="status" role="status" aria-live="polite">Verifikasyon ap fèt…</p><p>Se administratè a sèlman ki fikse pri kreasyon kat la. Sove yon pri pa aktive kat yo. Pa gen debi, rechaj oswa retrè ki fèt sou paj sa a.</p></section>
+  <div id="kyc-panel"></div>
   <a href="/dashboard.html">← Retounen nan kont mwen</a><footer>Morningstar Exchange · Pwoteje enfòmasyon pèsonèl ou.</footer>
 </main>
 <script>
+  const panel = document.getElementById('kyc-panel');
+  const labels = {
+    SUBMITTING: 'Dosye a anrejistre pou transmisyon. Pa resoumèt li.',
+    PENDING: 'Dosye a voye; apwobasyon ZiiroPay poko verifye.',
+    UNKNOWN: 'Rezilta transmisyon an pa sèten. Pa resoumèt; verifye estati a oswa kontakte sipò.',
+    REVIEW_REQUIRED: 'Gen yon diferans ki mande verifikasyon sipò. Pa resoumèt dosye a.',
+    APPROVED: 'KYC ZiiroPay ou apwouve epi referans kliyan an asosye ak kont ou. Acha kat la poko aktive.'
+  };
+  const reasons = {
+    CUSTOMER_REQUIRED: 'Sèvis sa a rezève pou kont kliyan ki pa bloke.',
+    VERIFIED_EMAIL_REQUIRED: 'Verifye adrès imèl kont ou anvan.',
+    LOCAL_KYC_REQUIRED: 'KYC Morningstar ou dwe apwouve avèk yon pyès ki sipòte anvan.',
+    PROFILE_PIN_REQUIRED: 'Konplete pwofil ou epi kreye PIN ou nan Paramèt anvan.',
+    KYC_IDENTITY_CHANGED: 'Enfòmasyon kont oswa KYC lokal la chanje apre konsantman an. Kontakte sipò pou revize asosiyasyon an.'
+  };
+  function showApplication(data) {
+    panel.replaceChildren();
+    if (!data.enabled) return;
+    document.getElementById('kyc-notice').innerHTML = '<h2>KYC pou ZiiroPay</h2><p>KYC kat sa a separe ak KYC Morningstar la. Pa gen acha kat ni mouvman lajan sou paj sa a.</p>';
+    const section = document.createElement('section');
+    panel.append(section);
+    const result = document.createElement('p');
+    result.id = 'kyc-result'; result.setAttribute('role', 'status'); result.setAttribute('aria-live', 'polite');
+    section.append(result);
+    if (!data.eligible) { result.textContent = reasons[data.code] || 'Soumisyon an pa disponib pou kont ou kounye a.'; return; }
+    if (data.status !== 'NOT_SUBMITTED') {
+      if (data.verificationPaused) {
+        result.textContent = 'Verifikasyon otomatik la pran poz apre limit li. Kontakte sipò pou rekonsilyasyon dosye a; pa resoumèt li.';
+        return;
+      }
+      result.textContent = labels[data.status] || 'Nou pa ka konfime estati KYC a.';
+      if (data.status !== 'APPROVED') {
+        const button = document.createElement('button'); button.id = 'refresh'; button.textContent = 'Verifye estati sou ZiiroPay';
+        section.append(button);
+        button.onclick = async () => {
+          button.disabled = true;
+          try {
+            const r = await fetch('/api/virtual-cards/kyc/refresh', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!r.ok) throw new Error('unavailable');
+            showApplication(await r.json());
+          } catch { result.textContent = 'Verifikasyon an pa fini. Tann yon ti moman oswa kontakte sipò. Pa resoumèt dosye a.'; button.disabled = false; }
+        };
+      }
+      return;
+    }
+    result.textContent = 'Verifye enfòmasyon yo. Nou pral sèvi ak foto devan pyès ki nan KYC Morningstar ou ki apwouve a; ou pa bezwen remonte li.';
+    const form = document.createElement('form'); form.id = 'kyc-form'; form.autocomplete = 'off';
+    const grid = document.createElement('div'); grid.className = 'fields'; form.append(grid);
+    for (const [key, label] of Object.entries({ firstName: 'Non legal', lastName: 'Siyati legal', email: 'Adrès imèl kont lan', dob: 'Dat nesans', phone: 'Telefòn nan pwofil la', address: 'Adrès nan pwofil la', idType: 'Kalite pyès apwouve a' })) {
+      const el = document.createElement('label'); el.textContent = label;
+      const input = document.createElement('input'); input.readOnly = true; input.value = data.identity[key] || ''; el.append(input); grid.append(el);
+    }
+    const fields = {
+      id_number: ['Nimewo pyès idantite a', '', 100], dial_code: ['Kòd telefòn peyi a', '+509', 5],
+      country: ['Kòd peyi rezidans (3 lèt)', 'HTI', 3], state: ['Depatman oswa eta', '', 100],
+      postal_code: ['Kòd postal', '', 100], city: ['Vil', '', 100], place_of_birth: ['Kote ou fèt', '', 100],
+      occupation: ['Metye (fòma: non_metye)', '', 60], employment_status: ['Sitiyasyon travay (egzanp: employed)', '', 60],
+      account_purpose: ['Objektif itilizasyon kat la', '', 200], annual_salary: ['Revni anyèl — valè ZiiroPay mande', '', 15],
+      expected_monthly_volume: ['Volim mansyèl prevwa — valè ZiiroPay mande', '', 15]
+    };
+    const inputs = {};
+    for (const [key, [text, placeholder, max]] of Object.entries(fields)) {
+      const label = document.createElement('label'); label.textContent = text;
+      const input = document.createElement('input'); input.name = key; input.required = true; input.maxLength = max; input.placeholder = placeholder;
+      if (['annual_salary', 'expected_monthly_volume'].includes(key)) input.inputMode = 'decimal';
+      label.append(input); grid.append(label); inputs[key] = input;
+    }
+    inputs.country.value = data.identity.country3 || '';
+    inputs.country.readOnly = true;
+    if (data.identity.country3 === 'HTI') inputs.dial_code.value = '+509';
+    const consentLabel = document.createElement('label'); consentLabel.className = 'consent';
+    const consent = document.createElement('input'); consent.type = 'checkbox'; consent.required = true; consent.id = 'kyc-consent';
+    const consentText = document.createElement('span');
+    consentText.textContent = 'Mwen otorize Morningstar Exchange voye non mwen, imèl, telefòn, adrès, dat ak kote nesans, nimewo ak foto devan pyès apwouve mwen an, metye, sitiyasyon travay, objektif kont, revni anyèl ak volim mansyèl mwen bay ZiiroPay pou verifikasyon idantite kat vityèl. Mwen konfime enfòmasyon yo kòrèk. Konsantman sa a ap anrejistre.';
+    consentLabel.append(consent, consentText); form.append(consentLabel);
+    const pinLabel = document.createElement('label'); pinLabel.textContent = 'PIN sekirite Morningstar (6 chif)';
+    const pin = document.createElement('input'); pin.name = 'pin'; pin.type = 'password'; pin.inputMode = 'numeric'; pin.pattern = '[0-9]{6}'; pin.maxLength = 6; pin.required = true;
+    pinLabel.append(pin); form.append(pinLabel);
+    const submit = document.createElement('button'); submit.type = 'submit'; submit.id = 'kyc-submit'; submit.textContent = 'Mwen dakò — voye KYC mwen bay ZiiroPay'; submit.style.marginTop = '20px'; form.append(submit);
+    section.append(form);
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      if (submit.disabled || !consent.checked || !form.reportValidity()) return;
+      submit.disabled = true;
+      const body = Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.value.trim()]));
+      Object.assign(body, { consent: true, consentVersion: data.consentVersion, pin: pin.value });
+      pin.value = ''; result.textContent = 'Transmisyon ap fèt. Pa fèmen oswa resoumèt demann lan.';
+      try {
+        const r = await fetch('/api/virtual-cards/kyc', { method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) });
+        if (!r.ok) {
+          const response = await r.json();
+          if ([400, 403, 409, 429].includes(r.status)) {
+            result.textContent = response.code && reasons[response.code] ? reasons[response.code] : 'Soumisyon an pa fini. Verifye chan yo, konsantman ak PIN ou; tann si limit demann lan rive.';
+            submit.disabled = false; return;
+          }
+          throw new Error('unavailable');
+        }
+        form.reset(); showApplication(await r.json());
+      } catch { result.textContent = 'Rezilta a pa sèten. Rechaje paj la pou wè estati a anvan ou eseye ankò. Pa gen retry otomatik.'; }
+    };
+  }
   (async () => {
     const status = document.getElementById('status');
     try {
@@ -40,6 +148,10 @@
         ? 'Pri kreasyon admin lan konfigire: ' + data.creationPriceUSD + ' USD. Acha kat la poko aktive.'
         : 'Admin lan poko konfigire pri kreasyon an. Acha kat la poko aktive.';
     } catch { status.textContent = 'Nou pa ka verifye pri a kounye a. Pa gen operasyon finansye ki fèt.'; }
+    try {
+      const r = await fetch('/api/virtual-cards/kyc', { cache: 'no-store' });
+      if (r.ok) showApplication(await r.json());
+    } catch { /* Yon erè pa dwe louvri fòm nan. */ }
   })();
 </script>
 </body>

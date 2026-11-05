@@ -199,6 +199,49 @@ async function run() {
     assert.equal(await kycPreview.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
   }
   assert.equal(await kycPreview.locator('input,form').count(), 0, 'closed KYC preview collects no PII');
+  let kycSubmissions = 0;
+  const consentVersion = 'morningstar-ziiropay-card-kyc-v1';
+  await kycPreview.route('**/api/virtual-cards/kyc', async (route) => {
+    if (route.request().method() === 'POST') {
+      kycSubmissions++;
+      const body = route.request().postDataJSON();
+      assert.equal(body.consent, true); assert.equal(body.consentVersion, consentVersion);
+      for (const key of ['user_id', 'customer_id', 'email', 'first_name', 'id_front_image']) assert.equal(Object.hasOwn(body, key), false);
+      await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ enabled: true, eligible: true, status: 'PENDING', consentVersion }) });
+    } else {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        enabled: true, eligible: true, status: 'NOT_SUBMITTED', consentVersion,
+        identity: { firstName: 'Nadia', lastName: 'Pierre', email: 'fixture@example.test', dob: '1990-01-15',
+          phone: '+50937000000', address: 'Adrès sentetik pou tès', country: 'HT', country3: 'HTI', idType: 'national_id' }
+      }) });
+    }
+  });
+  await kycPreview.goto(base + '/card-kyc.html');
+  await kycPreview.locator('#kyc-form').waitFor();
+  assert.equal(await kycPreview.locator('#kyc-consent').isChecked(), false);
+  assert.equal(await kycPreview.locator('[name=country]').inputValue(), 'HTI');
+  const kycFields = {
+    id_number: 'SYNTHETIC-ID-123', state: 'Depatman tès', postal_code: 'HT0000', city: 'Vil tès', place_of_birth: 'Kote tès',
+    occupation: 'office_worker', employment_status: 'employed', account_purpose: 'Peman sou entènèt', annual_salary: '1000', expected_monthly_volume: '100', pin: '123456'
+  };
+  for (const [name, value] of Object.entries(kycFields)) await kycPreview.locator('[name=' + name + ']').fill(value);
+  await kycPreview.locator('#kyc-submit').click();
+  assert.equal(kycSubmissions, 0, 'consent required; no automatic submission');
+  for (const width of [320, 390, 768]) {
+    await kycPreview.setViewportSize({ width, height: 844 });
+    assert.equal(await kycPreview.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+  }
+  await kycPreview.locator('#kyc-consent').check();
+  await kycPreview.locator('#kyc-submit').click();
+  await kycPreview.locator('#kyc-result').filter({ hasText: 'apwobasyon ZiiroPay poko verifye' }).waitFor();
+  assert.equal(kycSubmissions, 1);
+  assert.equal(await kycPreview.locator('#kyc-form').count(), 0);
+  await kycPreview.route('**/api/virtual-cards/kyc/refresh', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true, eligible: true, status: 'APPROVED', consentVersion })
+  }));
+  await kycPreview.locator('#refresh').click();
+  await kycPreview.locator('#kyc-result').filter({ hasText: 'Acha kat la poko aktive' }).waitFor();
+  report.push({ check: 'simulated KYC consent/readonly identity/PIN form, one submission and separate approval, 320/390/768px', passed: true });
   await kycPreview.close();
   report.push({ check: 'private preparatory KYC page at 320/390/768px, no personal-data collection', passed: true });
   let deposits = 0;

@@ -11,6 +11,7 @@ const { issueOtp, verifyOtp } = require('./otp');
 const { otpEmail, notificationEmail } = require('./email-templates');
 const { createZiiroPayClient, mountZiiroPayDiagnostics, runZiiroPayStartupCheck } = require('./ziiropay');
 const { mountVirtualCardSetup, mountZiiroPayWebhook } = require('./virtual-card-setup');
+const { createCardKyc, mountCardKyc } = require('./card-kyc');
 
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
@@ -53,6 +54,10 @@ const fileStore = createFiles({
   p2pDir: path.join(DATA_DIR, 'p2p-evidence')
 });
 if (isProd && !fileStore.canWrite) console.warn('ATANSYON: nouvo foto KYC/P2P ap sove sou disk lokal (Supabase Storage pa aktif).');
+const cardKyc = createCardKyc({
+  dataDir: DATA_DIR, readDocument: (user) => fileStore.readKyc(user, 'front'), detectExt,
+  getUser: (id) => loadUsers().find((user) => user.id === id)
+});
 // ---------- Chat support (live chat, sèlman tèks) ----------
 const { cleanBody, createSupport, supabaseSupport, fileSupport, SupportError } = require('./supportstore');
 const support = createSupport(useSupabase
@@ -235,6 +240,15 @@ app.set('trust proxy', 1);
 app.disable('x-powered-by');
 mountZiiroPayWebhook(app);
 app.use(express.json({ limit: '20kb', verify: (req, res, buf) => { req.rawBody = buf; } })); // rawBody: pou siyati webhook
+// Pa kite erè JSON KYC yo mete fragman PII/PIN nan handler logs jeneral la.
+app.use((err, req, res, next) => {
+  if (req.path === '/api/virtual-cards/kyc' || req.path === '/api/virtual-cards/kyc/refresh') {
+    return res.status(err.type === 'entity.too.large' ? 413 : 400).json({
+      code: 'INVALID_KYC_REQUEST', error: 'Demann KYC a pa valid.'
+    });
+  }
+  next(err);
+});
 app.use(cookieParser());
 app.use((req, res, next) => {
   res.set({
@@ -1394,8 +1408,9 @@ app.post('/api/admin/users/:id/role', adminOnly, async (req, res) => {
 mountZiiroPayDiagnostics(app, { adminOnly, rateLimit, client: ziiropayClient });
 mountVirtualCardSetup(app, {
   dataDir: DATA_DIR, auth, adminOnly, rateLimit,
-  pageFile: path.join(__dirname, 'card-kyc.html')
+  pageFile: path.join(__dirname, 'card-kyc.html'), kycEnabled: cardKyc.enabled
 });
+mountCardKyc(app, { service: cardKyc, auth, pinGuard, rateLimit });
 
 // ---------- Paj yo ----------
 // Sèlman 2 paj sa yo ki piblik (server.js ak lòt fichye yo pa janm sèvi)
@@ -1441,6 +1456,7 @@ ready.then(() => {
   }, 30 * 1000).unref();
   void drainEmailOutbox();
   void runZiiroPayStartupCheck(ziiropayClient);
+  setInterval(() => { void cardKyc.runChecks().catch(() => {}); }, 5 * 60 * 1000).unref();
   app.listen(PORT, '0.0.0.0', () => console.log(`Morningstar Exchange ap kouri sou pò ${PORT} (itilizatè: ${useSupabase ? 'Supabase' : 'users.json'})`));
 }).catch((e) => { console.error('Pa ka demare:', e.message); process.exit(1); });
 
