@@ -10,6 +10,7 @@ const { createResendClient } = require('./resend');
 const { issueOtp, verifyOtp } = require('./otp');
 const { otpEmail, notificationEmail } = require('./email-templates');
 const { createZiiroPayClient, mountZiiroPayDiagnostics, runZiiroPayStartupCheck } = require('./ziiropay');
+const { mountVirtualCardSetup, mountZiiroPayWebhook } = require('./virtual-card-setup');
 
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
@@ -232,6 +233,7 @@ for (const m of ['get', 'post', 'put', 'delete']) {
 }
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
+mountZiiroPayWebhook(app);
 app.use(express.json({ limit: '20kb', verify: (req, res, buf) => { req.rawBody = buf; } })); // rawBody: pou siyati webhook
 app.use(cookieParser());
 app.use((req, res, next) => {
@@ -1390,6 +1392,10 @@ app.post('/api/admin/users/:id/role', adminOnly, async (req, res) => {
 
 // Premye etap ZiiroPay: admin ka verifye koneksyon an, san operasyon finansye.
 mountZiiroPayDiagnostics(app, { adminOnly, rateLimit, client: ziiropayClient });
+mountVirtualCardSetup(app, {
+  dataDir: DATA_DIR, auth, adminOnly, rateLimit,
+  pageFile: path.join(__dirname, 'card-kyc.html')
+});
 
 // ---------- Paj yo ----------
 // Sèlman 2 paj sa yo ki piblik (server.js ak lòt fichye yo pa janm sèvi)

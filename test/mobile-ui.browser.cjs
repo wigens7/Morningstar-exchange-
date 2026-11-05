@@ -177,7 +177,30 @@ async function run() {
   await admin.unroute('**/api/admin/virtual-cards/connection-test');
   report.push({ check: 'ZiiroPay admin diagnostic missing key and simulated success, mobile overflow' });
   console.log('PASS: ZiiroPay admin diagnostic messages at 390px, no financial operations');
+  await admin.locator('#vc-price-save:not([disabled])').waitFor();
+  await admin.locator('#vc-price').fill('12.30');
+  await admin.locator('#vc-price-save').click();
+  await admin.locator('#vc-price-result').filter({ hasText: 'Pri kat la sove: 12.30 USD' }).waitFor();
+  await admin.evaluate(() => go('set'));
+  await admin.locator('#vc-price-save:not([disabled])').waitFor();
+  assert.equal(await admin.locator('#vc-price').inputValue(), '12.30');
+  await admin.locator('#vc-price').fill('1.001');
+  await admin.locator('#vc-price-save').click();
+  await admin.locator('#vc-price-result').filter({ hasText: 'Mete yon montan USD valid' }).waitFor();
+  assert.equal(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+  report.push({ check: 'admin-only card price saved and reloaded at 390px, invalid cents rejected, no financial operations', passed: true });
+  console.log('PASS: card price setup saves/reloads at 390px without changing swap settings');
   const { c: customerContext, p: customer } = await context('customer', 390);
+  const kycPreview = await customerContext.newPage();
+  await kycPreview.goto(base + '/card-kyc.html');
+  await kycPreview.locator('#status').filter({ hasText: '12.30 USD' }).waitFor();
+  for (const width of [320, 390, 768]) {
+    await kycPreview.setViewportSize({ width, height: 844 });
+    assert.equal(await kycPreview.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+  }
+  assert.equal(await kycPreview.locator('input,form').count(), 0, 'closed KYC preview collects no PII');
+  await kycPreview.close();
+  report.push({ check: 'private preparatory KYC page at 320/390/768px, no personal-data collection', passed: true });
   let deposits = 0;
   customer.on('request', (req) => { if (req.method() === 'POST' && req.url() === base + '/api/deposit') deposits++; });
   await customer.goto(base + '/dashboard.html');
