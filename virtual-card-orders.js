@@ -20,7 +20,7 @@ const messages = {
   CARD_STALE_QUOTE: 'Pri oswa dosye a chanje, oswa estimasyon an ekspire. Rekalkile pri a.',
   CARD_INVALID_REQUEST: 'Demann kat la pa valid.',
   CARD_WALLET_UNCERTAIN: 'Verifikasyon balans lan poko fini. Pa fè yon lòt demann; kontakte admin.',
-  CARD_PROVIDER_REJECTED: 'ZiiroPay rejte demann lan. Rezèv la anile; pa gen debi final.',
+  CARD_PROVIDER_REJECTED: 'Founisè kat la rejte demann lan. Rezèv la anile; pa gen debi final.',
   CARD_REVIEW_REQUIRED: 'Rezilta demann lan mande verifikasyon admin. Rezèv oswa peman an poko finalize; pa repete acha a.',
   CARD_BUSY: 'Gen yon operasyon sou demann sa a deja an kou.',
   CARD_NOT_FOUND: 'Demann kat sa a pa disponib.',

@@ -38,7 +38,7 @@
       $('buy').hidden = !data.enabled || !data.cardholderApproved || data.creationPriceConfigured === false || Boolean(open);
       if (open) text(open.message);
       else if (!data.enabled) text('Kreasyon kat la poko aktive pou kliyan yo. Admin dwe finalize aktivasyon an.');
-      else if (!data.cardholderApproved) text('Admin dwe asosye yon Customer ID ZiiroPay apwouve ak kont ou anvan ou kreye kat.');
+      else if (!data.cardholderApproved) text('Admin dwe asosye yon Customer ID founisè a apwouve ak kont ou anvan ou kreye kat.');
       else if (data.creationPriceConfigured === false) text('Admin dwe fikse frè kreasyon kat la anvan ou ka fè yon demann.');
       else text('Cardholder ou pare. Chwazi premye montan ou vle sou kat la epi verifye pri total la.');
       for (const order of data.orders) {

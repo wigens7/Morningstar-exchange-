@@ -66,7 +66,7 @@ test('card setup pages parse, remain preparatory, do not collect PII or auto-cal
     }
   }
   const html = fs.readFileSync(path.join(__dirname, '..', 'card-kyc.html'), 'utf8');
-  assert.match(html, /KYC kat ZiiroPay la poko ouvri/);
+  assert.match(html, /KYC kat la poko ouvri/);
   assert.match(html, /pa soumèt enfòmasyon ni dokiman/);
   assert.doesNotMatch(html, /<input|<form|localStorage|sessionStorage|ziiropay\.com/i);
   assert.match(html, /status\.textContent/);

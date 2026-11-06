@@ -23,8 +23,8 @@
 <body>
 <main>
   <header><div class="brand">MORNINGSTAR EXCHANGE</div><h1>Verifikasyon pou kat vityèl</h1><p>Paj prive pou kliyan ki konekte a. Pa pataje sesyon ou, modpas ou oswa dokiman ou ak lòt moun.</p></header>
-  <section class="notice" id="kyc-notice"><h2>Preparasyon sèlman</h2><p><strong>KYC kat ZiiroPay la poko ouvri.</strong> Lè sèvis la fèmen, paj sa a pa soumèt enfòmasyon ni dokiman. KYC Morningstar ki deja apwouve pa vle di ZiiroPay deja apwouve ou.</p><p>Pa voye pyès idantite nan chat oswa pa imel. Lè soumisyon an aktive, w ap verifye enfòmasyon ki pral pataje yo epi w ap bay konsantman ou anvan transmisyon an.</p></section>
-  <section><h2>Enfòmasyon ZiiroPay mande</h2><ul>
+  <section class="notice" id="kyc-notice"><h2>Preparasyon sèlman</h2><p><strong>KYC kat la poko ouvri.</strong> Lè sèvis la fèmen, paj sa a pa soumèt enfòmasyon ni dokiman. KYC Morningstar ki deja apwouve pa vle di founisè a deja apwouve ou.</p><p>Pa voye pyès idantite nan chat oswa pa imel. Lè soumisyon an aktive, w ap verifye enfòmasyon ki pral pataje yo epi w ap bay konsantman ou anvan transmisyon an.</p></section>
+  <section><h2>Enfòmasyon founisè kat la mande</h2><ul>
     <li>Non legal, dat ak kote ou fèt.</li>
     <li>Adrès imèl, telefòn avèk kòd peyi ak adrès rezidans konplè.</li>
     <li>Kalite ak nimewo pyès idantite, avèk foto devan pyès la.</li>
@@ -38,10 +38,10 @@
   const panel = document.getElementById('kyc-panel');
   const labels = {
     SUBMITTING: 'Dosye a anrejistre pou transmisyon. Pa resoumèt li.',
-    PENDING: 'Dosye a voye; apwobasyon ZiiroPay poko verifye.',
+    PENDING: 'Dosye a voye; apwobasyon founisè a poko verifye.',
     UNKNOWN: 'Rezilta transmisyon an pa sèten. Pa resoumèt; verifye estati a oswa kontakte sipò.',
     REVIEW_REQUIRED: 'Gen yon diferans ki mande verifikasyon sipò. Pa resoumèt dosye a.',
-    APPROVED: 'KYC ZiiroPay ou apwouve epi referans kliyan an asosye ak kont ou. Acha kat la poko aktive.'
+    APPROVED: 'KYC kat ou apwouve epi referans kliyan an asosye ak kont ou. Acha kat la poko aktive.'
   };
   const reasons = {
     CUSTOMER_REQUIRED: 'Sèvis sa a rezève pou kont kliyan ki pa bloke.',
@@ -53,7 +53,7 @@
   function showApplication(data) {
     panel.replaceChildren();
     if (!data.enabled) return;
-    document.getElementById('kyc-notice').innerHTML = '<h2>KYC pou ZiiroPay</h2><p>KYC kat sa a separe ak KYC Morningstar la. Pa gen acha kat ni mouvman lajan sou paj sa a.</p>';
+    document.getElementById('kyc-notice').innerHTML = '<h2>KYC pou kat vityèl</h2><p>KYC kat sa a separe ak KYC Morningstar la. Pa gen acha kat ni mouvman lajan sou paj sa a.</p>';
     const section = document.createElement('section');
     panel.append(section);
     const result = document.createElement('p');
@@ -67,7 +67,7 @@
       }
       result.textContent = labels[data.status] || 'Nou pa ka konfime estati KYC a.';
       if (data.status !== 'APPROVED') {
-        const button = document.createElement('button'); button.id = 'refresh'; button.textContent = 'Verifye estati sou ZiiroPay';
+        const button = document.createElement('button'); button.id = 'refresh'; button.textContent = 'Verifye estati sou founisè a';
         section.append(button);
         button.onclick = async () => {
           button.disabled = true;
@@ -92,8 +92,8 @@
       country: ['Kòd peyi rezidans (3 lèt)', 'HTI', 3], state: ['Depatman oswa eta', '', 100],
       postal_code: ['Kòd postal', '', 100], city: ['Vil', '', 100], place_of_birth: ['Kote ou fèt', '', 100],
       occupation: ['Metye (fòma: non_metye)', '', 60], employment_status: ['Sitiyasyon travay (egzanp: employed)', '', 60],
-      account_purpose: ['Objektif itilizasyon kat la', '', 200], annual_salary: ['Revni anyèl — valè ZiiroPay mande', '', 15],
-      expected_monthly_volume: ['Volim mansyèl prevwa — valè ZiiroPay mande', '', 15]
+      account_purpose: ['Objektif itilizasyon kat la', '', 200], annual_salary: ['Revni anyèl — valè founisè a mande', '', 15],
+      expected_monthly_volume: ['Volim mansyèl prevwa — valè founisè a mande', '', 15]
     };
     const inputs = {};
     for (const [key, [text, placeholder, max]] of Object.entries(fields)) {
@@ -108,12 +108,12 @@
     const consentLabel = document.createElement('label'); consentLabel.className = 'consent';
     const consent = document.createElement('input'); consent.type = 'checkbox'; consent.required = true; consent.id = 'kyc-consent';
     const consentText = document.createElement('span');
-    consentText.textContent = 'Mwen otorize Morningstar Exchange voye non mwen, imèl, telefòn, adrès, dat ak kote nesans, nimewo ak foto devan pyès apwouve mwen an, metye, sitiyasyon travay, objektif kont, revni anyèl ak volim mansyèl mwen bay ZiiroPay pou verifikasyon idantite kat vityèl. Mwen konfime enfòmasyon yo kòrèk. Konsantman sa a ap anrejistre.';
+    consentText.textContent = 'Mwen otorize Morningstar Exchange voye non mwen, imèl, telefòn, adrès, dat ak kote nesans, nimewo ak foto devan pyès apwouve mwen an, metye, sitiyasyon travay, objektif kont, revni anyèl ak volim mansyèl mwen bay founisè kat la pou verifikasyon idantite kat vityèl. Mwen konfime enfòmasyon yo kòrèk. Konsantman sa a ap anrejistre.';
     consentLabel.append(consent, consentText); form.append(consentLabel);
     const pinLabel = document.createElement('label'); pinLabel.textContent = 'PIN sekirite Morningstar (6 chif)';
     const pin = document.createElement('input'); pin.name = 'pin'; pin.type = 'password'; pin.inputMode = 'numeric'; pin.pattern = '[0-9]{6}'; pin.maxLength = 6; pin.required = true;
     pinLabel.append(pin); form.append(pinLabel);
-    const submit = document.createElement('button'); submit.type = 'submit'; submit.id = 'kyc-submit'; submit.textContent = 'Mwen dakò — voye KYC mwen bay ZiiroPay'; submit.style.marginTop = '20px'; form.append(submit);
+    const submit = document.createElement('button'); submit.type = 'submit'; submit.id = 'kyc-submit'; submit.textContent = 'Mwen dakò — voye KYC mwen bay founisè kat la'; submit.style.marginTop = '20px'; form.append(submit);
     section.append(form);
     form.onsubmit = async (event) => {
       event.preventDefault();

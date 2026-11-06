@@ -91,7 +91,7 @@
     nSwapHtg: ['Swap fèt: {a} → {b}.', 'Swap effectué : {a} → {b}.', 'Swap done: {a} → {b}.', 'Swap hecho: {a} → {b}.'],
     nSwapUsd: ['Swap fèt: {a} → {b}.', 'Swap effectué : {a} → {b}.', 'Swap done: {a} → {b}.', 'Swap hecho: {a} → {b}.'],
     nKycOk: ['KYC ou apwouve. Ou ka fè depo, swap ak retrè.', 'Votre KYC est approuvé. Vous pouvez déposer, swapper et retirer.', 'Your KYC was approved. You can deposit, swap and withdraw.', 'Tu KYC fue aprobado. Ya puedes depositar, hacer swap y retirar.'],
-    nCardholderReady: Array(4).fill('Cardholder ZiiroPay ou apwouve epi li asosye ak kont ou. Ale nan Kat vityèl pou verifye pri ak disponiblite kreasyon an. Mesaj sa a pa yon konfimasyon kreyasyon kat.'),
+    nCardholderReady: Array(4).fill('Cardholder ou apwouve epi li asosye ak kont ou. Ale nan Kat vityèl pou verifye pri ak disponiblite kreasyon an. Mesaj sa a pa yon konfimasyon kreyasyon kat.'),
     nCardCreated: Array(4).fill('Kat vityèl ou kreye epi verifye. Gen yon sèl peman final pou demann sa a. Ale nan Kat vityèl pou wè detay yo an sekirite.'),
     nCardFailed: Array(4).fill('Demann kat ou anile. Pa gen debi final; nenpòt rezèv ki te fèt anile. Verifye estati a nan Kat vityèl.'),
     nKycRej: ['KYC ou refize. Gade rezon an nan Paramèt.', 'Votre KYC a été refusé. Voir la raison dans les paramètres.', 'Your KYC was rejected. See the reason in Settings.', 'Tu KYC fue rechazado. Mira el motivo en Ajustes.'],
