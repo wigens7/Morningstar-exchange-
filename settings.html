@@ -167,6 +167,13 @@ function renderProfile() {
       <div class="row"><span>${t('country')}</span><span>${esc(countryName(p.country))}</span></div>
       <div class="row"><span>${t('phone')}</span><span>${esc(p.phone)}</span></div>
       <div class="row"><span>${t('address')}</span><span>${esc(p.address)}</span></div>`;
+    if (me.nameEditAllowed) {
+      box.innerHTML += `<div class="mt-4 pt-3 border-t border-white/10">
+        <p class="text-[11px] text-emerald-400 mb-2"><i class="fa-solid fa-unlock mr-1"></i>Admin otorize w chanje non ou (yon sèl fwa).</p>
+        <label class="lbl">${t('firstName')}</label><div class="field"><input id="n-fn" maxlength="50" value="${esc(p.firstName)}"></div>
+        <label class="lbl">${t('lastName')}</label><div class="field"><input id="n-ln" maxlength="50" value="${esc(p.lastName)}"></div>
+        <button id="n-go" onclick="saveName()" class="gold-btn w-full py-3 rounded-xl font-bold text-sm mt-1">Sove non an</button></div>`;
+    }
     return;
   }
   const d = new Date(); d.setFullYear(d.getFullYear() - 18);
@@ -188,6 +195,15 @@ async function saveProfile() {
   $('p-go').disabled = true;
   try { me = await post('/api/profile', body); renderProfile(); toast(t('profileSaved'), true); }
   catch (e) { toast(e.message, false); $('p-go') && ($('p-go').disabled = false); }
+}
+
+async function saveName() {
+  const body = { firstName: $('n-fn').value, lastName: $('n-ln').value };
+  if (Object.values(body).some((v) => String(v).trim().length < 2)) return toast(t('errFields'), false);
+  if (!(await uiConfirm('Ou ka chanje non ou yon sèl fwa sèlman. Kontinye?'))) return;
+  $('n-go').disabled = true;
+  try { me = await post('/api/profile/name', body); renderProfile(); $('who') && ($('who').textContent = me.name + ' · ' + me.email); toast('Non an chanje.', true); }
+  catch (e) { toast(e.message, false); $('n-go') && ($('n-go').disabled = false); }
 }
 
 function renderPin() {
