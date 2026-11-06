@@ -20,7 +20,7 @@ test('admin can rename a customer with validation and an audit record', { timeou
   fs.writeFileSync(path.join(dir, 'users.json'), JSON.stringify([
     makeUser('admin', 'Admin', 'admin', 'admin@example.test'),
     makeUser('support', 'Support', 'support', 'support@example.test'),
-    makeUser('customer', 'Old Name', 'user', 'customer@example.test')
+    { ...makeUser('customer', 'Old Name', 'user', 'customer@example.test'), profile: { firstName: 'Old', lastName: 'Name', dob: '1990-01-01', country: 'Haiti', phone: '+5090000000', address: 'somewhere 1' } }
   ]));
 
   const socket = net.createServer();
@@ -78,7 +78,12 @@ test('admin can rename a customer with validation and an audit record', { timeou
 
     const renamed = await post('customer', { name: '  New   Name  ' });
     assert.equal(renamed.status, 200);
-    assert.deepEqual(await renamed.json(), { name: 'New Name' });
+    assert.deepEqual(await renamed.json(), { name: 'New Name', firstName: 'New', lastName: 'Name' });
+
+    const split = await post('customer', { firstName: ' Marie ', lastName: 'Marthe' });
+    assert.equal(split.status, 200);
+    assert.equal((await post('customer', { name: 'mariemarthe' })).status, 400);
+    assert.equal((await post('customer', { firstName: 'M', lastName: 'Marthe' })).status, 400);
 
     assert.equal((await post('customer', { name: ' ' })).status, 400);
     assert.equal((await post('customer', { name: 'x'.repeat(101) })).status, 400);
@@ -87,10 +92,12 @@ test('admin can rename a customer with validation and an audit record', { timeou
 
     const persisted = JSON.parse(fs.readFileSync(path.join(dir, 'users.json'), 'utf8'));
     const customer = persisted.find((user) => user.id === 'customer');
-    assert.equal(customer.name, 'New Name');
-    const event = customer.activity.find((entry) => entry.type === 'name_change');
+    assert.equal(customer.name, 'Marie Marthe');
+    assert.equal(customer.profile.firstName, 'Marie');
+    assert.equal(customer.profile.lastName, 'Marthe');
+    const event = customer.activity.filter((entry) => entry.type === 'name_change').pop();
     assert.equal(event.by, 'admin@example.test');
-    assert.match(event.detail, /Old Name.*New Name/);
+    assert.match(event.detail, /New Name.*Marie Marthe/);
     assert.equal(persisted.find((user) => user.id === 'admin').name, 'Admin');
   } finally {
     if (child.exitCode === null && child.signalCode === null) {

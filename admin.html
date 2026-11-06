@@ -914,13 +914,26 @@ async function saveBal() {
 async function editUserName(id) {
   const u = users.find((x) => x.id === id);
   if (!u || u.role === 'admin') return;
-  const value = await uiPrompt('Nouvo non ki parèt sou kont lan:', u.name, { min: 2, max: 100, required: true, ok: 'Kontinye' });
-  if (value === null) return;
-  const name = String(value).trim().replace(/\s+/g, ' ');
-  if (name.length < 2 || name.length > 100) { await uiAlert('Non an dwe gen 2 a 100 karaktè.'); return; }
-  if (name === u.name) return;
-  if (!(await uiConfirm('Chanje non kont la soti nan ' + u.name + ' pou ' + name + '?', { ok: 'Chanje' }))) return;
-  await api('/api/admin/users/' + encodeURIComponent(id) + '/name', { name });
+  let body;
+  if (u.firstName != null) {
+    const f = await uiPrompt('Non (prenom):', u.firstName, { min: 2, max: 50, required: true, ok: 'Kontinye' });
+    if (f === null) return;
+    const l = await uiPrompt('Siyati:', u.lastName, { min: 2, max: 50, required: true, ok: 'Kontinye' });
+    if (l === null) return;
+    body = { firstName: String(f).trim().replace(/\s+/g, ' '), lastName: String(l).trim().replace(/\s+/g, ' ') };
+    if (body.firstName.length < 2 || body.lastName.length < 2) { await uiAlert('Non ak siyati a dwe gen omwen 2 karaktè chak.'); return; }
+    if (body.firstName === u.firstName && body.lastName === u.lastName) return;
+  } else {
+    const value = await uiPrompt('Nouvo non ki parèt sou kont lan:', u.name, { min: 2, max: 100, required: true, ok: 'Kontinye' });
+    if (value === null) return;
+    const name = String(value).trim().replace(/\s+/g, ' ');
+    if (name.length < 2 || name.length > 100) { await uiAlert('Non an dwe gen 2 a 100 karaktè.'); return; }
+    if (name === u.name) return;
+    body = { name };
+  }
+  const nv = body.name || body.firstName + ' ' + body.lastName;
+  if (!(await uiConfirm('Chanje non kont la soti nan ' + u.name + ' pou ' + nv + '? (Sa chanje non lega a tou.)', { ok: 'Chanje' }))) return;
+  await api('/api/admin/users/' + encodeURIComponent(id) + '/name', body);
   delete cache.users;
   load();
 }

@@ -964,7 +964,7 @@ function adminOnly(req, res, next) {
 
 app.get('/api/admin/users', adminOnly, (req, res) =>
   res.json(req.users.map((u) => ({
-    id: u.id, uid: u.uid, name: u.name, email: u.email, role: u.role || 'user',
+    id: u.id, uid: u.uid, name: u.name, firstName: u.profile ? u.profile.firstName : null, lastName: u.profile ? u.profile.lastName : null, email: u.email, role: u.role || 'user',
     phone: u.profile ? u.profile.phone : null, country: u.profile ? u.profile.country : null,
     balance: u.balance || 0, usd: u.usd || 0, banned: !!u.banned, kycStatus: u.kyc.status, createdAt: u.createdAt
   })))
@@ -974,18 +974,37 @@ app.post('/api/admin/users/:id/name', adminOnly, async (req, res) => {
   const u = req.users.find((x) => x.id === req.params.id);
   if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
   if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka chanje non yon admin.' });
-  const rawName = req.body && req.body.name;
-  if (typeof rawName !== 'string') return res.status(400).json({ error: 'Non an pa valid.' });
-  const name = rawName.trim().replace(/\s+/g, ' ');
-  if (name.length < 2 || name.length > 100 || /[\u0000-\u001F\u007F]/.test(name)) {
-    return res.status(400).json({ error: 'Non an dwe gen 2 a 100 karaktè.' });
+  const body = req.body || {};
+  const clean = (v) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : null);
+  const bad = (s) => s === null || /[\u0000-\u001F\u007F<>]/.test(s);
+  let first = null, last = null, name;
+  if (body.firstName !== undefined || body.lastName !== undefined) {
+    first = clean(body.firstName); last = clean(body.lastName);
+    if (bad(first) || bad(last) || first.length < 2 || first.length > 50 || last.length < 2 || last.length > 50) {
+      return res.status(400).json({ error: 'Non ak siyati a dwe gen 2 a 50 karaktè chak.' });
+    }
+    name = first + ' ' + last;
+  } else {
+    name = clean(body.name);
+    if (typeof body.name !== 'string') return res.status(400).json({ error: 'Non an pa valid.' });
+    if (bad(name) || name.length < 2 || name.length > 100) return res.status(400).json({ error: 'Non an dwe gen 2 a 100 karaktè.' });
+    if (u.profile) {
+      const i = name.indexOf(' ');
+      if (i < 0) return res.status(400).json({ error: 'Bay non ak siyati a (de mo).' });
+      first = name.slice(0, i); last = name.slice(i + 1);
+      if (first.length < 2 || last.length < 2 || first.length > 50 || last.length > 50) return res.status(400).json({ error: 'Non ak siyati a dwe gen 2 a 50 karaktè chak.' });
+    }
   }
   const previousName = String(u.name || '');
-  if (name === previousName) return res.json({ name });
+  const pf = u.profile ? u.profile.firstName : null, pl = u.profile ? u.profile.lastName : null;
+  const profileSame = !u.profile || (pf === first && pl === last);
+  if (name === previousName && profileSame) return res.json({ name, firstName: pf, lastName: pl });
   u.name = name;
+  if (u.profile) { u.profile.firstName = first; u.profile.lastName = last; }
   logAct(u, 'name_change', 'Non chanje: ' + previousName + ' → ' + name, null, { by: req.user.email });
   await saveUsers(req.users);
-  res.json({ name: u.name });
+  nameCache.t = 0;
+  res.json({ name: u.name, firstName: u.profile ? u.profile.firstName : null, lastName: u.profile ? u.profile.lastName : null });
 });
 
 
