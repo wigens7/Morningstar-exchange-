@@ -293,7 +293,7 @@ const uaInfo = (ua = '') => {
 function logAct(u, type, detail, req, extra) {
   if (!u) return;
   u.activity = u.activity || [];
-  const e = { at: new Date().toISOString(), type, detail: String(detail || '').slice(0, 200), ...extra };
+  const e = { at: new Date().toISOString(), type, detail: String(detail || '').slice(0, type === 'name_change' ? 240 : 200), ...extra };
   if (req) { e.ip = String(req.ip || '').slice(0, 64); e.device = uaInfo(req.get('user-agent') || ''); }
   u.activity.push(e);
   if (u.activity.length > 200) u.activity = u.activity.slice(-200);
@@ -969,6 +969,24 @@ app.get('/api/admin/users', adminOnly, (req, res) =>
     balance: u.balance || 0, usd: u.usd || 0, banned: !!u.banned, kycStatus: u.kyc.status, createdAt: u.createdAt
   })))
 );
+
+app.post('/api/admin/users/:id/name', adminOnly, async (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.id);
+  if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
+  if (u.role === 'admin') return res.status(400).json({ error: 'Ou pa ka chanje non yon admin.' });
+  const rawName = req.body && req.body.name;
+  if (typeof rawName !== 'string') return res.status(400).json({ error: 'Non an pa valid.' });
+  const name = rawName.trim().replace(/\s+/g, ' ');
+  if (name.length < 2 || name.length > 100 || /[\u0000-\u001F\u007F]/.test(name)) {
+    return res.status(400).json({ error: 'Non an dwe gen 2 a 100 karaktè.' });
+  }
+  const previousName = String(u.name || '');
+  if (name === previousName) return res.json({ name });
+  u.name = name;
+  logAct(u, 'name_change', 'Non chanje: ' + previousName + ' → ' + name, null, { by: req.user.email });
+  await saveUsers(req.users);
+  res.json({ name: u.name });
+});
 
 
 // 360° itilizatè: pwofil, koneksyon, ak tout aktivite (jounal + istorik tranzaksyon). Admin sèlman.
