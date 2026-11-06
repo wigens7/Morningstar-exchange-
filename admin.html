@@ -592,6 +592,7 @@ async function load(fromCache) {
           <button class="b on" onclick="open360('${u.id}')"><i class="fa-solid fa-chart-line"></i>360° Aktivite</button>
         ${isAdmin ? '' : `
            <button class="b tab" onclick="editUserName('${u.id}')"><i class="fa-solid fa-user-pen mr-1"></i>Chanje non</button>
+           <button class="b tab" onclick="toggleNameEdit('${u.id}', ${!u.nameEditAllowed})"><i class="fa-solid ${u.nameEditAllowed ? 'fa-lock' : 'fa-unlock'} mr-1"></i>${u.nameEditAllowed ? 'Retire dwa chanje non' : 'Kite kliyan chanje non'}</button>
           <button class="b bg-emerald-600 text-white" onclick="openBal('${u.id}')"><i class="fa-solid fa-plus mr-1"></i>Balans</button>
           <button class="b ${u.banned ? 'bg-sky-600 text-white' : 'bg-orange-500 text-black'}" onclick="ban('${u.id}', ${!u.banned})">${u.banned ? 'Debani' : 'Bani'}</button>
           <button class="b bg-red-600 text-white" onclick="delUser('${u.id}')"><i class="fa-solid fa-trash mr-1"></i>Efase</button>
@@ -934,6 +935,14 @@ async function editUserName(id) {
   const nv = body.name || body.firstName + ' ' + body.lastName;
   if (!(await uiConfirm('Chanje non kont la soti nan ' + u.name + ' pou ' + nv + '? (Sa chanje non lega a tou.)', { ok: 'Chanje' }))) return;
   await api('/api/admin/users/' + encodeURIComponent(id) + '/name', body);
+  delete cache.users;
+  load();
+}
+async function toggleNameEdit(id, allowed) {
+  const u = users.find((x) => x.id === id);
+  if (!u) return;
+  if (!(await uiConfirm(allowed ? 'Kite ' + u.name + ' chanje non li yon sèl fwa?' : 'Retire dwa ' + u.name + ' pou chanje non li?', { ok: 'Wi' }))) return;
+  try { await api('/api/admin/users/' + encodeURIComponent(id) + '/name-edit', { allowed }); } catch (e) { await uiAlert(e.message); return; }
   delete cache.users;
   load();
 }

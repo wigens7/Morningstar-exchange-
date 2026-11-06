@@ -90,12 +90,24 @@ test('admin can rename a customer with validation and an audit record', { timeou
     assert.equal((await post('customer', { name: 42 })).status, 400);
     assert.equal((await post('admin', { name: 'Changed Admin' })).status, 400);
 
+    const userPost = (id, p, body) => fetch(base + p, { method: 'POST', headers: headers(id), body: JSON.stringify(body) });
+    const self = { firstName: 'Self', lastName: 'Edited' };
+    assert.equal((await userPost('customer', '/api/profile/name', self)).status, 403);
+    assert.equal((await userPost('customer', '/api/admin/users/customer/name-edit', { allowed: true })).status, 403);
+    assert.equal((await userPost('admin', '/api/admin/users/customer/name-edit', { allowed: 'yes' })).status, 400);
+    assert.equal((await userPost('admin', '/api/admin/users/customer/name-edit', { allowed: true })).status, 200);
+    assert.equal((await userPost('customer', '/api/profile/name', { firstName: 'S', lastName: 'Edited' })).status, 400);
+    const own = await userPost('customer', '/api/profile/name', self);
+    assert.equal(own.status, 200);
+    assert.equal((await own.json()).name, 'Self Edited');
+    assert.equal((await userPost('customer', '/api/profile/name', self)).status, 403, 'permission is single-use');
+
     const persisted = JSON.parse(fs.readFileSync(path.join(dir, 'users.json'), 'utf8'));
     const customer = persisted.find((user) => user.id === 'customer');
-    assert.equal(customer.name, 'Marie Marthe');
-    assert.equal(customer.profile.firstName, 'Marie');
-    assert.equal(customer.profile.lastName, 'Marthe');
-    const event = customer.activity.filter((entry) => entry.type === 'name_change').pop();
+    assert.equal(customer.name, 'Self Edited');
+    assert.equal(customer.profile.firstName, 'Self');
+    assert.equal(customer.profile.lastName, 'Edited');
+    const event = customer.activity.filter((entry) => entry.type === 'name_change' && entry.by === 'admin@example.test').pop();
     assert.equal(event.by, 'admin@example.test');
     assert.match(event.detail, /New Name.*Marie Marthe/);
     assert.equal(persisted.find((user) => user.id === 'admin').name, 'Admin');

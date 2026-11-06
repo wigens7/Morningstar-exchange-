@@ -138,7 +138,7 @@ const publicUser = (u) => ({
   emailVerified: !!u.emailVerifiedAt,
   balance: u.balance || 0, usd: u.usd || 0, rate: getSettings().rate,
   fee: { active: getSettings().feeActive, percent: getSettings().feePercent, byAsset: getSettings().feeByAsset }, banned: !!u.banned,
-  uid: u.uid || null, lang: u.lang || 'ht', profile: u.profile || null, pinActive: !!u.pinActive,
+  uid: u.uid || null, lang: u.lang || 'ht', profile: u.profile || null, nameEditAllowed: !!(u.nameEditAllowed && u.profile), pinActive: !!u.pinActive,
   kyc: { status: u.kyc.status, idType: u.kyc.idType || null, reason: u.kyc.reason || null },
   txs: (u.swaps || []).slice(-30).map(txOf).reverse()
 });
@@ -672,6 +672,24 @@ app.post('/api/profile', auth, async (req, res) => {
   res.json(publicUser(u));
 });
 
+// Kliyan an chanje non l SÈLMAN si admin otorize l (yon sèl fwa). Admin kontwole sa nan /api/admin/users/:id/name-edit.
+app.post('/api/profile/name', auth, async (req, res) => {
+  const u = req.user;
+  if (!u.profile || !u.nameEditAllowed) return res.status(403).json({ error: 'Admin pa otorize w chanje non ou.' });
+  const clean = (v) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : null);
+  const first = clean(req.body && req.body.firstName), last = clean(req.body && req.body.lastName);
+  const ok = (v) => v !== null && v.length >= 2 && v.length <= 50 && !/[\u0000-\u001F\u007F<>]/.test(v);
+  if (!ok(first) || !ok(last)) return res.status(400).json({ error: 'Non ak siyati a dwe gen 2 a 50 karaktè chak.' });
+  const previousName = String(u.name || '');
+  u.name = first + ' ' + last;
+  u.profile.firstName = first; u.profile.lastName = last;
+  u.nameEditAllowed = false;
+  logAct(u, 'name_change', 'Kliyan chanje non: ' + previousName + ' → ' + u.name, req, { by: u.email });
+  await saveUsers(req.users);
+  nameCache.t = 0;
+  res.json(publicUser(u));
+});
+
 app.post('/api/notifications/read', auth, async (req, res) => {
   let changed = false;
   for (const n of req.user.notifs || []) if (!n.read) { n.read = true; changed = true; }
@@ -966,7 +984,7 @@ app.get('/api/admin/users', adminOnly, (req, res) =>
   res.json(req.users.map((u) => ({
     id: u.id, uid: u.uid, name: u.name, firstName: u.profile ? u.profile.firstName : null, lastName: u.profile ? u.profile.lastName : null, email: u.email, role: u.role || 'user',
     phone: u.profile ? u.profile.phone : null, country: u.profile ? u.profile.country : null,
-    balance: u.balance || 0, usd: u.usd || 0, banned: !!u.banned, kycStatus: u.kyc.status, createdAt: u.createdAt
+    balance: u.balance || 0, usd: u.usd || 0, banned: !!u.banned, nameEditAllowed: !!u.nameEditAllowed, kycStatus: u.kyc.status, createdAt: u.createdAt
   })))
 );
 
@@ -1007,6 +1025,19 @@ app.post('/api/admin/users/:id/name', adminOnly, async (req, res) => {
   res.json({ name: u.name, firstName: u.profile ? u.profile.firstName : null, lastName: u.profile ? u.profile.lastName : null });
 });
 
+
+app.post('/api/admin/users/:id/name-edit', adminOnly, async (req, res) => {
+  const u = req.users.find((x) => x.id === req.params.id);
+  if (!u) return res.status(404).json({ error: 'Pa jwenn.' });
+  if (u.role === 'admin') return res.status(400).json({ error: 'Admin pa bezwen otorizasyon.' });
+  if (!req.body || typeof req.body.allowed !== 'boolean') return res.status(400).json({ error: 'Valè a pa valid.' });
+  if (req.body.allowed && !u.profile) return res.status(400).json({ error: 'Kliyan an poko ranpli pwofil li.' });
+  if (!!u.nameEditAllowed === req.body.allowed) return res.json({ nameEditAllowed: !!u.nameEditAllowed });
+  u.nameEditAllowed = req.body.allowed;
+  logAct(u, 'name_edit_permission', req.body.allowed ? 'Admin otorize kliyan an chanje non li' : 'Admin retire otorizasyon chanjman non', null, { by: req.user.email });
+  await saveUsers(req.users);
+  res.json({ nameEditAllowed: u.nameEditAllowed });
+});
 
 // 360° itilizatè: pwofil, koneksyon, ak tout aktivite (jounal + istorik tranzaksyon). Admin sèlman.
 app.get('/api/admin/users/:id/activity', adminOnly, (req, res) => {
