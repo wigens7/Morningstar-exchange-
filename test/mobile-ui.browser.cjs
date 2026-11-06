@@ -306,7 +306,7 @@ async function run() {
   }
   await kycPreview.locator('#kyc-consent').check();
   await kycPreview.locator('#kyc-submit').click();
-  await kycPreview.locator('#kyc-result').filter({ hasText: 'apwobasyon ZiiroPay poko verifye' }).waitFor();
+  await kycPreview.locator('#kyc-result').filter({ hasText: 'apwobasyon founisè a poko verifye' }).waitFor();
   assert.equal(kycSubmissions, 1);
   assert.equal(await kycPreview.locator('#kyc-form').count(), 0);
   await kycPreview.route('**/api/virtual-cards/kyc/refresh', (route) => route.fulfill({
