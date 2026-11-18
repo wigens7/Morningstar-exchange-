@@ -322,7 +322,7 @@ test('provider adapter maps "Insufficient funds" (any shape/status <500) to awai
   assert.equal((await p.create({ customerId: cid, name: 'Fixture Customer', fundingCents: 500 })).awaitingFunds, undefined);
 });
 
-test('bulk cancel refunds AWAITING_FUNDS orders once and requires confirmation', async () => {
+test('bulk cancel refunds unfinished orders (no provider card) once and requires confirmation', async () => {
   const f = await fixture({ provider: { configured: true, mode: 'live', async create() { return { awaitingFunds: true }; },
     async details() { return { ok: false }; } } });
   try {
@@ -333,6 +333,17 @@ test('bulk cancel refunds AWAITING_FUNDS orders once and requires confirmation',
     assert.deepEqual(await f.service.releaseAwaiting(admin, 'CONFIRMED_NO_CARD_IN_ZIIROPAY'), { refunded: 1, skipped: 0, failed: 0 });
     assert.equal(f.store.getUser('customer').usd, 100);
     assert.deepEqual(await f.service.releaseAwaiting(admin, 'CONFIRMED_NO_CARD_IN_ZIIROPAY'), { refunded: 0, skipped: 0, failed: 0 });
+    assert.equal(f.store.getUser('customer').usd, 100);
+  } finally { f.close(); }
+});
+
+test('bulk cancel also refunds REVIEW orders that have no provider card id', async () => {
+  const f = await fixture({ provider: { configured: true, mode: 'live', async create() { throw new Error('timeout'); },
+    async details() { return { ok: false }; } } });
+  try {
+    assert.equal((await f.service.create('customer', f.request())).state, 'REVIEW');
+    assert.equal(f.store.getUser('customer').usd, 92);
+    assert.deepEqual(await f.service.releaseAwaiting(admin, 'CONFIRMED_NO_CARD_IN_ZIIROPAY'), { refunded: 1, skipped: 0, failed: 0 });
     assert.equal(f.store.getUser('customer').usd, 100);
   } finally { f.close(); }
 });
