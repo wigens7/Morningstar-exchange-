@@ -356,3 +356,37 @@ test('bulk cancel refunds REVIEW orders that got a candidate id but failed verif
     assert.equal(f.store.getUser('customer').usd, 100);
   } finally { f.close(); }
 });
+
+test('autoComplete finishes an AWAITING_FUNDS order once the provider has funds, charging the customer once', async () => {
+  let funded = false, creates = 0, skew = 0;
+  const f = await fixture({ now: () => Date.now() + skew, provider: { configured: true, mode: 'live',
+    async create() { creates++; return funded ? { ok: true, candidateId: cardId } : { awaitingFunds: true }; },
+    async details() { return { ok: true, card: structuredClone(f.card) }; } } });
+  try {
+    assert.equal((await f.service.create('customer', f.request())).code, 'PROVIDER_FUNDS');
+    assert.equal(f.service.adminHolders(admin).holders[0].state, 'PENDING');
+    await f.service.autoComplete();                       // too soon: not re-sent within a minute
+    assert.equal(creates, 1);
+    funded = true;
+    skew = 61000; await f.service.autoComplete();
+    assert.equal(creates, 2);
+    assert.equal(f.service.current('customer').orders[0].state, 'READY');
+    assert.equal(f.store.getUser('customer').usd, 92);
+    const h = f.service.adminHolders(admin).holders;       // what the admin "Kliyan ak Kat" tab lists
+    assert.equal(h.length, 1); assert.equal(h[0].state, 'READY'); assert.equal(h[0].last4, '1111');
+  } finally { f.close(); }
+});
+
+test('autoComplete settles a REVIEW order with a candidate id once the card verifies', async () => {
+  let ok = false;
+  const f = await fixture({ provider: { configured: true, mode: 'live', async create() { return { ok: true, candidateId: cardId }; },
+    async details() { return ok ? { ok: true, card: structuredClone(f.card) } : { ok: false }; } } });
+  try {
+    assert.equal((await f.service.create('customer', f.request())).state, 'REVIEW');
+    await f.service.autoComplete();
+    assert.equal(f.service.current('customer').orders[0].state, 'REVIEW');
+    ok = true; await f.service.autoComplete();
+    assert.equal(f.service.current('customer').orders[0].state, 'READY');
+    assert.equal(f.store.getUser('customer').usd, 92);
+  } finally { f.close(); }
+});
