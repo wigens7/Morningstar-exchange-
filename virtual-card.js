@@ -43,11 +43,20 @@
         const panel = document.createElement('section'); panel.className = 'panel';
         const h = document.createElement('h2'); h.textContent = order.state === 'READY' ? 'Kat ou pare' : 'Demann kat';
         panel.append(h);
+        let art;
         if (order.card && order.state === 'READY') {
-          panel.classList.add('payment-card'); readyId = order.id;
-          line(panel, order.card.brand.toUpperCase(), '•••• ' + order.card.last4, 'row last');
-          line(panel, 'Ekspirasyon', order.card.expiry);
-          line(panel, 'Balans nan dènye verifikasyon an', '$' + order.card.balanceUSD);
+          art = document.createElement('div'); art.className = 'payment-card'; readyId = order.id;
+          const top = document.createElement('div'); top.className = 'ctop';
+          const b1 = document.createElement('span'), b2 = document.createElement('span');
+          b1.textContent = 'MORNINGSTAR'; b2.textContent = order.card.brand.toUpperCase(); top.append(b1, b2);
+          const chip = document.createElement('div'); chip.className = 'chip';
+          const num = document.createElement('div'); num.className = 'cnum'; num.textContent = '•••• •••• •••• ' + order.card.last4;
+          const bot = document.createElement('div'); bot.className = 'cbot';
+          for (const [k, v] of [['Ekspirasyon', order.card.expiry], ['Balans', '$' + order.card.balanceUSD]]) {
+            const sp = document.createElement('span'), st = document.createElement('strong');
+            st.textContent = v; sp.append(k, st); bot.append(sp);
+          }
+          art.append(top, chip, num, bot); $('orders').append(art);
           const checked = document.createElement('p'); checked.className = 'muted';
           checked.textContent = 'Balans sa a se yon foto nan moman verifikasyon an; li pa yon balans an tan reyèl.' +
             (order.card.checkedAt ? ' Verifye: ' + new Date(order.card.checkedAt).toLocaleString() + '.' : ''); panel.append(checked);
