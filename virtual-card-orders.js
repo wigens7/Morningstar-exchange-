@@ -255,9 +255,9 @@ function createCardOrders(options) {
   }
   // Admin re-sends the provider POST for a REVIEW order (e.g. provider account had no funds).
   // The existing reservation is reused, so the customer is never charged twice.
-  async function retry(actor, id, confirmation) {
+  async function retry(actor, id) {
     admin(actor);
-    if (!uuid(id) || confirmation !== 'CONFIRMED_NO_CARD_IN_ZIIROPAY') throw error('CARD_INVALID_REQUEST', 400);
+    if (!uuid(id)) throw error('CARD_INVALID_REQUEST', 400);
     on();
     const op = row(id);
     if (!op || op.state === 'READY' || op.state === 'FAILED') throw error('CARD_NOT_FOUND', 404);
@@ -273,9 +273,9 @@ function createCardOrders(options) {
       }
     } finally { activeJobs.delete(id); }
   }
-  async function release(actor, id, confirmation) {
+  async function release(actor, id) {
     admin(actor);
-    if (!uuid(id) || confirmation !== 'CONFIRMED_NO_CARD_IN_ZIIROPAY') throw error('CARD_INVALID_REQUEST', 400);
+    if (!uuid(id)) throw error('CARD_INVALID_REQUEST', 400);
     const op = row(id);
     if (!op || op.state === 'READY') throw error('CARD_NOT_FOUND', 404);
     if (op.card_id) throw error('CARD_REVIEW_REQUIRED');
@@ -306,6 +306,7 @@ function createCardOrders(options) {
     }
     return out;
   }
+  async function prepare(userId) { await options.autoLink?.(userId); }
   async function recover() {
     if (recovering || (!db && !fs.existsSync(path.join(dataDir, 'virtual-card-orders.sqlite')))) return;
     recovering = true;
@@ -338,7 +339,7 @@ function createCardOrders(options) {
     const q = quote(userId, INITIAL_CARD_FUNDING_USD);
     return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
   }
-  return { quote, create, createNow, current, reconcile, retry, release, releaseAwaiting, recover, reveal,
+  return { quote, create, createNow, current, reconcile, retry, release, releaseAwaiting, prepare, recover, reveal,
     adminList(actor, userId) {
       admin(actor);
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
@@ -380,11 +381,11 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
     res.sendFile(pageFile);
   });
   app.get('/virtual-card.js', (req, res) => res.sendFile(scriptFile));
-  app.get('/api/virtual-cards/orders', privateHeaders, auth, handler((req) => service.current(req.user.id)));
+  app.get('/api/virtual-cards/orders', privateHeaders, auth, handler(async (req) => { await service.prepare(req.user.id); return service.current(req.user.id); }));
   app.post('/api/virtual-cards/quote', privateHeaders, auth, ajax, rateLimit(20, 15 * 60 * 1000),
     strict(['initialFundingUSD']), handler((req) => service.quote(req.user.id, req.body.initialFundingUSD)));
   app.post('/api/virtual-cards/create', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
-    strict([]), handler((req) => service.createNow(req.user.id)));
+    strict([]), handler(async (req) => { await service.prepare(req.user.id); return service.createNow(req.user.id); }));
   app.post('/api/virtual-cards/orders', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['quoteId', 'requestKey', 'acceptedTotalUSD', 'consent', 'pin']), pinGuard,
     handler((req) => service.create(req.user.id, { quoteId: req.body.quoteId, requestKey: req.body.requestKey,
@@ -396,9 +397,9 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.post('/api/admin/virtual-cards/orders/:id/reconcile', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['cardId', 'pin']), pinGuard, handler((req) => service.reconcile(req.user, req.params.id, req.body.cardId)));
   app.post('/api/admin/virtual-cards/orders/:id/retry', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
-    strict(['confirmation']), handler((req) => service.retry(req.user, req.params.id, req.body.confirmation)));
+    strict([]), handler((req) => service.retry(req.user, req.params.id)));
   app.post('/api/admin/virtual-cards/orders/:id/refund', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
-    strict(['confirmation', 'pin']), pinGuard, handler((req) => service.release(req.user, req.params.id, req.body.confirmation)));
+    strict([]), handler((req) => service.release(req.user, req.params.id)));
   app.post('/api/admin/virtual-cards/orders/refund-awaiting', privateHeaders, adminOnly, ajax, rateLimit(5, 15 * 60 * 1000),
     strict([]), handler((req) => service.releaseAwaiting(req.user)));
 }

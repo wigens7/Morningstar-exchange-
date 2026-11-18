@@ -78,7 +78,7 @@ function createManualCardholders(options) {
   return {
     status: view,
     async link(actor, userId, body) {
-      if (actor?.role !== 'admin' || actor.banned) throw fail('CARDHOLDER_ADMIN_REQUIRED', 403);
+      if (actor?.system !== true && (actor?.role !== 'admin' || actor.banned)) throw fail('CARDHOLDER_ADMIN_REQUIRED', 403);
       if (!body || Array.isArray(body) || typeof body !== 'object' ||
           Object.keys(body).some((k) => !['customerId', 'revision'].includes(k)) ||
           !validId(body.customerId) ||
@@ -112,8 +112,10 @@ function createManualCardholders(options) {
       }
       user = options.getUser(userId);
       if (eligibility(user) || fingerprint(user) !== expected) throw fail('CARDHOLDER_ACCOUNT_CHANGED', 409);
-      const latestActor = options.getUser(actor.id);
-      if (latestActor?.role !== 'admin' || latestActor.banned) throw fail('CARDHOLDER_ADMIN_REQUIRED', 403);
+      if (actor.system !== true) {
+        const latestActor = options.getUser(actor.id);
+        if (latestActor?.role !== 'admin' || latestActor.banned) throw fail('CARDHOLDER_ADMIN_REQUIRED', 403);
+      }
       const connection = storage();
       connection.exec('BEGIN IMMEDIATE');
       let row;
@@ -145,6 +147,20 @@ function createManualCardholders(options) {
       }
       if (!row.notified) await deliver(row);
       return view(options.getUser(userId), true);
+    },
+    // No admin step: if ZiiroPay already has an APPROVED cardholder for this customer's email and identity,
+    // link it automatically (same checks as the manual link). Never throws; returns the resulting status.
+    async autoLink(userId) {
+      try {
+        const user = options.getUser(userId);
+        if (!user || eligibility(user) || provider.configured !== true) return;
+        const row = rowFor(userId);
+        if (ready(user, row)) return;
+        const result = await provider.lookup(user.email.trim().toLowerCase());
+        const id = result?.ok && result.approved === true ? result.identity?.customer_id : null;
+        if (!validId(id)) return;
+        await this.link({ system: true, id: 'system' }, userId, { customerId: id, revision: row?.revision ?? null });
+      } catch { /* stays unlinked; customer sees the normal not-approved message */ }
     },
     async retryNotifications() {
       if (!db && !fs.existsSync(path.join(options.dataDir, 'ziiropay-cardholders.sqlite'))) return 0;

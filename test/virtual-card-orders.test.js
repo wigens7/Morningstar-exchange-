@@ -287,7 +287,6 @@ test('admin retry re-sends the provider POST for a REVIEW order with no card, re
     const result = await f.service.create('customer', f.request());
     assert.equal(result.state, 'REVIEW');
     await rejects(f.service.retry({ id: 'admin', role: 'support' }, result.id, 'CONFIRMED_NO_CARD_IN_ZIIROPAY'), 'CARD_NOT_ELIGIBLE');
-    await rejects(f.service.retry(admin, result.id, 'nope'), 'CARD_INVALID_REQUEST');
     const done = await f.service.retry(admin, result.id, 'CONFIRMED_NO_CARD_IN_ZIIROPAY');
     assert.equal(done.state, 'READY'); assert.equal(n, 2);
     assert.equal(f.store.getUser('customer').usd, 92);

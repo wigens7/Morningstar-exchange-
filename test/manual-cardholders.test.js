@@ -251,3 +251,14 @@ globalThis.fetch=async(url,options)=>{
     assert.doesNotMatch(logs, /PRIVATE-SYNTHETIC|provider-fixture|synthetic-manual-provider-key|@example/);
   } finally { await stop(); f.close(); }
 });
+
+test('autoLink links an APPROVED ZiiroPay cardholder with no admin action, and never throws', async () => {
+  const f = fixture();
+  try {
+    assert.equal(f.service.status(f.options.getUser('customer')).cardholderApproved, false);
+    await f.service.autoLink('customer');
+    assert.equal(f.service.status(f.options.getUser('customer')).cardholderApproved, true);
+    await f.service.autoLink('customer'); await f.service.autoLink('missing');
+    assert.equal(f.calls(), 2);
+  } finally { f.close(); }
+});
