@@ -444,3 +444,29 @@ test('admin customer view shows live provider status, balance and last four, nev
     await rejects(f.service.adminCards(client, 'customer'), 'CARD_NOT_ELIGIBLE');
   } finally { f.close(); }
 });
+
+test('customer card page: no card says so; with a card it returns live status, balance and ZiiroPay history, never the number', async () => {
+  const f = await fixture({ provider: { configured: true, mode: 'live', async create() { return { ok: true, candidateId: cardId }; },
+    async details() { return { ok: true, card: structuredClone(f.card) }; },
+    async history() { return { ok: true, known: true, items: [{ id: 't1', date: '2026-11-18', type: 'fund', description: 'Funding', amount: '3.00', status: 'success', currency: 'USD' }] }; } } });
+  try {
+    assert.deepEqual(await f.service.myCard('customer'), { hasCard: false });
+    await f.service.create('customer', f.request());
+    f.card.balanceCents = 275;
+    const out = await f.service.myCard('customer');
+    assert.deepEqual([out.hasCard, out.live, out.card.balanceUSD, out.card.last4, out.card.status, out.historyAvailable, out.history.length],
+      [true, true, '2.75', '1111', 'active', true, 1]);
+    assert.doesNotMatch(JSON.stringify(out), /"number"|"cvv"/);
+    assert.deepEqual(await f.service.myCard('admin'), { hasCard: false });
+  } finally { f.close(); }
+});
+
+test('provider history keeps only short plain fields and drops anything that looks like a card number', async () => {
+  const { createCardProvider } = require('../ziiropay-cards');
+  const mk = (body) => createCardProvider({ apiKey: 'k', mode: 'live', fetchImpl: async () => new Response(JSON.stringify(body),
+    { headers: { 'content-type': 'application/json' } }) });
+  const out = await mk({ success: true, response: { transactions: [{ id: 5, description: 'Card 4111111111111111 funded', amount: '3.00', status: 'success', url: 'https://x' }] } }).history('abcdef123456');
+  assert.equal(out.items[0].description, 'Card  funded');
+  assert.equal(out.items[0].url, undefined);
+  assert.deepEqual((await mk({ success: true, response: {} }).history('abcdef123456')).items, []);
+});

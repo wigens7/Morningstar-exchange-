@@ -166,9 +166,10 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 </div>
 
 <!-- Navigasyon -->
-<nav class="nav fixed left-4 right-4 max-w-md mx-auto rounded-2xl grid grid-cols-3 z-40" style="bottom:calc(.75rem + env(safe-area-inset-bottom))">
+<nav class="nav fixed left-4 right-4 max-w-md mx-auto rounded-2xl grid grid-cols-4 z-40" style="bottom:calc(.75rem + env(safe-area-inset-bottom))">
   <button id="n0" class="nv on" onclick="nav(0)"><i class="fa-solid fa-house"></i>Akèy</button>
   <button id="n1" class="nv" onclick="nav(1)"><i class="fa-solid fa-clock-rotate-left"></i>Istwa</button>
+  <button id="n3" class="nv" onclick="nav(3)"><i class="fa-solid fa-credit-card"></i>Kat</button>
   <button id="n2" class="nv" onclick="nav(2)"><i class="fa-solid fa-gear"></i>Paramèt</button>
 </nav>
 
@@ -293,11 +294,12 @@ const soon = (n) => me && me.banned && n !== 'Depo' ? toast(t('bannedToast'), fa
 async function logout() { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; }
 function closeModals() { document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden')); nav(0, true); }
 function nav(i, quiet) {
-  [0, 1, 2].forEach((k) => $('n' + k).classList.toggle('on', k === i));
+  [0, 1, 2, 3].forEach((k) => $('n' + k).classList.toggle('on', k === i));
   if (quiet) return;
   if (i === 0) window.scrollTo({ top: 0, behavior: 'smooth' });
   if (i === 1) $('history').scrollIntoView({ behavior: 'smooth' });
   if (i === 2) location.href = '/settings.html';
+  if (i === 3) location.href = '/virtual-card.html';
 }
 
 function renderHistory() {

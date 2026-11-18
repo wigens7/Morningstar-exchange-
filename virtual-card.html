@@ -23,6 +23,7 @@ background:linear-gradient(135deg,#2b3550 0%,#161d2e 55%,#3a3017 120%);border:1p
 .payment-card{margin-top:18px}
 .row{display:flex;justify-content:space-between;gap:20px;margin:12px 0;font-size:15px;color:var(--muted)}.row strong{color:var(--text);font-variant-numeric:tabular-nums;text-align:right}
 .last{font-size:24px;letter-spacing:.14em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;color:#fff}
+.tx{display:flex;justify-content:space-between;gap:14px;padding:11px 0;border-top:1px solid var(--line);font-size:14px}.tx small{display:block;color:var(--muted);font-size:12px;margin-top:2px}.tx strong{white-space:nowrap}.badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700;background:rgba(255,255,255,.08)}.b-active{color:#4ade80}.b-frozen{color:#60a5fa}.b-terminated{color:#f87171}.b-pending{color:var(--gold)}
 .perks{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}.perk{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:14px;padding:12px 10px;text-align:center;font-size:12px;color:var(--muted)}.perk b{display:block;color:var(--text);font-size:14px;margin-bottom:3px}
 .pricebox{display:flex;justify-content:space-between;align-items:center;background:rgba(247,206,67,.07);border:1px solid rgba(247,206,67,.25);border-radius:14px;padding:14px 16px;margin:6px 0 4px;font-size:14px}.pricebox strong{color:var(--gold)}
 label{display:block;font-size:14px;font-weight:650;margin:18px 0 8px}
@@ -40,6 +41,8 @@ button:hover{filter:brightness(1.06)}button:active{transform:translateY(1px)}but
 <h1>Kat vityèl USD</h1><p class="muted">Peze yon bouton, kat ou kreye otomatikman. Pa gen PIN pou kreyasyon an.</p>
 <p id="message" role="status" aria-live="polite">N ap verifye dosye ou…</p>
 <button id="refresh" class="secondary">Rechaje estati</button>
+<section id="nocard" class="panel" hidden><h2>Ou pa gen kat ankò</h2>
+<p class="muted">Lè ou kreye yon kat vityèl, estati li, balans li ak istwa li ap parèt isit la.</p></section>
 <section id="buy" hidden>
 <div class="cardart" aria-hidden="true"><div class="ctop"><span>MORNINGSTAR</span><span>VIRTUAL</span></div><div class="chip"></div>
 <div class="cnum">•••• •••• •••• ••••</div><div class="cbot"><span>Detantè<strong>KAT OU</strong></span><span>Balans<strong>$5.00 USD</strong></span></div></div>
@@ -49,6 +52,9 @@ button:hover{filter:brightness(1.06)}button:active{transform:translateY(1px)}but
 <div class="pricebox"><span>Frè kreasyon</span><strong id="fee"></strong></div>
 <button id="create" class="wide">Kreye kat mwen</button></div></section>
 <section id="orders" aria-live="polite"></section>
+<section id="mycard" class="panel" hidden><h2>Enfòmasyon kat la</h2><div id="mycard-rows"></div>
+<p id="mycard-note" class="muted"></p>
+<h2 style="margin-top:22px">Istwa kat la</h2><div id="history"></div></section>
 <section id="reveal-box" class="panel" hidden><h2>Detay sekirize kat ou</h2>
 <p class="muted">Antre PIN ou pou wè nimewo kat ak CVV a pandan 30 segonn. Pa pataje enfòmasyon sa yo.</p>
 <label for="reveal-pin">PIN sekirite (6 chif)</label><input id="reveal-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">

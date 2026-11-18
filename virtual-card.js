@@ -26,6 +26,37 @@
     const key = document.createElement('span'), val = document.createElement('strong');
     key.textContent = label; val.textContent = value; row.append(key, val); parent.append(row);
   }
+  const STATUS = { active: 'Aktif', frozen: 'Jele', terminated: 'Fèmen', pending: 'An atant' };
+  async function loadCard() {
+    try {
+      const d = await api('/api/virtual-cards/orders/card');
+      $('mycard').hidden = !d.hasCard; if (!d.hasCard) return;
+      const rows = $('mycard-rows'); rows.replaceChildren();
+      const st = document.createElement('span'); st.className = 'badge b-' + d.card.status; st.textContent = STATUS[d.card.status] || d.card.status || '—';
+      const sr = document.createElement('div'); sr.className = 'row'; const k = document.createElement('span'); k.textContent = 'Estati';
+      sr.append(k, st); rows.append(sr);
+      line(rows, 'Balans', d.card.balanceUSD !== null ? '$' + d.card.balanceUSD + ' USD' : '—');
+      line(rows, '4 dènye chif', d.card.last4 ? '•••• ' + d.card.last4 : '—');
+      line(rows, 'Ekspirasyon', d.card.expiry || '—');
+      line(rows, 'Mak', (d.card.brand || '').toUpperCase() || '—');
+      line(rows, 'Founisè', d.provider);
+      line(rows, 'Referans', d.card.reference || '—');
+      line(rows, 'Kreye', d.card.createdAt ? new Date(d.card.createdAt).toLocaleString() : '—');
+      $('mycard-note').textContent = d.live ? 'Done dirèk nan ZiiroPay.' : 'ZiiroPay pa reponn kounye a; sa yo se dènye done sove yo.';
+      const box = $('history'); box.replaceChildren();
+      if (!d.historyAvailable) { box.textContent = 'Istwa a pa disponib kounye a. Eseye ankò pita.'; return; }
+      if (!d.history.length) { box.textContent = 'Poko gen tranzaksyon sou kat la.'; return; }
+      for (const t of d.history) {
+        const row = document.createElement('div'); row.className = 'tx';
+        const left = document.createElement('div'), title = document.createElement('span'), sub = document.createElement('small');
+        title.textContent = t.description || t.type || 'Tranzaksyon';
+        sub.textContent = [t.date && !Number.isNaN(Date.parse(t.date)) ? new Date(t.date).toLocaleString() : t.date, t.status].filter(Boolean).join(' · ');
+        left.append(title, sub); const amt = document.createElement('strong');
+        amt.textContent = t.amount ? (/^[\d.]+$/.test(t.amount) ? '$' + t.amount : t.amount) : '';
+        row.append(left, amt); box.append(row);
+      }
+    } catch { $('mycard').hidden = true; }
+  }
   async function load() {
     clearTimeout(pollTimer);
     try {
@@ -33,6 +64,7 @@
       $('orders').replaceChildren(); readyId = undefined;
       const open = data.orders.find((o) => o.state !== 'FAILED');
       if (data.creationFeeUSD) $('fee').textContent = '$' + data.creationFeeUSD + ' USD';
+      $('nocard').hidden = Boolean(open);
       $('buy').hidden = !data.enabled || !data.cardholderApproved || data.creationPriceConfigured === false || Boolean(open);
       if (open) text(open.message);
       else if (!data.enabled) text('Kreasyon kat la poko aktive pou kliyan yo. Admin dwe finalize aktivasyon an.');
@@ -69,6 +101,7 @@
         ref.textContent = 'Referans Morningstar: ' + order.id; panel.append(ref); $('orders').append(panel);
       }
       $('reveal-box').hidden = !readyId;
+      if (readyId) void loadCard(); else $('mycard').hidden = true;
       if (open?.state === 'PENDING') pollTimer = setTimeout(load, 5000);
     } catch (e) { text(e.name === 'AbortError' ? 'Verifikasyon an pran tan. Rechaje estati a; pa repete acha a.' : e.message); }
   }
