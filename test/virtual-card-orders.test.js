@@ -309,3 +309,15 @@ test('provider out of funds keeps the order pending (no refund, no review) until
     assert.equal(done.state, 'READY'); assert.equal(n, 2);
   } finally { f.close(); }
 });
+
+test('provider adapter maps "Insufficient funds" (any shape/status <500) to awaitingFunds, never rejected', async () => {
+  for (const [status, body] of [[200, { success: false, message: 'Insufficient funds' }],
+    [400, { success: false, error: 'Insufficient funds' }], [422, { success: false, errors: { balance: ['Insufficient funds'] } }],
+    [402, { success: false }]]) {
+    const p = createCardProvider({ apiKey: 'synthetic-not-a-key', mode: 'live', fetchImpl: async () => Response.json(body, { status }) });
+    const r = await p.create({ customerId: cid, name: 'Fixture Customer', fundingCents: 500 });
+    assert.deepEqual([r.ok, r.awaitingFunds, r.rejected], [false, true, undefined], status + JSON.stringify(body));
+  }
+  const p = createCardProvider({ apiKey: 'synthetic-not-a-key', mode: 'live', fetchImpl: async () => Response.json({ success: false, message: 'Insufficient funds' }, { status: 503 }) });
+  assert.equal((await p.create({ customerId: cid, name: 'Fixture Customer', fundingCents: 500 })).awaitingFunds, undefined);
+});
