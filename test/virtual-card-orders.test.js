@@ -262,3 +262,17 @@ test('card emails remain Creole and distinguish verified creation from refunded 
     assert.doesNotMatch(failed.text, /Kat vityèl ou kreye/);
   }
 });
+
+test('one-click createNow needs no PIN/quote input, charges only the fee and rejects insufficient USD', async () => {
+  const f = await fixture();
+  try {
+    f.store.getUser('customer').usd = 2;
+    await assert.rejects(f.service.createNow('customer'), (e) => e.code === 'CARD_INSUFFICIENT');
+    assert.equal(f.calls(), 0);
+  } finally { f.close(); }
+  const g = await fixture();
+  try {
+    const r = await g.service.createNow('customer');
+    assert.equal(r.state, 'READY'); assert.equal(r.totalUSD, '5.00'); assert.equal(g.calls(), 1);
+  } finally { g.close(); }
+});

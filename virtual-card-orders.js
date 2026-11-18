@@ -104,12 +104,15 @@ function createCardOrders(options) {
   }
   function current(userId) {
     const user = getUser(userId);
-    let approved = false, priceConfigured = false;
+    let approved = false, priceConfigured = false, feeUSD = null;
     try { eligible(user); approved = true; } catch {}
-    try { priceConfigured = Number.isSafeInteger(settings.read().creationPriceCents); } catch {}
+    try {
+      const c = settings.read().creationPriceCents;
+      priceConfigured = Number.isSafeInteger(c); if (priceConfigured) feeUSD = (c / 100).toFixed(2);
+    } catch {}
     const ops = storage().prepare('SELECT * FROM card_orders WHERE user_id=? ORDER BY created_at DESC LIMIT 10').all(userId);
     return { enabled: Boolean(enabled && provider.configured && kycProvider.configured),
-      creationPriceConfigured: priceConfigured, cardholderApproved: approved,
+      creationPriceConfigured: priceConfigured, creationFeeUSD: feeUSD, cardholderApproved: approved,
       availableUSD: (Number(user?.usd || 0)).toFixed(2), orders: ops.map(view) };
   }
   function quote(userId, fundingUSD) {
@@ -279,7 +282,13 @@ function createCardOrders(options) {
     if (!card.number || !card.cvv) throw error('CARD_REVEAL_UNAVAILABLE', 503);
     return { number: card.number, cvv: card.cvv, expiry: card.expiry, expiresInSeconds: 30 };
   }
-  return { quote, create, current, reconcile, release, recover, reveal,
+  // One-click creation: fee-only quote (no initial funding), no PIN/consent step.
+  // Needs an approved ZiiroPay customer ID and enough available USD for the fee.
+  async function createNow(userId) {
+    const q = quote(userId, '0.00');
+    return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
+  }
+  return { quote, create, createNow, current, reconcile, release, recover, reveal,
     adminList(actor, userId) {
       admin(actor);
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
@@ -316,6 +325,8 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.get('/api/virtual-cards/orders', privateHeaders, auth, handler((req) => service.current(req.user.id)));
   app.post('/api/virtual-cards/quote', privateHeaders, auth, ajax, rateLimit(20, 15 * 60 * 1000),
     strict(['initialFundingUSD']), handler((req) => service.quote(req.user.id, req.body.initialFundingUSD)));
+  app.post('/api/virtual-cards/create', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
+    strict([]), handler((req) => service.createNow(req.user.id)));
   app.post('/api/virtual-cards/orders', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['quoteId', 'requestKey', 'acceptedTotalUSD', 'consent', 'pin']), pinGuard,
     handler((req) => service.create(req.user.id, { quoteId: req.body.quoteId, requestKey: req.body.requestKey,

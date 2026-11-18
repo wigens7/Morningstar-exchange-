@@ -20,22 +20,12 @@ button:disabled{opacity:.5;cursor:wait}.secondary{background:#273247;color:#fff}
 [hidden]{display:none!important}footer{margin-top:30px;text-align:center;color:#98a4b9;font-size:12px}@media(max-width:360px){main{padding:18px 12px}.panel{padding:17px}.row{gap:10px}.brand{letter-spacing:.06em}h1{font-size:25px}}
 </style></head><body><main>
 <header><span class="brand">MORNINGSTAR EXCHANGE</span><a href="/dashboard.html">← Kont mwen</a></header>
-<h1>Kat vityèl USD</h1><p class="muted">Kreye kat ou avèk cardholder admin te verifye pou ou a. Ou wè pri total la anvan ou otorize acha a.</p>
+<h1>Kat vityèl USD</h1><p class="muted">Si ou gen balans USD ase, peze Kreye kat epi kat ou kreye otomatikman.</p>
 <p id="message" role="status" aria-live="polite">N ap verifye dosye ou…</p>
 <button id="refresh" class="secondary">Rechaje estati</button>
 <section id="buy" class="panel" hidden><h2>Kreye kat ou</h2>
-<p class="muted">Frè kreasyon an soti nan pri admin fikse a. Premye montan ou mete sou kat la ajoute sou frè sa a.</p>
-<label for="funding">Premye montan sou kat la (USD)</label><input id="funding" inputmode="decimal" autocomplete="off" value="0.00" maxlength="9">
-<button id="quote" class="secondary wide">Kalkile pri total la</button>
-<div id="offer" hidden>
-<div class="row"><span>Frè kreasyon</span><strong id="fee"></strong></div>
-<div class="row"><span>Premye montan sou kat</span><strong id="initial"></strong></div>
-<div class="row total"><span>Total pou otorize</span><strong id="total"></strong></div>
-<p class="muted">Total la rezève yon sèl fwa nan balans USD ou pandan verifikasyon an. Si demann lan rejte klèman, rezèv la anile. Si rezilta a pa klè, admin dwe verifye l anvan rezèv la lage; pa repete acha a.</p>
-<label class="check"><input id="consent" type="checkbox"><span>Mwen otorize montan total ki parèt anlè a pou kreasyon kat sa a.</span></label>
-<label for="pin">PIN sekirite ou (6 chif)</label><input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
-<button id="create" class="wide">Konfime epi kreye kat</button>
-</div></section>
+<p class="muted">Peze bouton an pou kreye kat ou otomatikman. Pa gen PIN. Frè kreasyon an (<strong id="fee"></strong>) soti nan balans USD ou.</p>
+<button id="create" class="wide">Kreye kat</button></section>
 <section id="orders" aria-live="polite"></section>
 <section id="reveal-box" class="panel" hidden><h2>Detay sekirize kat ou</h2>
 <p class="muted">Antre PIN ou pou wè nimewo kat ak CVV a pandan 30 segonn. Pa pataje enfòmasyon sa yo.</p>
