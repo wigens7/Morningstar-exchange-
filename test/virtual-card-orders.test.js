@@ -345,3 +345,14 @@ test('bulk cancel also refunds REVIEW orders that have no provider card id', asy
     assert.equal(f.store.getUser('customer').usd, 100);
   } finally { f.close(); }
 });
+
+test('bulk cancel refunds REVIEW orders that got a candidate id but failed verification', async () => {
+  const f = await fixture({ provider: { configured: true, mode: 'live', async create() { return { ok: true, candidateId: cardId }; },
+    async details() { return { ok: false }; } } });
+  try {
+    assert.equal((await f.service.create('customer', f.request())).state, 'REVIEW');
+    assert.equal(f.store.getUser('customer').usd, 92);
+    assert.deepEqual(await f.service.releaseAwaiting(admin), { refunded: 1, skipped: 0, failed: 0 });
+    assert.equal(f.store.getUser('customer').usd, 100);
+  } finally { f.close(); }
+});
