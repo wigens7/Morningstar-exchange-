@@ -287,6 +287,25 @@ function createCardOrders(options) {
       return await refund(op, 'ADMIN_CONFIRMED_NO_CARD', actor.id, () => admin(actor));
     } finally { activeJobs.delete(id); }
   }
+  // Bulk cancel + refund of every order the provider left in AWAITING_FUNDS.
+  // Only orders with no provider card/candidate qualify, so no card can exist; REVIEW orders are never touched.
+  async function releaseAwaiting(actor, confirmation) {
+    admin(actor);
+    if (confirmation !== 'CONFIRMED_NO_CARD_IN_ZIIROPAY') throw error('CARD_INVALID_REQUEST', 400);
+    const ops = storage().prepare("SELECT * FROM card_orders WHERE state='AWAITING_FUNDS' AND card_id IS NULL AND candidate_id IS NULL").all();
+    const out = { refunded: 0, skipped: 0, failed: 0 };
+    for (const op of ops) {
+      if (activeJobs.has(op.id)) { out.skipped++; continue; }
+      activeJobs.set(op.id, true);
+      try {
+        audit(op, actor.id, 'ADMIN_BULK_CANCEL_AWAITING_FUNDS');
+        await refund(op, 'ADMIN_CANCELLED_AWAITING_FUNDS', actor.id, () => admin(actor));
+        out.refunded++;
+      } catch (e) { out.failed++; console.error('[card-bulk-refund] order=' + op.id + ' code=' + e.code); }
+      finally { activeJobs.delete(op.id); }
+    }
+    return out;
+  }
   async function recover() {
     if (recovering || (!db && !fs.existsSync(path.join(dataDir, 'virtual-card-orders.sqlite')))) return;
     recovering = true;
@@ -319,7 +338,7 @@ function createCardOrders(options) {
     const q = quote(userId, INITIAL_CARD_FUNDING_USD);
     return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
   }
-  return { quote, create, createNow, current, reconcile, retry, release, recover, reveal,
+  return { quote, create, createNow, current, reconcile, retry, release, releaseAwaiting, recover, reveal,
     adminList(actor, userId) {
       admin(actor);
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
@@ -380,6 +399,8 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
     strict(['confirmation']), handler((req) => service.retry(req.user, req.params.id, req.body.confirmation)));
   app.post('/api/admin/virtual-cards/orders/:id/refund', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['confirmation', 'pin']), pinGuard, handler((req) => service.release(req.user, req.params.id, req.body.confirmation)));
+  app.post('/api/admin/virtual-cards/orders/refund-awaiting', privateHeaders, adminOnly, ajax, rateLimit(5, 15 * 60 * 1000),
+    strict(['confirmation', 'pin']), pinGuard, handler((req) => service.releaseAwaiting(req.user, req.body.confirmation)));
 }
 
 module.exports = { createCardOrders, mountCardOrders, messages };
