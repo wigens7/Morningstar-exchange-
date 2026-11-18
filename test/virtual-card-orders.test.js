@@ -264,9 +264,10 @@ test('card emails remain Creole and distinguish verified creation from refunded 
 });
 
 test('one-click createNow needs no PIN/quote input, charges only the fee and rejects insufficient USD', async () => {
+  client.usd = 2;
   const f = await fixture();
+  client.usd = 100;
   try {
-    f.store.getUser('customer').usd = 2;
     await assert.rejects(f.service.createNow('customer'), (e) => e.code === 'CARD_INSUFFICIENT');
     assert.equal(f.calls(), 0);
   } finally { f.close(); }
