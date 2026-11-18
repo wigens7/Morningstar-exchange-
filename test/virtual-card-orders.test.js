@@ -263,8 +263,8 @@ test('card emails remain Creole and distinguish verified creation from refunded 
   }
 });
 
-test('one-click createNow needs no PIN/quote input, charges only the fee and rejects insufficient USD', async () => {
-  client.usd = 2;
+test('one-click createNow needs no PIN/quote input, funds $5 plus the fee and rejects insufficient USD', async () => {
+  client.usd = 9;
   const f = await fixture();
   client.usd = 100;
   try {
@@ -273,7 +273,8 @@ test('one-click createNow needs no PIN/quote input, charges only the fee and rej
   } finally { f.close(); }
   const g = await fixture();
   try {
+    g.card.balanceCents = 500;
     const r = await g.service.createNow('customer');
-    assert.equal(r.state, 'READY'); assert.equal(r.totalUSD, '5.00'); assert.equal(g.calls(), 1);
+    assert.equal(r.state, 'READY'); assert.equal(r.totalUSD, '10.00'); assert.equal(r.initialFundingUSD, '5.00'); assert.equal(g.calls(), 1);
   } finally { g.close(); }
 });

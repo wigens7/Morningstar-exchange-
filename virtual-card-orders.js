@@ -28,6 +28,8 @@ const messages = {
   CARD_INTERNAL_ERROR: 'Nou pa ka fini verifikasyon an kounye a. Rechaje estati a anvan nenpòt lòt aksyon.'
 };
 
+const INITIAL_CARD_FUNDING_USD = '5.00';
+
 function createCardOrders(options) {
   const { dataDir, wallet, provider, kycProvider, settings, getUser, getBinding } = options;
   const now = options.now || Date.now;
@@ -112,7 +114,7 @@ function createCardOrders(options) {
     } catch {}
     const ops = storage().prepare('SELECT * FROM card_orders WHERE user_id=? ORDER BY created_at DESC LIMIT 10').all(userId);
     return { enabled: Boolean(enabled && provider.configured && kycProvider.configured),
-      creationPriceConfigured: priceConfigured, creationFeeUSD: feeUSD, cardholderApproved: approved,
+      creationPriceConfigured: priceConfigured, creationFeeUSD: feeUSD, initialFundingUSD: INITIAL_CARD_FUNDING_USD, cardholderApproved: approved,
       availableUSD: (Number(user?.usd || 0)).toFixed(2), orders: ops.map(view) };
   }
   function quote(userId, fundingUSD) {
@@ -282,10 +284,10 @@ function createCardOrders(options) {
     if (!card.number || !card.cvv) throw error('CARD_REVEAL_UNAVAILABLE', 503);
     return { number: card.number, cvv: card.cvv, expiry: card.expiry, expiresInSeconds: 30 };
   }
-  // One-click creation: fee-only quote (no initial funding), no PIN/consent step.
-  // Needs an approved ZiiroPay customer ID and enough available USD for the fee.
+  // One-click creation: fixed $5.00 initial card balance + creation fee, no PIN/consent step.
+  // Needs an approved ZiiroPay customer ID and enough available USD for fee + $5.00.
   async function createNow(userId) {
-    const q = quote(userId, '0.00');
+    const q = quote(userId, INITIAL_CARD_FUNDING_USD);
     return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
   }
   return { quote, create, createNow, current, reconcile, release, recover, reveal,
