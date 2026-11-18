@@ -202,8 +202,11 @@ function mountManualCardholders(app, { service, auth, adminOnly, rateLimit, issu
     }
   };
   app.get('/api/admin/users/:id/cardholder', privateRoute, adminOnly,
-    handle((req) => ({ ...service.status(req.users.find((u) => u.id === req.params.id), true),
-      cardOperationsEnabled: Boolean(issuanceEnabled) })));
+    handle(async (req) => {
+      // Opening the customer's 360 view links the ZiiroPay customer automatically when ZiiroPay already approved it.
+      await service.autoLink(req.params.id);
+      return { ...service.status(req.users.find((u) => u.id === req.params.id), true), cardOperationsEnabled: Boolean(issuanceEnabled) };
+    }));
   app.post('/api/admin/users/:id/cardholder', privateRoute, adminOnly, (req, res, next) => {
     if (req.get('X-Requested-With') !== 'XMLHttpRequest') return res.status(403).json({ error: 'Demann lan pa otorize.' });
     next();
