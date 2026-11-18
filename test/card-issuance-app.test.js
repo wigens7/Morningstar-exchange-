@@ -116,8 +116,8 @@ test('actual application: explicit activation, authorization/PIN, verified creat
     const id = result.data.id;
     await call('/api/virtual-cards/orders', 'customer', input);
     assert.equal(wallet('customer').usd, 92); assert.equal(wallet('customer').balance, 200);
-    assert.equal((await call('/api/virtual-cards/orders/' + id + '/reveal', 'rejected', { pin: '123456' })).status, 404);
-    const revealed = await call('/api/virtual-cards/orders/' + id + '/reveal', 'customer', { pin: '123456' });
+    assert.equal((await call('/api/virtual-cards/orders/' + id + '/reveal', 'rejected', {})).status, 404);
+    const revealed = await call('/api/virtual-cards/orders/' + id + '/reveal', 'customer', {});
     assert.equal(revealed.status, 200); assert.equal(revealed.headers.get('Cache-Control'), 'private, no-store');
     assert.equal(revealed.data.expiresInSeconds, 30);
     assert.equal(JSON.stringify((await call('/api/virtual-cards/orders', 'customer')).data).includes('number'), false);

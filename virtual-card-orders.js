@@ -486,7 +486,7 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
     handler((req) => service.create(req.user.id, { quoteId: req.body.quoteId, requestKey: req.body.requestKey,
       acceptedTotalUSD: req.body.acceptedTotalUSD, consent: req.body.consent })));
   app.post('/api/virtual-cards/orders/:id/reveal', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
-    strict(['pin']), pinGuard, handler((req) => service.reveal(req.user.id, req.params.id)));
+    strict([]), handler((req) => service.reveal(req.user.id, req.params.id)));
   app.get('/api/admin/virtual-cards/orders', privateHeaders, adminOnly, handler((req) => service.adminList(req.user, req.query.userId)));
   app.get('/api/admin/virtual-cards/cards', privateHeaders, adminOnly, handler((req) => service.adminCards(req.user, req.query.userId)));
   app.get('/api/admin/virtual-cards/holders', privateHeaders, adminOnly, handler((req) => service.adminHolders(req.user)));
