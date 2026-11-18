@@ -57,6 +57,43 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .stat .n{font-size:1.5rem;font-weight:800;line-height:1.1;margin-top:.25rem}
 .stat .l{font-size:.68rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;gap:.4rem}
 .stat.warn .n{color:#fbbf24}
+/* card pricing */
+.vc{padding:1.1rem}
+.vc-head{display:flex;align-items:center;gap:.75rem}
+.vc-ico{width:2.6rem;height:2.6rem;flex:none;border-radius:.8rem;display:grid;place-items:center;color:#F1C40F;background:linear-gradient(135deg,rgba(212,175,55,.25),rgba(212,175,55,.05));border:1px solid rgba(212,175,55,.35)}
+.vc-head h3{font-size:1rem;font-weight:800;letter-spacing:-.01em}
+.vc-head p{font-size:.72rem;color:var(--muted);margin-top:.1rem}
+.vc-status{margin-left:auto;white-space:nowrap}
+.vc-grid{display:grid;gap:.7rem;margin-top:1rem}
+@media(min-width:640px){.vc-grid{grid-template-columns:1fr 1fr}}
+.vc-box{background:var(--panel2);border:1px solid var(--line);border-radius:.9rem;padding:.85rem .9rem}
+.vc-box h4{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-bottom:.55rem;display:flex;align-items:center;gap:.4rem}
+.vc-row{display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.4rem 0;font-size:.82rem;color:#c3c9d6}
+.vc-row + .vc-row{border-top:1px solid var(--line)}
+.vc-row b{color:#fff;font-weight:700;font-variant-numeric:tabular-nums}
+.vc-row small{display:block;font-size:.66rem;color:var(--muted);margin-top:1px}
+.vc-field{display:flex;align-items:center;width:7.2rem;background:var(--bg);border:1px solid var(--line2);border-radius:.6rem;padding:0 .6rem;transition:border-color .15s,box-shadow .15s}
+.vc-field:focus-within{border-color:rgba(212,175,55,.7);box-shadow:0 0 0 3px rgba(212,175,55,.15)}
+.vc-field span{color:var(--muted);font-size:.85rem;margin-right:.25rem}
+.vc-field input{width:100%;min-width:0;background:transparent;border:0;outline:0;color:#fff;font-weight:700;font-size:.95rem;padding:.5rem 0;text-align:right;font-variant-numeric:tabular-nums}
+.vc-field input:disabled{opacity:.5}
+.vc-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:.55rem;margin-top:.7rem}
+.vc-kpi{background:var(--panel2);border:1px solid var(--line);border-radius:.9rem;padding:.7rem .75rem}
+.vc-kpi .l{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.vc-kpi .v{font-size:1.15rem;font-weight:800;margin-top:.2rem;font-variant-numeric:tabular-nums}
+.vc-kpi.profit{border-color:rgba(52,211,153,.35);background:linear-gradient(135deg,rgba(52,211,153,.12),rgba(52,211,153,.03))}
+.vc-kpi.profit .v{color:#34d399}
+.vc-kpi.loss{border-color:rgba(248,113,113,.45);background:linear-gradient(135deg,rgba(248,113,113,.14),rgba(248,113,113,.03))}
+.vc-kpi.loss .v{color:#f87171}
+.vc-kpi .s{font-size:.66rem;color:var(--muted);margin-top:.1rem}
+.vc-save{width:100%;margin-top:.9rem;padding:.8rem;border-radius:.8rem;font-weight:800;font-size:.85rem;color:#000;background:linear-gradient(135deg,#FFD700,#D4AF37 50%,#B8860B);transition:filter .15s,opacity .15s}
+.vc-save:hover:not(:disabled){filter:brightness(1.08)}
+.vc-save:disabled{opacity:.35;cursor:not-allowed;filter:grayscale(.6)}
+.vc-msg{display:flex;gap:.5rem;align-items:flex-start;margin-top:.7rem;padding:.6rem .75rem;border-radius:.7rem;font-size:.78rem;background:rgba(255,255,255,.04);border:1px solid var(--line);color:#c3c9d6}
+.vc-msg.bad{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.35);color:#fca5a5}
+.vc-msg.good{background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.3);color:#6ee7b7}
+.vc-more{margin-top:1rem;border-top:1px solid var(--line);padding-top:.8rem;font-size:.74rem;color:var(--muted)}
+.vc-more summary{cursor:pointer;font-weight:600;color:#aab1bf}
 /* cards + controls */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:1rem !important;transition:border-color .15s}
 .card:hover{border-color:var(--line2)}
@@ -777,25 +814,40 @@ async function loadSettings() {
       <button id="vc-check" class="b tab" onclick="checkZiiroPay()">Verifye koneksyon ZiiroPay</button>
       <p id="vc-result" class="text-sm text-gray-300" role="status" aria-live="polite"></p>
     </div>
-    <div class="card rounded-2xl p-4 mt-4 space-y-3">
-      <h3 class="font-semibold">Pri kreasyon kat vityèl</h3>
-      <p class="text-sm text-gray-400">Se admin sèlman ki fikse pri sa a an USD. Li endepandan ak frè swap yo. Sove pri a pa aktive acha, rechaj oswa retrè kat.</p>
-      <table class="w-full text-sm" aria-label="Tablo pri kat la">
-        <tbody>
-          <tr><td class="py-1 pr-2">Premye montan sou kat la (USD)</td><td class="py-1 text-right"><input id="vc-funding" type="text" inputmode="decimal" maxlength="7" class="inp w-24 text-right" disabled></td></tr>
-          <tr><td class="py-1 pr-2 text-gray-400">Frè ZiiroPay (<span id="vc-pfixed">2.50</span> + <span id="vc-ppct">1.5</span>%)</td><td class="py-1 text-right text-gray-300" id="vc-pfee">—</td></tr>
-          <tr><td class="py-1 pr-2 text-gray-400">Total ZiiroPay debite w</td><td class="py-1 text-right text-gray-300" id="vc-ptotal">—</td></tr>
-          <tr><td class="py-1 pr-2">Frè kreyasyon kliyan peye (USD)</td><td class="py-1 text-right"><input id="vc-price" type="text" inputmode="decimal" maxlength="9" placeholder="Egzanp: 4.00" class="inp w-24 text-right" disabled></td></tr>
-          <tr><td class="py-1 pr-2 text-gray-400">Minimòm ou ka mete (pri founisè)</td><td class="py-1 text-right text-gray-300" id="vc-min">—</td></tr>
-          <tr class="border-t border-gray-700"><td class="py-1 pr-2 font-semibold">Total kliyan peye</td><td class="py-1 text-right font-semibold" id="vc-ctotal">—</td></tr>
-          <tr><td class="py-1 pr-2 font-semibold">Pwofi ou sou chak kat</td><td class="py-1 text-right font-semibold" id="vc-margin">—</td></tr>
-        </tbody>
-      </table>
-      <button id="vc-price-save" class="b tab" onclick="saveCardPrice()" disabled>Sove pri kat la</button>
-      <p id="vc-price-result" class="text-sm text-gray-300" role="status" aria-live="polite">Chajman pri a…</p>
-      <p class="text-sm text-gray-400">Webhook prepare a: <code style="overflow-wrap:anywhere">/api/webhooks/ziiropay</code>. Li ap rejte mesaj yo jiskaske verifikasyon siyati a pare. Pa aktive evènman yo ankò.</p>
-      <a class="b tab inline-block" href="/card-kyc.html" target="_blank" rel="noopener noreferrer">Gade paj preparasyon KYC kat</a>
-      <p class="text-sm text-gray-400">Chemen manyèl: Itilizatè → ouvri pwofil 360° kliyan an → Cardholder ZiiroPay. Kreye cardholder la sou ZiiroPay, epi kole Customer ID ki apwouve a nan pwofil kliyan an. Pri sa a se frè kreasyon an sèlman; premye montan kliyan mete sou kat la ajoute apa, avèk yon total li konfime anvan peman. Soumisyon KYC otomatik ak retrè rete fèmen.</p>
+    <div class="card vc mt-4">
+      <div class="vc-head">
+        <div class="vc-ico"><i class="fa-regular fa-credit-card"></i></div>
+        <div><h3>Pri kat vityèl</h3><p>Fikse sa kliyan peye ak sa ZiiroPay pran w</p></div>
+        <span id="vc-status" class="pill vc-status text-gray-400">—</span>
+      </div>
+      <div class="vc-grid">
+        <div class="vc-box">
+          <h4><i class="fa-solid fa-building-columns"></i>Founisè · ZiiroPay</h4>
+          <div class="vc-row"><div>Premye montan sou kat la<small>Lajan ki antre sou kat kliyan an</small></div>
+            <label class="vc-field"><span>$</span><input id="vc-funding" type="text" inputmode="decimal" maxlength="7" aria-label="Premye montan sou kat la (USD)" disabled></label></div>
+          <div class="vc-row"><div>Frè kreyasyon<small><span id="vc-pfixed">2.50</span> + <span id="vc-ppct">1.5</span>%</small></div><b id="vc-pfee">—</b></div>
+          <div class="vc-row"><div>Total ZiiroPay debite w</div><b id="vc-ptotal">—</b></div>
+        </div>
+        <div class="vc-box">
+          <h4><i class="fa-regular fa-user"></i>Kliyan</h4>
+          <div class="vc-row"><div>Frè kreyasyon li peye<small>Minimòm: <span id="vc-min">—</span></small></div>
+            <label class="vc-field"><span>$</span><input id="vc-price" type="text" inputmode="decimal" maxlength="9" placeholder="4.00" aria-label="Frè kreyasyon kliyan peye (USD)" disabled></label></div>
+          <div class="vc-row"><div>Premye montan sou kat la</div><b id="vc-cfund">—</b></div>
+          <div class="vc-row"><div>Total kliyan peye</div><b id="vc-ctotal">—</b></div>
+        </div>
+      </div>
+      <div class="vc-kpis">
+        <div class="vc-kpi"><div class="l">Ou peye</div><div class="v" id="vc-k-cost">—</div></div>
+        <div class="vc-kpi"><div class="l">Kliyan peye</div><div class="v" id="vc-k-rev">—</div></div>
+        <div class="vc-kpi" id="vc-k-box"><div class="l">Pwofi / kat</div><div class="v" id="vc-margin">—</div><div class="s" id="vc-marginpct">&nbsp;</div></div>
+      </div>
+      <button id="vc-price-save" class="vc-save" onclick="saveCardPrice()" disabled>Sove pri a</button>
+      <div id="vc-price-result" class="vc-msg" role="status" aria-live="polite">Chajman pri a…</div>
+      <details class="vc-more"><summary>Plis enfòmasyon</summary>
+        <p class="mt-2">Se admin sèlman ki fikse pri sa a. Li endepandan ak frè swap yo. Sove pri a pa aktive acha, rechaj oswa retrè kat. Sistèm nan pa kite w sove yon frè ki pi ba pase sa ZiiroPay pran.</p>
+        <p class="mt-2">Webhook prepare a: <code style="overflow-wrap:anywhere">/api/webhooks/ziiropay</code>. Li rejte mesaj yo jiskaske verifikasyon siyati a pare.</p>
+        <a class="b tab inline-block mt-2" href="/card-kyc.html" target="_blank" rel="noopener noreferrer">Gade paj preparasyon KYC kat</a>
+      </details>
     </div>`;
   await loadCardPrice();
 }
@@ -804,22 +856,27 @@ const centsOf = (v) => /^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/.test(v) ? Math.round
 const usd2 = (c) => (c / 100).toFixed(2);
 // Same rule as the server (rounded up to the cent); the server enforces it again.
 const providerFee = (funding) => cardFeeRule.fixed + Math.ceil(funding * cardFeeRule.bp / 10000);
+function vcMsg(text, kind) { const m = $('vc-price-result'); m.textContent = text; m.className = 'vc-msg' + (kind ? ' ' + kind : ''); }
 function recalcCardPrice() {
   const f = centsOf($('vc-funding').value.trim()), p = centsOf($('vc-price').value.trim());
   const ok = f !== null && f >= 100 && f <= 100000;
-  const fee = ok ? providerFee(f) : null;
-  $('vc-pfee').textContent = ok ? '$' + usd2(fee) : '—';
-  $('vc-ptotal').textContent = ok ? '$' + usd2(f + fee) : '—';
-  $('vc-min').textContent = ok ? '$' + usd2(fee) : '—';
-  $('vc-ctotal').textContent = ok && p !== null ? '$' + usd2(f + p) : '—';
-  const m = $('vc-margin');
-  if (ok && p !== null) {
-    m.textContent = (p - fee < 0 ? '-$' : '$') + usd2(Math.abs(p - fee));
-    m.className = 'py-1 text-right font-semibold ' + (p - fee < 0 ? 'text-red-400' : 'text-emerald-400');
-  } else { m.textContent = '—'; m.className = 'py-1 text-right font-semibold'; }
-  const below = ok && p !== null && p < fee;
-  $('vc-price-save').disabled = !(ok && p !== null) || below;
-  if (below) $('vc-price-result').textContent = 'Frè a twò ba: ZiiroPay pran $' + usd2(fee) + '. Mete omwen $' + usd2(fee) + ' pou ou pa pèdi lajan.';
+  const fee = ok ? providerFee(f) : null, has = ok && p !== null, below = has && p < fee;
+  const money = (c) => '$' + usd2(c);
+  $('vc-pfee').textContent = ok ? money(fee) : '—';
+  $('vc-ptotal').textContent = ok ? money(f + fee) : '—';
+  $('vc-min').textContent = ok ? money(fee) : '—';
+  $('vc-cfund').textContent = ok ? money(f) : '—';
+  $('vc-ctotal').textContent = has ? money(f + p) : '—';
+  $('vc-k-cost').textContent = ok ? money(f + fee) : '—';
+  $('vc-k-rev').textContent = has ? money(f + p) : '—';
+  $('vc-margin').textContent = has ? (below ? '-' : '') + money(Math.abs(p - fee)) : '—';
+  $('vc-marginpct').innerHTML = has && p > 0 ? (below ? '' : '+') + ((p - fee) / p * 100).toFixed(0) + '% sou frè a' : '&nbsp;';
+  $('vc-k-box').className = 'vc-kpi' + (has ? (below ? ' loss' : ' profit') : '');
+  const st = $('vc-status');
+  st.textContent = !has ? 'Pa konfigire' : below ? 'Anba pri founisè' : 'Pwofitab';
+  st.className = 'pill vc-status ' + (!has ? 'text-gray-400' : below ? 'text-red-400' : 'text-emerald-400');
+  $('vc-price-save').disabled = !has || below;
+  if (below) vcMsg('Frè a twò ba: ZiiroPay pran ' + money(fee) + '. Mete omwen ' + money(fee) + ' pou ou pa pèdi lajan.', 'bad');
 }
 async function loadCardPrice() {
   const input = $('vc-price'), funding = $('vc-funding'), button = $('vc-price-save'), result = $('vc-price-result');
@@ -837,21 +894,19 @@ async function loadCardPrice() {
     input.disabled = false; funding.disabled = false;
     input.oninput = recalcCardPrice; funding.oninput = recalcCardPrice;
     recalcCardPrice();
-    if (!button.disabled || data.creationPriceConfigured === false) {
-      result.textContent = data.creationPriceConfigured ? 'Pri konfigire. ' + (data.cardOperationsEnabled ? 'Kreasyon kat aktive pou kliyan ki elijib yo.' : 'Kreasyon kat poko aktive.') : 'Pa gen pri konfigire. Mete yon pri epi sove li.';
-    }
-  } catch { result.textContent = 'Pri a pa disponib. Rechaje seksyon an pou eseye ankò.'; }
+    if (!result.classList.contains('bad')) vcMsg(data.creationPriceConfigured ? 'Pri konfigire. ' + (data.cardOperationsEnabled ? 'Kreasyon kat aktive pou kliyan ki elijib yo.' : 'Kreasyon kat poko aktive.') : 'Pa gen pri konfigire. Mete yon pri epi sove li.', '');
+  } catch { vcMsg('Pri a pa disponib. Rechaje seksyon an pou eseye ankò.', 'bad'); }
 }
 async function saveCardPrice() {
   const input = $('vc-price'), funding = $('vc-funding'), button = $('vc-price-save'), result = $('vc-price-result');
   if (!input || !funding || !button || !result || button.disabled) return;
   const price = input.value.trim(), fund = funding.value.trim();
   if (centsOf(price) === null || centsOf(fund) === null) {
-    result.textContent = 'Mete montan USD valid, avèk 2 desimal maksimòm (egzanp: 4.00).';
+    vcMsg('Mete montan USD valid, avèk 2 desimal maksimòm (egzanp: 4.00).', 'bad');
     return;
   }
   button.disabled = true; input.disabled = true; funding.disabled = true;
-  result.textContent = 'Pri a ap sove…';
+  vcMsg('Pri a ap sove…', '');
   try {
     const response = await fetch('/api/admin/virtual-cards/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -859,13 +914,13 @@ async function saveCardPrice() {
     });
     const data = await response.json();
     if (!response.ok) {
-      result.textContent = response.status === 409 ? 'Pri a fèk chanje. Rechaje seksyon an anvan ou sove ankò.' : (response.status === 400 && data.error) || 'Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.';
+      vcMsg(response.status === 409 ? 'Pri a fèk chanje. Rechaje seksyon an anvan ou sove ankò.' : (response.status === 400 && data.error) || 'Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.', 'bad');
       return;
     }
     cardPriceRevision = data.revision;
     input.value = data.creationPriceUSD; funding.value = data.initialFundingUSD;
-    result.textContent = 'Sove. Kliyan peye $' + data.customerTotalUSD + ' (frè $' + data.creationPriceUSD + ' + $' + data.initialFundingUSD + ' sou kat la). Pwofi: $' + data.marginUSD + '.';
-  } catch { result.textContent = 'Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.'; }
+    vcMsg('Sove. Kliyan peye $' + data.customerTotalUSD + ' (frè $' + data.creationPriceUSD + ' + $' + data.initialFundingUSD + ' sou kat la). Pwofi: $' + data.marginUSD + '.', 'good');
+  } catch { vcMsg('Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.', 'bad'); }
   finally { input.disabled = false; funding.disabled = false; recalcCardPrice(); }
 }
 async function checkZiiroPay() {
