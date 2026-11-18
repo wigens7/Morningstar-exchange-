@@ -415,3 +415,19 @@ test('a card the provider reports as pending stays under automatic re-check and 
     assert.equal(f.store.getUser('customer').usd, 92);
   } finally { f.close(); }
 });
+
+test('webhook card id completes a paid order whose create answer had no card id, only after ZiiroPay confirms it', async () => {
+  const f = await fixture({ provider: { configured: true, mode: 'live', async create() { return { ok: false, code: 'CARD_PROVIDER_UNCERTAIN' }; },
+    async details(id) { return id === cardId ? { ok: true, card: structuredClone(f.card) } : { ok: false, code: 'CARD_DETAILS_UNVERIFIED' }; } } });
+  try {
+    assert.equal((await f.service.create('customer', f.request())).state, 'REVIEW');
+    assert.deepEqual(await f.service.adoptCard('not a valid id!'), { adopted: false });
+    f.card.customerId = '00000000-0000-4000-8000-000000000000';
+    assert.deepEqual(await f.service.adoptCard(cardId), { adopted: false });
+    assert.equal(f.service.current('customer').orders[0].state, 'REVIEW');
+    f.card.customerId = cid;
+    assert.deepEqual(await f.service.adoptCard(cardId), { adopted: true });
+    assert.equal(f.service.current('customer').orders[0].state, 'READY');
+    assert.deepEqual(await f.service.adoptCard(cardId), { adopted: false });
+  } finally { f.close(); }
+});

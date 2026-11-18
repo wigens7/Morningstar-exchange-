@@ -340,6 +340,30 @@ function createCardOrders(options) {
       }
     } finally { completing = false; }
   }
+  // ZiiroPay may finish a card after the create call (event virtualcard.created.complete). The webhook payload is
+  // never trusted: only its cardId is used, and the card is read back from ZiiroPay. It is attached only to the single
+  // unfinished order of the same ZiiroPay customer, then goes through the normal verifyCard checks.
+  async function adoptCard(cardId) {
+    if (!enabled || !provider.configured || !validId(cardId)) return { adopted: false };
+    const result = await provider.details(cardId);
+    const customerId = result?.ok ? result.card?.customerId : null;
+    if (!validId(customerId)) { console.error('[card-webhook] details unavailable code=' + (result?.code || 'unknown')); return { adopted: false }; }
+    const ops = storage().prepare(`SELECT * FROM card_orders WHERE customer_id=? AND card_id IS NULL
+      AND state NOT IN ('READY','FAILED') AND attempt_started_at IS NOT NULL`).all(customerId);
+    if (ops.length !== 1) { console.error('[card-webhook] orders_matching=' + ops.length); return { adopted: false }; }
+    const op = ops[0];
+    if (activeJobs.has(op.id) || (op.candidate_id && op.candidate_id !== cardId)) return { adopted: false };
+    activeJobs.set(op.id, true);
+    try {
+      storage().prepare('UPDATE card_orders SET candidate_id=? WHERE id=?').run(cardId, op.id);
+      await finish({ ...op, candidate_id: cardId }, cardId, 'system');
+      return { adopted: true };
+    } catch (e) {
+      console.error('[card-webhook] order=' + op.id + ' still REVIEW code=' + e.code + ' detail=' + (e.detail || e.message));
+      if (row(op.id)?.state !== 'READY') update(op.id, 'REVIEW', 'CARD_REVIEW_REQUIRED');
+      return { adopted: false };
+    } finally { activeJobs.delete(op.id); }
+  }
   async function prepare(userId) { await options.autoLink?.(userId); }
   async function recover() {
     if (recovering || (!db && !fs.existsSync(path.join(dataDir, 'virtual-card-orders.sqlite')))) return;
@@ -373,7 +397,7 @@ function createCardOrders(options) {
     const q = quote(userId, fundingUSD(settings));
     return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
   }
-  return { quote, create, createNow, current, reconcile, retry, release, releaseAwaiting, prepare, autoComplete, recover, reveal,
+  return { quote, create, createNow, current, reconcile, retry, release, releaseAwaiting, prepare, adoptCard, autoComplete, recover, reveal,
     adminList(actor, userId) {
       admin(actor);
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
