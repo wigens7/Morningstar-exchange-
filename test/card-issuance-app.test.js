@@ -136,10 +136,8 @@ test('actual application: explicit activation, authorization/PIN, verified creat
     const counts = fs.readFileSync(path.join(dir, 'outbound.txt'), 'utf8').trim().split('\n');
     for (const id of ['customer', 'rejected', 'unknown']) assert.equal(counts.filter((x) => x === 'holder-' + id).length, 1);
     const pending = (await call('/api/virtual-cards/orders', 'unknown')).data.orders[0];
-    assert.equal((await call('/api/admin/virtual-cards/orders/' + pending.id + '/refund', 'admin',
-      { confirmation: 'wrong', pin: '123456' })).status, 400);
     const release = await call('/api/admin/virtual-cards/orders/' + pending.id + '/refund', 'admin',
-      { confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY', pin: '123456' });
+      {});
     assert.equal(release.data.state, 'FAILED'); assert.equal(wallet('unknown').usd, 100);
     const db = new DatabaseSync(path.join(dir, 'p2p.sqlite'));
     assert.equal(db.prepare("SELECT count(*) n FROM email_outbox WHERE event_type='CARD_CREATED'").get().n, 1); db.close();

@@ -1516,6 +1516,7 @@ mountManualCardholders(app, { service: manualCardholders, auth, adminOnly, rateL
 const cardOrders = createCardOrders({
   dataDir: DATA_DIR, getUser: store.getUser,
   getBinding: (user) => manualCardholders.status(user, true),
+  autoLink: (userId) => manualCardholders.autoLink(userId),
   wallet: createCardWallet(store), provider: cardProvider, kycProvider: cardLookup,
   settings: require('./virtual-card-setup').createCardSettings(DATA_DIR),
   notifyOutcome: async (user, event) => {
