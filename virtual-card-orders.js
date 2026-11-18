@@ -178,6 +178,19 @@ function createCardOrders(options) {
     await notice(row(op.id));
     return view(row(op.id));
   }
+  // Sole provider POST for an order whose reservation is held. Uncertain outcomes stay REVIEW.
+  async function submit(op, userId, actorId, allowFreshRebinding = false) {
+    const fresh = getUser(userId);
+    sameAccount(op, fresh, allowFreshRebinding);
+    // A FULL synchronous commit records intent BEFORE the provider POST.
+    storage().prepare("UPDATE card_orders SET state='SUBMITTING',attempt_started_at=? WHERE id=?").run(now(), op.id);
+    const result = await provider.create({ customerId: op.customer_id,
+      name: fresh.profile.firstName + ' ' + fresh.profile.lastName, fundingCents: op.funding_cents });
+    if (result.rejected) return await refund(op, 'CARD_PROVIDER_REJECTED', actorId);
+    if (!result.ok || !validId(result.candidateId)) throw error('CARD_REVIEW_REQUIRED');
+    storage().prepare('UPDATE card_orders SET candidate_id=? WHERE id=?').run(result.candidateId, op.id);
+    return await finish(op, result.candidateId, actorId);
+  }
   async function create(userId, input) {
     on();
     if (!uuid(input?.quoteId) || !uuid(input?.requestKey) || input.consent !== true ||
@@ -209,17 +222,7 @@ function createCardOrders(options) {
       if (settings.read().revision !== q.price_revision || q.expires_at <= now()) throw error('CARD_STALE_QUOTE');
       update(op.id, 'RESERVING');
       await wallet.reserve(op, (u) => sameAccount(op, u));
-      const fresh = getUser(userId);
-      sameAccount(op, fresh);
-      // A FULL synchronous commit records intent BEFORE the sole provider POST.
-      // From this point all uncertain outcomes remain REVIEW, never auto-retry.
-      storage().prepare("UPDATE card_orders SET state='SUBMITTING',attempt_started_at=? WHERE id=?").run(now(), op.id);
-      const result = await provider.create({ customerId: op.customer_id,
-        name: fresh.profile.firstName + ' ' + fresh.profile.lastName, fundingCents: op.funding_cents });
-      if (result.rejected) return await refund(op, 'CARD_PROVIDER_REJECTED', userId);
-      if (!result.ok || !validId(result.candidateId)) throw error('CARD_REVIEW_REQUIRED');
-      storage().prepare('UPDATE card_orders SET candidate_id=? WHERE id=?').run(result.candidateId, op.id);
-      return await finish(op, result.candidateId, userId);
+      return await submit(op, userId, userId);
     } catch (e) {
       const saved = row(op.id);
       if (saved.attempt_started_at === null && e.code !== 'CARD_WALLET_UNCERTAIN') {
@@ -242,6 +245,23 @@ function createCardOrders(options) {
     try {
       audit(op, actor.id, 'ADMIN_READ_ONLY_RECONCILIATION');
       return await finish(op, cardId, actor.id, actor);
+    } finally { activeJobs.delete(id); }
+  }
+  // Admin re-sends the provider POST for a REVIEW order (e.g. provider account had no funds).
+  // The existing reservation is reused, so the customer is never charged twice.
+  async function retry(actor, id, confirmation) {
+    admin(actor);
+    if (!uuid(id) || confirmation !== 'CONFIRMED_NO_CARD_IN_ZIIROPAY') throw error('CARD_INVALID_REQUEST', 400);
+    on();
+    const op = row(id);
+    if (!op || op.state === 'READY' || op.state === 'FAILED') throw error('CARD_NOT_FOUND', 404);
+    if (op.state !== 'REVIEW' || op.card_id || op.candidate_id || op.attempt_started_at === null) throw error('CARD_REVIEW_REQUIRED');
+    if (activeJobs.has(id)) throw error('CARD_BUSY');
+    activeJobs.set(id, true);
+    try {
+      audit(op, actor.id, 'ADMIN_RETRY_PROVIDER_CREATE');
+      try { return await submit(op, op.user_id, actor.id, true); }
+      catch (e) { update(op.id, 'REVIEW', e.code === 'CARD_WALLET_UNCERTAIN' ? e.code : 'CARD_REVIEW_REQUIRED'); return view(row(op.id)); }
     } finally { activeJobs.delete(id); }
   }
   async function release(actor, id, confirmation) {
@@ -290,7 +310,7 @@ function createCardOrders(options) {
     const q = quote(userId, INITIAL_CARD_FUNDING_USD);
     return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
   }
-  return { quote, create, createNow, current, reconcile, release, recover, reveal,
+  return { quote, create, createNow, current, reconcile, retry, release, recover, reveal,
     adminList(actor, userId) {
       admin(actor);
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
@@ -338,6 +358,8 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.get('/api/admin/virtual-cards/orders', privateHeaders, adminOnly, handler((req) => service.adminList(req.user, req.query.userId)));
   app.post('/api/admin/virtual-cards/orders/:id/reconcile', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['cardId', 'pin']), pinGuard, handler((req) => service.reconcile(req.user, req.params.id, req.body.cardId)));
+  app.post('/api/admin/virtual-cards/orders/:id/retry', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
+    strict(['confirmation', 'pin']), pinGuard, handler((req) => service.retry(req.user, req.params.id, req.body.confirmation)));
   app.post('/api/admin/virtual-cards/orders/:id/refund', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['confirmation', 'pin']), pinGuard, handler((req) => service.release(req.user, req.params.id, req.body.confirmation)));
 }

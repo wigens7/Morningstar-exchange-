@@ -344,7 +344,7 @@ const ago = (iso) => {
 let p360 = null, p360Cat = 'all', p360Q = '', p360Tab = 'act';
 let cardholderView = null;
 
-function close360() { $('m-360').classList.add('hidden'); p360 = null; cardholderView = null; }
+function close360() { clearCardAdminPin(); $('m-360').classList.add('hidden'); p360 = null; cardholderView = null; }
 async function open360(id) {
   p360Cat = 'all'; p360Q = ''; p360Tab = 'act';
   $('p-body').innerHTML = '<p class="text-gray-400 text-sm"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Chajman...</p>';
@@ -383,6 +383,11 @@ function paint360() {
       <button type="button" class="b tab" onclick="loadManualCardholder(p360.user.id)">Rechaje estati</button>
       <p id="ch-result" class="text-sm text-gray-300 break-words" role="status" aria-live="polite">Chajman…</p>
       <p class="text-sm text-gray-400">Asosiyasyon sa a pa debite balans kliyan. Kreasyon an fèt apa, sèlman lè kliyan an konfime pri total la avèk PIN li.</p>
+      <div class="border-t border-gray-700 pt-4 mt-4">
+        <h3 class="font-semibold text-base">Demann kreasyon kat</h3>
+        <button type="button" class="b tab" onclick="loadCardOrders(p360.user.id)">Chaje demann kat yo</button>
+        <div id="card-order-list" class="space-y-3 mt-3" aria-live="polite"></div>
+      </div>
     </section>` : ''}
     ${tabs}<div id="p-view"></div>
     ${p360.logStart ? `<p class="kv-note mt-3">Jounal detaye (IP + aparèy) kòmanse ${esc(fmtDT(p360.logStart))}. Sa ki anvan sa rekonstwi ak istorik tranzaksyon an.</p>` : '<p class="kv-note mt-3">Pa gen jounal detaye pou kont sa a ankò. Istorik la rekonstwi ak tranzaksyon yo.</p>'}`;
@@ -447,6 +452,61 @@ async function saveManualCardholder() {
     if (cardholderView === view) { view.loading = false; input.disabled = false; button.disabled = false; }
   }
 }
+async function loadCardOrders(userId) {
+  const box = $('card-order-list');
+  if (!box) return;
+  box.textContent = 'Chajman demann yo…';
+  try {
+    const r = await fetch('/api/admin/virtual-cards/orders?userId=' + encodeURIComponent(userId), { cache: 'no-store' });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Demann yo pa disponib.');
+    if ($('card-order-list') !== box || p360?.user?.id !== userId) return;
+    box.replaceChildren();
+    if (!data.orders.length) { box.textContent = 'Pa gen demann kat pou kliyan sa a.'; return; }
+    for (const order of data.orders) {
+      const panel = document.createElement('div'); panel.className = 'border border-gray-700 rounded-xl p-3';
+      const label = document.createElement('p'); label.className = 'text-sm';
+      label.textContent = order.state + ' · Total: ' + order.totalUSD + ' USD · ' + order.message; panel.append(label);
+      if (order.state === 'REVIEW') {
+        const warning = document.createElement('p'); warning.className = 'text-sm text-amber-300 my-3';
+        warning.textContent = 'Si kont founisè a pa t gen ase lajan, rechaje li, verifye sou ZiiroPay ke pa gen kat ki kreye, epi klike Retry. Kliyan an pa peye de fwa.'; panel.append(warning);
+        const pin = document.createElement('input'); pin.className = 'inp'; pin.type = 'password';
+        pin.inputMode = 'numeric'; pin.maxLength = 6; pin.autocomplete = 'off'; pin.placeholder = 'PIN admin (6 chif)';
+        pin.setAttribute('aria-label', 'PIN admin (6 chif)'); panel.append(pin);
+        const attest = document.createElement('label'); attest.className = 'flex gap-2 items-start text-sm my-3';
+        const cb = document.createElement('input'); cb.type = 'checkbox';
+        const txt = document.createElement('span'); txt.textContent = 'Mwen verifye sou ZiiroPay: PA GEN kat ki te kreye pou demann sa a.';
+        attest.append(cb, txt);
+        const retry = document.createElement('button'); retry.className = 'b tab'; retry.textContent = 'Retry';
+        const result = document.createElement('p'); result.className = 'text-sm text-gray-300 mt-2';
+        let busy = false;
+        retry.onclick = async () => {
+          if (busy) return;
+          if (!/^\d{6}$/.test(pin.value) || !cb.checked) { result.textContent = 'Antre PIN ou epi make konfimasyon an.'; return; }
+          busy = true; retry.disabled = true;
+          const secret = pin.value; pin.value = '';
+          try {
+            const r = await fetch('/api/admin/virtual-cards/orders/' + encodeURIComponent(order.id) + '/retry', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+              body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY', pin: secret }), signal: AbortSignal.timeout(35000)
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || 'Retry pa fini.');
+            if (p360?.user?.id === userId) await loadCardOrders(userId);
+          } catch (e) { result.textContent = (e && e.message) || 'Retry pa fini. Rechaje estati a anvan ou repete.'; }
+          finally { busy = false; retry.disabled = false; pin.value = ''; }
+        };
+        panel.append(attest, retry, result);
+      }
+      box.append(panel);
+    }
+  } catch { if ($('card-order-list') === box) box.textContent = 'Demann yo pa disponib. Rechaje estati a.'; }
+}
+function clearCardAdminPin() {
+  document.querySelectorAll('#card-order-list input[type=password]').forEach((input) => { input.value = ''; });
+}
+window.addEventListener('blur', clearCardAdminPin);
+document.addEventListener('visibilitychange', () => { if (document.hidden) clearCardAdminPin(); });
 function paint360View() {
   const v = $('p-view'); if (!v || !p360) return;
   if (p360Tab === 'log') {
