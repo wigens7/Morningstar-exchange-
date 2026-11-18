@@ -138,6 +138,7 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
     <nav class="nav" id="nav" aria-label="Seksyon administrasyon">
       <button class="tab on" data-t="kyc" onclick="go('kyc')"><i class="fa-regular fa-id-card"></i>KYC<span class="nbadge hidden" id="nb-kyc"></span></button>
       <button class="tab" data-t="users" onclick="go('users')"><i class="fa-solid fa-users"></i>Itilizatè</button>
+      <button class="tab" data-t="cards" onclick="go('cards')"><i class="fa-regular fa-credit-card"></i>Kliyan ak Kat</button>
       <button class="tab" data-t="wd" onclick="go('wd')"><i class="fa-solid fa-arrow-up-from-bracket"></i>Retrè<span class="nbadge hidden" id="nb-wd"></span></button>
       <button class="tab" data-t="dep" onclick="go('dep')"><i class="fa-solid fa-arrow-down-to-bracket"></i>Depo<span class="nbadge hidden" id="nb-dep"></span></button>
       <button class="tab" data-t="dinfo" onclick="go('dinfo')"><i class="fa-solid fa-building-columns"></i>Enfo Depo</button>
@@ -210,7 +211,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':
 const KYC = { pending: ['An atant', 'text-amber-400'], approved: ['Aksepte', 'text-emerald-400'], rejected: ['Refize', 'text-red-400'], reupload: ['Re-upload mande', 'text-orange-400'] };
 const IDT = { national_id: 'Kat Nasyonal', driver_license: 'Pèmi Kondwi', passport: 'Paspò' };
 let tab = 'kyc', kycRows = [], kycFilter = 'all', kvUrls = [], q = '', cache = {}, qTimer = null;
-const SEARCHABLE = { kyc: 'Chèche pa non, imèl oswa ID...', users: 'Chèche pa non, imèl, ID oswa telefòn...', wd: 'Chèche pa non, imèl, metòd, kont...', dep: 'Chèche pa non, imèl, ID, referans...' };
+const SEARCHABLE = { kyc: 'Chèche pa non, imèl oswa ID...', users: 'Chèche pa non, imèl, ID oswa telefòn...', cards: 'Chèche pa non, imèl oswa ID...', wd: 'Chèche pa non, imèl, metòd, kont...', dep: 'Chèche pa non, imèl, ID, referans...' };
 const has = (...f) => !q || f.map((x) => String(x ?? '')).join(' ').toLowerCase().includes(q.trim().toLowerCase());
 function setQ(v) { clearTimeout(qTimer); qTimer = setTimeout(() => { q = v; load(true); }, 150); const c = $('q-clear'); if (c) c.classList.toggle('hidden', !v); }
 function clearQ() { const i = $('q-in'); if (i) { i.value = ''; i.focus(); } q = ''; $('q-clear').classList.add('hidden'); load(true); }
@@ -222,6 +223,7 @@ function buildToolbar() {
 const TITLES = {
   kyc: ['Verifikasyon KYC', 'Revize dokiman kliyan yo anvan w apwouve kont yo.'],
   users: ['Itilizatè', 'Jere kont, non, balans ak wòl kliyan yo.'],
+  cards: ['Kliyan ak Kat', 'Tout kliyan ki gen yon kat vityèl (oswa ki an kou).'],
   wd: ['Retrè', 'Peman kliyan yo mande. Make yo kòm peye oswa refize.'],
   dep: ['Depo', 'Verifye depo kliyan yo epi kredite balans yo.'],
   dinfo: ['Enfo Depo', 'Sa kliyan yo wè lè yo fè yon depo.'],
@@ -585,6 +587,18 @@ async function load(fromCache) {
           <button class="b tab" onclick="setRole('${u.id}', '${u.role === 'support' ? 'user' : 'support'}')">${u.role === 'support' ? 'Retire Support' : 'Fè Support'}</button>`}</div>
       </div>`;
     }).join('');
+  } else if (tab === 'cards') {
+    const all = (await getData('cards', '/api/admin/virtual-cards/holders', fromCache)).holders;
+    const rows = all.filter((h) => has(h.name, h.email, h.uid, h.last4));
+    const ST = { READY: ['Kat aktif', 'text-emerald-400'], REVIEW: ['Revizyon', 'text-orange-400'], PENDING: ['An kou', 'text-amber-400'] };
+    $('list').innerHTML = rows.length ? `<p class="text-xs text-gray-400 mb-2">${rows.length} kliyan</p>` + rows.map((h) => {
+      const [l, c] = ST[h.state] || [h.state, 'text-gray-400'];
+      return `<div class="card rounded-2xl p-4 flex justify-between items-center gap-2">
+        <div class="min-w-0"><p class="font-semibold truncate">${esc(h.name || 'Itilizatè efase')}</p>
+        <p class="text-xs text-gray-400 truncate">${esc(h.email || '')}${h.uid ? ' · ID ' + esc(h.uid) : ''}</p>
+        <p class="text-xs ${c}">${l}${h.last4 ? ' · ' + esc(h.brand || '') + ' •••• ' + esc(h.last4) : ''}</p></div>
+        ${h.userId && h.name ? `<button class="b on" onclick="open360('${esc(h.userId)}')"><i class="fa-solid fa-chart-line"></i>360°</button>` : ''}</div>`;
+    }).join('') : `<p class="empty">${q ? 'Pa gen rezilta pou rechèch sa a.' : 'Pa gen kliyan ki gen kat ankò.'}</p>`;
   } else if (tab === 'p2p') {
     await loadP2P(window.ME_ROLE);
   } else if (tab === 'dep') {

@@ -316,6 +316,14 @@ function createCardOrders(options) {
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
       return { orders: storage().prepare('SELECT * FROM card_orders WHERE user_id=? ORDER BY created_at DESC LIMIT 10').all(userId).map(view) };
     },
+    adminHolders(actor) {
+      admin(actor);
+      return { holders: storage().prepare("SELECT * FROM card_orders WHERE state!='FAILED' ORDER BY created_at DESC LIMIT 1000").all().map((op) => {
+        const u = getUser(op.user_id), v = view(op);
+        return { userId: op.user_id, uid: u?.uid ?? null, name: u?.name ?? null, email: u?.email ?? null,
+          state: v.state, createdAt: v.createdAt, last4: v.card?.last4 ?? null, brand: v.card?.brand ?? null };
+      }) };
+    },
     close() { if (db) { db.close(); db = undefined; } }
   };
 }
@@ -356,6 +364,7 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.post('/api/virtual-cards/orders/:id/reveal', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['pin']), pinGuard, handler((req) => service.reveal(req.user.id, req.params.id)));
   app.get('/api/admin/virtual-cards/orders', privateHeaders, adminOnly, handler((req) => service.adminList(req.user, req.query.userId)));
+  app.get('/api/admin/virtual-cards/holders', privateHeaders, adminOnly, handler((req) => service.adminHolders(req.user)));
   app.post('/api/admin/virtual-cards/orders/:id/reconcile', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['cardId', 'pin']), pinGuard, handler((req) => service.reconcile(req.user, req.params.id, req.body.cardId)));
   app.post('/api/admin/virtual-cards/orders/:id/retry', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
