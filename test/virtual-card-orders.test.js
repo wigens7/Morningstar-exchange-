@@ -401,3 +401,17 @@ test('quote refuses to sell a card below the provider cost', async () => {
     assert.equal(f.store.getUser('customer').usd, 100);
   } finally { f.close(); }
 });
+
+test('a card the provider reports as pending stays under automatic re-check and settles once it is active', async () => {
+  let status = 'pending';
+  const f = await fixture({ provider: { configured: true, mode: 'live', async create() { return { ok: true, candidateId: cardId }; },
+    async details() { return { ok: true, card: { ...structuredClone(f.card), status } }; } } });
+  try {
+    assert.equal((await f.service.create('customer', f.request())).state, 'REVIEW');
+    await f.service.autoComplete();
+    assert.equal(f.service.current('customer').orders[0].state, 'REVIEW');
+    status = 'active'; await f.service.autoComplete();
+    assert.equal(f.service.current('customer').orders[0].state, 'READY');
+    assert.equal(f.store.getUser('customer').usd, 92);
+  } finally { f.close(); }
+});

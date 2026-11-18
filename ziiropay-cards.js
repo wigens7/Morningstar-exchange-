@@ -9,6 +9,20 @@ function createCardProvider(options = {}) {
   const apiKey = options.apiKey ?? process.env.ZIIROPAY_API_KEY ?? '';
   const mode = options.mode ?? process.env.ZIIROPAY_CARD_MODE ?? 'sandbox';
   const fetchImpl = options.fetchImpl || fetch;
+  // Redacted shape of every provider answer, so a card stuck in pending can be explained from the logs.
+  // Never logs the key, card number/CVV, emails or long digit runs; message text is truncated.
+  function diagnose(endpoint, method, status, body) {
+    try {
+      const text = (v) => (typeof v === 'string' ? v : '').replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '<email>')
+        .replace(/\d{6,}/g, '<n>').slice(0, 160);
+      const d = body.response?.card_detail;
+      console.info('[ziiropay-card] ' + method + ' ' + endpoint + ' http=' + status + ' success=' + body.success +
+        ' status=' + text(String(body.status ?? '')) + ' keys=' + Object.keys(body).slice(0, 12).join(',') +
+        (body.response && typeof body.response === 'object' ? ' response_keys=' + Object.keys(body.response).slice(0, 12).join(',') : '') +
+        (d ? ' card_status=' + text(String(d.card_status ?? '')) + ' detail_keys=' + Object.keys(d).slice(0, 20).join(',') : '') +
+        ' msg=' + text(body.message ?? body.error ?? body.response?.message ?? ''));
+    } catch { /* diagnostics never affect the result */ }
+  }
   async function request(endpoint, method, fields) {
     if (!apiKey || !['sandbox', 'live'].includes(mode)) return { ok: false, code: 'CARD_PROVIDER_UNCERTAIN' };
     const controller = new AbortController();
@@ -37,6 +51,7 @@ function createCardProvider(options = {}) {
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false, code: 'CARD_PROVIDER_UNCERTAIN' };
+      diagnose(endpoint, method, r.status, body);
       const hasCardHint = [body.card_id, body.cardId, body.data?.card_id, body.response?.card_id,
         body.response?.card_detail?.card_id].some(validId) || Boolean(body.response?.card_detail) ||
         ['active', 'complete', 'completed', 'success'].includes(body.status);
@@ -74,7 +89,7 @@ function createCardProvider(options = {}) {
         typeof d.reference !== 'string' || !/^[A-Za-z0-9_-]{6,128}$/.test(d.reference) ||
         typeof d.created_at !== 'string' || !Number.isFinite(Date.parse(d.created_at)) ||
         d.card_type !== 'virtual' || !['visa', 'mastercard'].includes(String(d.card_brand).toLowerCase()) ||
-        !['active', 'frozen', 'terminated'].includes(d.card_status)) return { ok: false, code: 'CARD_DETAILS_UNVERIFIED' };
+        !['active', 'pending', 'frozen', 'terminated'].includes(d.card_status)) return { ok: false, code: 'CARD_DETAILS_UNVERIFIED' };
     const card = { cardId, customerId: d.customer_id, holder: d.card_holder_name, email: d.customer_email,
       last4: d.last4, expiry: d.expiry, brand: d.card_brand.toLowerCase(), status: d.card_status,
       balanceCents: usdToCents(d.balance), reference: d.reference, createdAt: d.created_at };
