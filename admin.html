@@ -627,7 +627,7 @@ async function refundAwaiting() {
   if (!confirm('Anile epi ranbouse TOUT kòmand kat ki poko fini (an kou, revizyon)? Kliyan yo rekipere lajan yo.')) return;
   const r = await fetch('/api/admin/virtual-cards/orders/refund-awaiting', { method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY' }) });
+    body: JSON.stringify({}) });
   const d = await r.json().catch(() => ({}));
   alert(r.ok ? (d.refunded + d.skipped + d.failed === 0 ? 'Pa gen okenn kòmand kat ki poko fini.' : `Ranbouse: ${d.refunded} · Sote: ${d.skipped} · Echwe: ${d.failed}`) : (d.error || 'Erè'));
   load();
