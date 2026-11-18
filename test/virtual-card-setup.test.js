@@ -9,7 +9,7 @@ const net = require('node:net');
 const { spawn } = require('node:child_process');
 const vm = require('node:vm');
 const jwt = require('jsonwebtoken');
-const { createCardSettings, usdToCents, publicSetup } = require('../virtual-card-setup');
+const { providerFeeCents, breakdown, createCardSettings, usdToCents, publicSetup } = require('../virtual-card-setup');
 
 test('card price uses exact integer cents; no inferred free card or unsafe amounts', () => {
   for (const [text, cents] of [['0', 0], ['0.01', 1], ['10', 1000], ['12.3', 1230], ['999999.99', 99999999]]) {
@@ -35,8 +35,8 @@ test('card price survives a new settings instance; stale save cannot overwrite i
     const restarted = createCardSettings(dir);
     assert.deepEqual(restarted.read(), saved);
     assert.equal(restarted.save('99.99', null).error, 'STALE_SETTINGS');
-    const updated = restarted.save('0', saved.revision);
-    assert.equal(updated.creationPriceCents, 0);
+    const updated = restarted.save('2.58', saved.revision);
+    assert.equal(updated.creationPriceCents, 258);
     assert.notEqual(updated.revision, saved.revision);
     assert.equal(fs.statSync(path.join(dir, 'virtual-card-settings.json')).mode & 0o777, 0o600);
     assert.deepEqual(fs.readdirSync(dir), ['virtual-card-settings.json']);
@@ -189,4 +189,23 @@ test('actual app: admin price, restart persistence, private KYC entry, rejected 
     fs.rmSync(dir, { recursive: true, force: true });
   }
   assert.doesNotMatch(logs, /synthetic-sensitive-pii|local-duplicate-event/);
+});
+
+test('provider cost: $3.00 funding costs $2.50 + 1.5% (never rounded down) and prices below it are refused', () => {
+  assert.equal(providerFeeCents(300), 255);        // ZiiroPay shows 2.54; we round up so we never undercharge
+  assert.equal(providerFeeCents(500), 258);
+  const b = breakdown({ creationPriceCents: 400, initialFundingCents: 300 });
+  assert.equal(b.providerTotalUSD, '5.55'); assert.equal(b.customerTotalUSD, '7.00'); assert.equal(b.marginUSD, '1.45');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'card-cost-'));
+  try {
+    const s = createCardSettings(dir);
+    const low = s.save('2.54', null, '3.00');
+    assert.equal(low.error, 'BELOW_COST'); assert.equal(low.minCents, 255);
+    assert.equal(fs.existsSync(path.join(dir, 'virtual-card-settings.json')), false);
+    assert.equal(s.save('4.00', null, '0.50').error, 'INVALID_FUNDING');
+    const ok = s.save('2.55', null, '3.00');
+    assert.equal(ok.creationPriceCents, 255); assert.equal(ok.initialFundingCents, 300);
+    // raising the funding raises the minimum price, so a previously fine price is refused
+    assert.equal(s.save('2.55', ok.revision, '50.00').error, 'BELOW_COST');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

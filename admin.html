@@ -780,8 +780,17 @@ async function loadSettings() {
     <div class="card rounded-2xl p-4 mt-4 space-y-3">
       <h3 class="font-semibold">Pri kreasyon kat vityèl</h3>
       <p class="text-sm text-gray-400">Se admin sèlman ki fikse pri sa a an USD. Li endepandan ak frè swap yo. Sove pri a pa aktive acha, rechaj oswa retrè kat.</p>
-      <label for="vc-price" class="block text-sm">Pri kliyan peye pou kreye yon kat (USD)</label>
-      <input id="vc-price" type="text" inputmode="decimal" maxlength="9" placeholder="Egzanp: 10.00" class="inp" disabled>
+      <table class="w-full text-sm" aria-label="Tablo pri kat la">
+        <tbody>
+          <tr><td class="py-1 pr-2">Premye montan sou kat la (USD)</td><td class="py-1 text-right"><input id="vc-funding" type="text" inputmode="decimal" maxlength="7" class="inp w-24 text-right" disabled></td></tr>
+          <tr><td class="py-1 pr-2 text-gray-400">Frè ZiiroPay (<span id="vc-pfixed">2.50</span> + <span id="vc-ppct">1.5</span>%)</td><td class="py-1 text-right text-gray-300" id="vc-pfee">—</td></tr>
+          <tr><td class="py-1 pr-2 text-gray-400">Total ZiiroPay debite w</td><td class="py-1 text-right text-gray-300" id="vc-ptotal">—</td></tr>
+          <tr><td class="py-1 pr-2">Frè kreyasyon kliyan peye (USD)</td><td class="py-1 text-right"><input id="vc-price" type="text" inputmode="decimal" maxlength="9" placeholder="Egzanp: 4.00" class="inp w-24 text-right" disabled></td></tr>
+          <tr><td class="py-1 pr-2 text-gray-400">Minimòm ou ka mete (pri founisè)</td><td class="py-1 text-right text-gray-300" id="vc-min">—</td></tr>
+          <tr class="border-t border-gray-700"><td class="py-1 pr-2 font-semibold">Total kliyan peye</td><td class="py-1 text-right font-semibold" id="vc-ctotal">—</td></tr>
+          <tr><td class="py-1 pr-2 font-semibold">Pwofi ou sou chak kat</td><td class="py-1 text-right font-semibold" id="vc-margin">—</td></tr>
+        </tbody>
+      </table>
       <button id="vc-price-save" class="b tab" onclick="saveCardPrice()" disabled>Sove pri kat la</button>
       <p id="vc-price-result" class="text-sm text-gray-300" role="status" aria-live="polite">Chajman pri a…</p>
       <p class="text-sm text-gray-400">Webhook prepare a: <code style="overflow-wrap:anywhere">/api/webhooks/ziiropay</code>. Li ap rejte mesaj yo jiskaske verifikasyon siyati a pare. Pa aktive evènman yo ankò.</p>
@@ -790,46 +799,74 @@ async function loadSettings() {
     </div>`;
   await loadCardPrice();
 }
-let cardPriceRevision = null;
+let cardPriceRevision = null, cardFeeRule = { fixed: 250, bp: 150 };
+const centsOf = (v) => /^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/.test(v) ? Math.round(Number(v) * 100) : null;
+const usd2 = (c) => (c / 100).toFixed(2);
+// Same rule as the server (rounded up to the cent); the server enforces it again.
+const providerFee = (funding) => cardFeeRule.fixed + Math.ceil(funding * cardFeeRule.bp / 10000);
+function recalcCardPrice() {
+  const f = centsOf($('vc-funding').value.trim()), p = centsOf($('vc-price').value.trim());
+  const ok = f !== null && f >= 100 && f <= 100000;
+  const fee = ok ? providerFee(f) : null;
+  $('vc-pfee').textContent = ok ? '$' + usd2(fee) : '—';
+  $('vc-ptotal').textContent = ok ? '$' + usd2(f + fee) : '—';
+  $('vc-min').textContent = ok ? '$' + usd2(fee) : '—';
+  $('vc-ctotal').textContent = ok && p !== null ? '$' + usd2(f + p) : '—';
+  const m = $('vc-margin');
+  if (ok && p !== null) {
+    m.textContent = (p - fee < 0 ? '-$' : '$') + usd2(Math.abs(p - fee));
+    m.className = 'py-1 text-right font-semibold ' + (p - fee < 0 ? 'text-red-400' : 'text-emerald-400');
+  } else { m.textContent = '—'; m.className = 'py-1 text-right font-semibold'; }
+  const below = ok && p !== null && p < fee;
+  $('vc-price-save').disabled = !(ok && p !== null) || below;
+  if (below) $('vc-price-result').textContent = 'Frè a twò ba: ZiiroPay pran $' + usd2(fee) + '. Mete omwen $' + usd2(fee) + ' pou ou pa pèdi lajan.';
+}
 async function loadCardPrice() {
-  const input = $('vc-price'), button = $('vc-price-save'), result = $('vc-price-result');
-  if (!input || !button || !result) return;
-  input.disabled = true; button.disabled = true;
+  const input = $('vc-price'), funding = $('vc-funding'), button = $('vc-price-save'), result = $('vc-price-result');
+  if (!input || !funding || !button || !result) return;
+  input.disabled = true; funding.disabled = true; button.disabled = true;
   try {
     const response = await fetch('/api/admin/virtual-cards/settings', { cache: 'no-store' });
     const data = await response.json();
     if (!response.ok) throw new Error('unavailable');
     cardPriceRevision = data.revision;
+    $('vc-pfixed').textContent = data.providerFixedFeeUSD; $('vc-ppct').textContent = data.providerPercent;
+    cardFeeRule = { fixed: Math.round(Number(data.providerFixedFeeUSD) * 100), bp: Math.round(Number(data.providerPercent) * 100) };
+    funding.value = data.initialFundingUSD;
     input.value = data.creationPriceUSD === null ? '' : data.creationPriceUSD;
-    input.disabled = false; button.disabled = false;
-    result.textContent = data.creationPriceConfigured ? 'Pri konfigire. ' + (data.cardOperationsEnabled ? 'Kreasyon kat aktive pou kliyan ki elijib yo.' : 'Kreasyon kat poko aktive.') : 'Pa gen pri konfigire. Mete yon pri epi sove li.';
+    input.disabled = false; funding.disabled = false;
+    input.oninput = recalcCardPrice; funding.oninput = recalcCardPrice;
+    recalcCardPrice();
+    if (!button.disabled || data.creationPriceConfigured === false) {
+      result.textContent = data.creationPriceConfigured ? 'Pri konfigire. ' + (data.cardOperationsEnabled ? 'Kreasyon kat aktive pou kliyan ki elijib yo.' : 'Kreasyon kat poko aktive.') : 'Pa gen pri konfigire. Mete yon pri epi sove li.';
+    }
   } catch { result.textContent = 'Pri a pa disponib. Rechaje seksyon an pou eseye ankò.'; }
 }
 async function saveCardPrice() {
-  const input = $('vc-price'), button = $('vc-price-save'), result = $('vc-price-result');
-  if (!input || !button || !result || button.disabled) return;
-  const price = input.value.trim();
-  if (!/^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/.test(price)) {
-    result.textContent = 'Mete yon montan USD valid, avèk 2 desimal maksimòm (egzanp: 10.00).';
+  const input = $('vc-price'), funding = $('vc-funding'), button = $('vc-price-save'), result = $('vc-price-result');
+  if (!input || !funding || !button || !result || button.disabled) return;
+  const price = input.value.trim(), fund = funding.value.trim();
+  if (centsOf(price) === null || centsOf(fund) === null) {
+    result.textContent = 'Mete montan USD valid, avèk 2 desimal maksimòm (egzanp: 4.00).';
     return;
   }
-  button.disabled = true; input.disabled = true;
+  button.disabled = true; input.disabled = true; funding.disabled = true;
   result.textContent = 'Pri a ap sove…';
   try {
     const response = await fetch('/api/admin/virtual-cards/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ creationPriceUSD: price, revision: cardPriceRevision })
+      body: JSON.stringify({ creationPriceUSD: price, initialFundingUSD: fund, revision: cardPriceRevision })
     });
     const data = await response.json();
     if (!response.ok) {
-      result.textContent = response.status === 409 ? 'Pri a fèk chanje. Rechaje seksyon an anvan ou sove ankò.' : 'Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.';
+      result.textContent = response.status === 409 ? 'Pri a fèk chanje. Rechaje seksyon an anvan ou sove ankò.' : (response.status === 400 && data.error) || 'Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.';
       return;
     }
     cardPriceRevision = data.revision;
-    input.value = data.creationPriceUSD;
-    result.textContent = 'Frè kreasyon an sove: ' + data.creationPriceUSD + ' USD. ' + (data.cardOperationsEnabled ? 'Kreasyon kat aktive pou kliyan ki elijib yo.' : 'Kreasyon kat poko aktive.');
-    button.disabled = false; input.disabled = false;
-  } catch { result.textContent = 'Rezilta sovgad la pa sèten. Rechaje seksyon an pou verifye pri a anvan ou eseye ankò.'; }
+    input.value = data.creationPriceUSD; funding.value = data.initialFundingUSD;
+    result.textContent = 'Sove. Kliyan peye $' + data.customerTotalUSD + ' (frè $' + data.creationPriceUSD + ' + $' + data.initialFundingUSD + ' sou kat la). Pwofi: $' + data.marginUSD + '.';
+  } catch { result.textContent = 'Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.'; }
+  finally { input.disabled = false; funding.disabled = false; recalcCardPrice(); }
 }
 async function checkZiiroPay() {
   const button = $('vc-check'), result = $('vc-result');

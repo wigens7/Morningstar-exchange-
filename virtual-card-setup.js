@@ -9,6 +9,26 @@ const crypto = require('node:crypto');
 const WEBHOOK_PATH = '/api/webhooks/ziiropay';
 const KYC_PATH = '/card-kyc.html';
 const MAX_PRICE_CENTS = 99999999;
+// ZiiroPay charges us: initial funding + (fixed fee + percent of the funding). Rounded UP to the cent so the
+// minimum price we enforce can never be below the provider's real charge.
+const PROVIDER_FIXED_FEE_CENTS = 250;
+const PROVIDER_PERCENT_BP = 150;            // 1.5%
+const DEFAULT_FUNDING_CENTS = 500;
+const MIN_FUNDING_CENTS = 100, MAX_FUNDING_CENTS = 100000;
+const providerFeeCents = (fundingCents) =>
+  PROVIDER_FIXED_FEE_CENTS + Math.ceil((fundingCents * PROVIDER_PERCENT_BP) / 10000);
+function breakdown(value) {
+  const funding = value.initialFundingCents ?? DEFAULT_FUNDING_CENTS;
+  const providerFee = providerFeeCents(funding), price = value.creationPriceCents;
+  const usd = (c) => (c / 100).toFixed(2);
+  return {
+    initialFundingUSD: usd(funding), providerFixedFeeUSD: usd(PROVIDER_FIXED_FEE_CENTS),
+    providerPercent: PROVIDER_PERCENT_BP / 100, providerFeeUSD: usd(providerFee),
+    providerTotalUSD: usd(funding + providerFee), minCreationPriceUSD: usd(providerFee),
+    customerTotalUSD: price === null ? null : usd(funding + price),
+    marginUSD: price === null ? null : usd(price - providerFee)
+  };
+}
 
 function usdToCents(value) {
   // Montan soti nan yon string desimal, pa floating-point oswa exponent.
@@ -24,7 +44,7 @@ function createCardSettings(dataDir) {
     let value;
     try { value = JSON.parse(fs.readFileSync(file, 'utf8')); }
     catch (e) {
-      if (e.code === 'ENOENT') return { revision: null, creationPriceCents: null, updatedAt: null };
+      if (e.code === 'ENOENT') return { revision: null, creationPriceCents: null, initialFundingCents: DEFAULT_FUNDING_CENTS, updatedAt: null };
       throw new Error('CARD_SETTINGS_UNAVAILABLE');
     }
     if (!value || value.schemaVersion !== 1 ||
@@ -34,16 +54,26 @@ function createCardSettings(dataDir) {
         typeof value.updatedAt !== 'string' || !Number.isFinite(Date.parse(value.updatedAt))) {
       throw new Error('CARD_SETTINGS_UNAVAILABLE');
     }
+    if (value.initialFundingCents === undefined) value.initialFundingCents = DEFAULT_FUNDING_CENTS;
+    if (!Number.isSafeInteger(value.initialFundingCents) || value.initialFundingCents < MIN_FUNDING_CENTS ||
+        value.initialFundingCents > MAX_FUNDING_CENTS) throw new Error('CARD_SETTINGS_UNAVAILABLE');
     return value;
   }
-  function save(price, revision) {
+  function save(price, revision, funding) {
     const cents = usdToCents(price);
     if (cents === null) return { error: 'INVALID_PRICE' };
     const current = read();
     if (revision !== current.revision) return { error: 'STALE_SETTINGS' };
+    let fundingCents = current.initialFundingCents;
+    if (funding !== undefined) {
+      fundingCents = usdToCents(funding);
+      if (fundingCents === null || fundingCents < MIN_FUNDING_CENTS || fundingCents > MAX_FUNDING_CENTS) return { error: 'INVALID_FUNDING' };
+    }
+    // Never let the admin sell a card for less than ZiiroPay charges for it.
+    if (cents < providerFeeCents(fundingCents)) return { error: 'BELOW_COST', minCents: providerFeeCents(fundingCents) };
     const value = {
       schemaVersion: 1, revision: crypto.randomUUID(),
-      creationPriceCents: cents, updatedAt: new Date().toISOString()
+      creationPriceCents: cents, initialFundingCents: fundingCents, updatedAt: new Date().toISOString()
     };
     const temp = file + '.' + crypto.randomUUID() + '.tmp';
     let fd;
@@ -72,6 +102,7 @@ function publicSetup(value) {
     currency: 'USD',
     creationPriceUSD: value.creationPriceCents === null ? null : (value.creationPriceCents / 100).toFixed(2),
     creationPriceConfigured: value.creationPriceCents !== null,
+    ...breakdown(value),
     cardOperationsEnabled: false,
     withdrawalEnabled: false,
     kycSubmissionEnabled: false,
@@ -99,12 +130,15 @@ function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageF
     // Rejte kle siplemantè: yon kliyan pa ka aktive retrè oswa operasyon yo.
     const body = req.body;
     if (!body || Array.isArray(body) ||
-        Object.keys(body).some((k) => !['creationPriceUSD', 'revision'].includes(k))) {
+        Object.keys(body).some((k) => !['creationPriceUSD', 'initialFundingUSD', 'revision'].includes(k))) {
       return res.status(400).json({ error: 'Demann pri kat la pa valid.' });
     }
     try {
-      const value = settings.save(body.creationPriceUSD, body.revision);
+      const value = settings.save(body.creationPriceUSD, body.revision, body.initialFundingUSD);
       if (value.error === 'INVALID_PRICE') return res.status(400).json({ error: 'Mete yon pri USD ant 0 ak 999999.99, avèk 2 desimal maksimòm.' });
+      if (value.error === 'INVALID_FUNDING') return res.status(400).json({ error: 'Premye montan kat la dwe ant 1.00 ak 1000.00 USD.' });
+      if (value.error === 'BELOW_COST') return res.status(400).json({ code: 'BELOW_COST',
+        error: 'Frè a twò ba: ZiiroPay pran ' + (value.minCents / 100).toFixed(2) + ' USD pou kat sa a. Mete omwen ' + (value.minCents / 100).toFixed(2) + ' USD pou ou pa pèdi lajan.' });
       if (value.error === 'STALE_SETTINGS') return res.status(409).json({ error: 'Pri a fèk chanje. Rechaje seksyon an anvan ou sove ankò.' });
       res.json({ ...setup(value), revision: value.revision, updatedAt: value.updatedAt, webhookPath: WEBHOOK_PATH });
     } catch {
@@ -137,4 +171,4 @@ function mountZiiroPayWebhook(app) {
   });
 }
 
-module.exports = { createCardSettings, mountVirtualCardSetup, mountZiiroPayWebhook, usdToCents, publicSetup, WEBHOOK_PATH, KYC_PATH };
+module.exports = { providerFeeCents, breakdown, createCardSettings, mountVirtualCardSetup, mountZiiroPayWebhook, usdToCents, publicSetup, WEBHOOK_PATH, KYC_PATH };
