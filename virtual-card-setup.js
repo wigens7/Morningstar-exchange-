@@ -156,11 +156,21 @@ function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageF
   }, (req, res) => res.sendFile(pageFile));
 }
 
-function mountZiiroPayWebhook(app) {
+function mountZiiroPayWebhook(app, { onCardCreated } = {}) {
   // Monte anvan JSON parser la: menm JSON malfòme pa dwe antre nan logs.
   // Pa envante yon siyati: dokiman piblik yo pa bay header/algoritm lan.
   // Pa akize resepsyon avèk 2xx, pa anrejistre payload, pa voye imel,
   // pa rele founisè a, pa kredite/debite okenn balans, menm si JSON di success.
+  // With onCardCreated, only virtualcard.created.complete is used, and only its cardId: the handler re-reads the
+  // card from ZiiroPay, so a forged payload cannot create, fund or settle anything.
+  if (onCardCreated) app.post(WEBHOOK_PATH, require('express').json({ limit: '20kb' }), (req, res) => {
+    res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    const b = req.body;
+    if (b?.event === 'virtualcard.created.complete' && typeof b.cardId === 'string') {
+      void Promise.resolve(onCardCreated(b.cardId)).catch(() => console.error('[card-webhook] handler failed'));
+    }
+    res.status(200).json({ received: true });
+  });
   app.post(WEBHOOK_PATH, (req, res) => {
     res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     res.status(503).json({ code: 'ZIIROPAY_WEBHOOK_NOT_ENABLED', error: 'Verifikasyon webhook la poko aktive.' });
