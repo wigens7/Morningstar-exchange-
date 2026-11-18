@@ -625,10 +625,9 @@ async function load(fromCache) {
 
 async function refundAwaiting() {
   if (!confirm('Anile epi ranbouse tout kòmand kat ki an kou (founisè a pa t kreye kat la)? Kliyan yo rekipere lajan yo.')) return;
-  const pin = prompt('PIN admin ou (6 chif):'); if (!pin) return;
   const r = await fetch('/api/admin/virtual-cards/orders/refund-awaiting', { method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY', pin }) });
+    body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY' }) });
   const d = await r.json().catch(() => ({}));
   alert(r.ok ? `Ranbouse: ${d.refunded} · Sote: ${d.skipped} · Echwe: ${d.failed}` : (d.error || 'Erè'));
   load();

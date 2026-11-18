@@ -400,7 +400,7 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.post('/api/admin/virtual-cards/orders/:id/refund', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['confirmation', 'pin']), pinGuard, handler((req) => service.release(req.user, req.params.id, req.body.confirmation)));
   app.post('/api/admin/virtual-cards/orders/refund-awaiting', privateHeaders, adminOnly, ajax, rateLimit(5, 15 * 60 * 1000),
-    strict(['confirmation', 'pin']), pinGuard, handler((req) => service.releaseAwaiting(req.user, req.body.confirmation)));
+    strict(['confirmation']), handler((req) => service.releaseAwaiting(req.user, req.body.confirmation)));
 }
 
 module.exports = { createCardOrders, mountCardOrders, messages };
