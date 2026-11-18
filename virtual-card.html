@@ -2,40 +2,52 @@
 <html lang="ht"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Kat vityèl · Morningstar Exchange</title>
 <style>
-:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;color:#f4f5f8;background:#090c12}
-*{box-sizing:border-box}body{margin:0}main{max-width:680px;margin:auto;padding:24px 18px 50px}
-a{color:#f7ce43}header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:28px}
-.brand{font-size:12px;letter-spacing:.14em;font-weight:800;color:#f7ce43}h1{font-size:28px;margin:12px 0}
-h2{font-size:19px;margin:0 0 16px}p{line-height:1.6}.muted{color:#a6b0c2;font-size:14px}
-.panel{background:#121722;border:1px solid #2b3342;border-radius:20px;padding:22px;margin:16px 0;min-width:0}
-.payment-card{background:linear-gradient(135deg,#242e41,#121722);border-color:#8a743a}.last{font-size:25px;letter-spacing:.14em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.row{display:flex;justify-content:space-between;gap:20px;margin:14px 0;font-size:15px}.row strong{font-variant-numeric:tabular-nums;text-align:right}
-.total{padding-top:15px;border-top:1px solid #343e50;font-size:19px}
-label{display:block;font-size:14px;font-weight:650;margin:18px 0 8px}input{display:block;width:100%;min-height:50px;background:#090d15;border:1px solid #414d63;color:#fff;border-radius:12px;padding:12px 14px;font:inherit;font-size:17px}
-input:focus{outline:2px solid #e8bf3a}button{min-height:48px;cursor:pointer;border:0;border-radius:12px;background:#f2c934;color:#141006;font:inherit;font-weight:750;padding:12px 18px;margin-top:12px}
-button:disabled{opacity:.5;cursor:wait}.secondary{background:#273247;color:#fff}
-.wide{width:100%}.check{display:flex;align-items:flex-start;gap:10px;line-height:1.5}.check input{width:22px;min-height:22px;flex-shrink:0;margin:0}
-#message{white-space:pre-wrap;overflow-wrap:anywhere;border-left:3px solid #e3bb36;padding:12px 15px;background:#1c201f;font-size:15px;line-height:1.5}
-#secret{padding:16px;background:#080b10;border:1px solid #45516a;border-radius:12px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-[hidden]{display:none!important}footer{margin-top:30px;text-align:center;color:#98a4b9;font-size:12px}@media(max-width:360px){main{padding:18px 12px}.panel{padding:17px}.row{gap:10px}.brand{letter-spacing:.06em}h1{font-size:25px}}
+:root{color-scheme:dark;--gold:#f7ce43;--gold2:#d9a521;--bg:#070a10;--panel:#111723;--line:#263045;--text:#f4f6fa;--muted:#9aa6bb;
+font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--text);background:var(--bg)}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(900px 500px at 85% -10%,rgba(247,206,67,.13),transparent 60%),radial-gradient(700px 480px at -10% 10%,rgba(76,110,245,.12),transparent 55%),var(--bg)}
+main{max-width:560px;margin:auto;padding:22px 18px 56px}
+a{color:var(--gold);text-decoration:none;font-weight:600;font-size:14px}a:hover{text-decoration:underline}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:30px}
+.brand{font-size:12px;letter-spacing:.18em;font-weight:800;color:var(--gold)}
+h1{font-size:30px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:18px;margin:0 0 6px}
+p{line-height:1.6;margin:0 0 14px}.muted{color:var(--muted);font-size:14px}
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01)),var(--panel);border:1px solid var(--line);border-radius:22px;padding:24px;margin:18px 0;min-width:0;box-shadow:0 20px 50px -25px rgba(0,0,0,.8)}
+.cardart,.payment-card{position:relative;overflow:hidden;aspect-ratio:1.586;width:100%;border-radius:22px;padding:22px 24px;display:flex;flex-direction:column;justify-content:space-between;
+background:linear-gradient(135deg,#2b3550 0%,#161d2e 55%,#3a3017 120%);border:1px solid rgba(247,206,67,.45);box-shadow:0 30px 60px -28px rgba(247,206,67,.35),inset 0 1px 0 rgba(255,255,255,.12)}
+.cardart:before,.payment-card:before{content:"";position:absolute;width:320px;height:320px;right:-110px;top:-140px;border-radius:50%;background:radial-gradient(circle,rgba(247,206,67,.28),transparent 70%)}
+.cardart>*,.payment-card>*{position:relative}
+.ctop{display:flex;justify-content:space-between;align-items:center;font-size:12px;letter-spacing:.16em;font-weight:800;color:var(--gold)}
+.chip{width:44px;height:33px;border-radius:7px;background:linear-gradient(135deg,#f3d775,#b98d28);box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}
+.cnum{font-size:22px;letter-spacing:.2em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cbot{display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;letter-spacing:.12em;color:#c3cbdb;text-transform:uppercase}.cbot strong{display:block;color:#fff;font-size:15px;letter-spacing:.06em;margin-top:3px}
+.payment-card{margin-top:18px}
+.row{display:flex;justify-content:space-between;gap:20px;margin:12px 0;font-size:15px;color:var(--muted)}.row strong{color:var(--text);font-variant-numeric:tabular-nums;text-align:right}
+.last{font-size:24px;letter-spacing:.14em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;color:#fff}
+.perks{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}.perk{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:14px;padding:12px 10px;text-align:center;font-size:12px;color:var(--muted)}.perk b{display:block;color:var(--text);font-size:14px;margin-bottom:3px}
+.pricebox{display:flex;justify-content:space-between;align-items:center;background:rgba(247,206,67,.07);border:1px solid rgba(247,206,67,.25);border-radius:14px;padding:14px 16px;margin:6px 0 4px;font-size:14px}.pricebox strong{color:var(--gold)}
+label{display:block;font-size:14px;font-weight:650;margin:18px 0 8px}
+input{display:block;width:100%;min-height:50px;background:#080c14;border:1px solid #38445c;color:#fff;border-radius:12px;padding:12px 14px;font:inherit;font-size:17px}input:focus{outline:2px solid var(--gold);outline-offset:1px}
+button{min-height:52px;cursor:pointer;border:0;border-radius:14px;background:linear-gradient(180deg,#f9d756,#e3b52b);color:#171204;font:inherit;font-weight:800;font-size:16px;padding:12px 18px;margin-top:14px;box-shadow:0 10px 24px -10px rgba(247,206,67,.6);transition:transform .12s,filter .12s}
+button:hover{filter:brightness(1.06)}button:active{transform:translateY(1px)}button:disabled{opacity:.55;cursor:wait}
+.secondary{background:#232d42;color:#fff;box-shadow:none;border:1px solid var(--line);min-height:44px;font-size:14px;font-weight:650}.wide{width:100%}
+#message{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:12px;padding:13px 16px;background:rgba(255,255,255,.03);font-size:15px;line-height:1.5}
+#secret{padding:16px;background:#070a10;border:1px solid #45516a;border-radius:12px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;margin-top:12px}
+#refresh{margin:0 0 20px}
+[hidden]{display:none!important}footer{margin-top:34px;text-align:center;color:#7e8aa1;font-size:12px}
+@media(max-width:380px){main{padding:16px 12px}.panel{padding:18px}.cnum{font-size:17px}h1{font-size:25px}.perks{grid-template-columns:1fr}}
 </style></head><body><main>
 <header><span class="brand">MORNINGSTAR EXCHANGE</span><a href="/dashboard.html">← Kont mwen</a></header>
-<h1>Kat vityèl USD</h1><p class="muted">Kreye kat ou avèk cardholder admin te verifye pou ou a. Ou wè pri total la anvan ou otorize acha a.</p>
+<h1>Kat vityèl USD</h1><p class="muted">Peze yon bouton, kat ou kreye otomatikman. Pa gen PIN pou kreyasyon an.</p>
 <p id="message" role="status" aria-live="polite">N ap verifye dosye ou…</p>
 <button id="refresh" class="secondary">Rechaje estati</button>
-<section id="buy" class="panel" hidden><h2>Kreye kat ou</h2>
-<p class="muted">Frè kreasyon an soti nan pri admin fikse a. Premye montan ou mete sou kat la ajoute sou frè sa a.</p>
-<label for="funding">Premye montan sou kat la (USD)</label><input id="funding" inputmode="decimal" autocomplete="off" value="0.00" maxlength="9">
-<button id="quote" class="secondary wide">Kalkile pri total la</button>
-<div id="offer" hidden>
-<div class="row"><span>Frè kreasyon</span><strong id="fee"></strong></div>
-<div class="row"><span>Premye montan sou kat</span><strong id="initial"></strong></div>
-<div class="row total"><span>Total pou otorize</span><strong id="total"></strong></div>
-<p class="muted">Total la rezève yon sèl fwa nan balans USD ou pandan verifikasyon an. Si demann lan rejte klèman, rezèv la anile. Si rezilta a pa klè, admin dwe verifye l anvan rezèv la lage; pa repete acha a.</p>
-<label class="check"><input id="consent" type="checkbox"><span>Mwen otorize montan total ki parèt anlè a pou kreasyon kat sa a.</span></label>
-<label for="pin">PIN sekirite ou (6 chif)</label><input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
-<button id="create" class="wide">Konfime epi kreye kat</button>
-</div></section>
+<section id="buy" hidden>
+<div class="cardart" aria-hidden="true"><div class="ctop"><span>MORNINGSTAR</span><span>VIRTUAL</span></div><div class="chip"></div>
+<div class="cnum">•••• •••• •••• ••••</div><div class="cbot"><span>Detantè<strong>KAT OU</strong></span><span>Balans<strong>$5.00 USD</strong></span></div></div>
+<div class="perks"><div class="perk"><b>$5.00</b>sou kat la</div><div class="perk"><b>Otomatik</b>san PIN</div><div class="perk"><b>USD</b>peman an liy</div></div>
+<div class="panel"><h2>Kreye kat ou</h2>
+<p class="muted">Kat la jwenn $5.00 USD. Frè kreasyon an soti nan balans USD ou, anplis $5.00 la.</p>
+<div class="pricebox"><span>Frè kreasyon</span><strong id="fee"></strong></div>
+<button id="create" class="wide">Kreye kat mwen</button></div></section>
 <section id="orders" aria-live="polite"></section>
 <section id="reveal-box" class="panel" hidden><h2>Detay sekirize kat ou</h2>
 <p class="muted">Antre PIN ou pou wè nimewo kat ak CVV a pandan 30 segonn. Pa pataje enfòmasyon sa yo.</p>
