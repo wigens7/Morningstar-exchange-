@@ -244,7 +244,7 @@ for (const m of ['get', 'post', 'put', 'delete']) {
 }
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
-mountZiiroPayWebhook(app);
+mountZiiroPayWebhook(app, { onCardCreated: (cardId) => cardOrders.adoptCard(cardId) });
 app.use(express.json({ limit: '20kb', verify: (req, res, buf) => { req.rawBody = buf; } })); // rawBody: pou siyati webhook
 // Pa kite erè JSON KYC yo mete fragman PII/PIN nan handler logs jeneral la.
 app.use((err, req, res, next) => {

@@ -157,13 +157,14 @@ test('actual app: admin price, restart persistence, private KYC entry, rejected 
         body: JSON.stringify({ id: 'local-duplicate-event', event: 'virtualcard.withdrawal.success',
           amount: '5.00', status: 'complete', id_number: 'synthetic-sensitive-pii' })
       });
-      assert.equal(hook.status, 503);
-      assert.equal((await hook.json()).code, 'ZIIROPAY_WEBHOOK_NOT_ENABLED');
+      // Only virtualcard.created.complete is acted on (and re-verified with ZiiroPay); anything else is acknowledged and ignored.
+      assert.equal(hook.status, 200);
+      assert.deepEqual(await hook.json(), { received: true });
     }
     const malformed = await fetch(base + '/api/webhooks/ziiropay', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"synthetic-sensitive-pii":'
     });
-    assert.equal(malformed.status, 503, 'reject before JSON parsing');
+    assert.ok(malformed.status >= 400, 'malformed JSON is refused');
     assert.equal((await fetch(base + '/api/webhooks/ziiropay')).status, 405);
     for (const name of ['virtual-card-setup.js', 'virtual-card-settings.json', 'data/virtual-card-settings.json']) {
       assert.equal((await fetch(base + '/' + name)).status, 404);
