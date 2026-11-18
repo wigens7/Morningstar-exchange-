@@ -294,3 +294,30 @@ test('admin retry re-sends the provider POST for a REVIEW order with no card, re
     await rejects(f.service.retry(admin, result.id, 'CONFIRMED_NO_CARD_IN_ZIIROPAY'), 'CARD_NOT_FOUND');
   } finally { f.close(); }
 });
+
+test('provider out of funds keeps the order pending (no refund, no review) until admin Retry creates the card', async () => {
+  const f = await fixture();
+  try {
+    let n = 0;
+    f.provider.create = async () => { n++; return n === 1 ? { ok: false, awaitingFunds: true, code: 'CARD_PROVIDER_FUNDS' } : { ok: true, candidateId: cardId }; };
+    const r = await f.service.create('customer', f.request());
+    assert.equal(r.state, 'PENDING'); assert.equal(r.code, 'PROVIDER_FUNDS');
+    assert.doesNotMatch(r.message, /verifikasyon admin/);
+    await f.service.recover();
+    assert.equal(f.service.adminList(admin, 'customer').orders[0].code, 'PROVIDER_FUNDS');
+    const done = await f.service.retry(admin, r.id, 'CONFIRMED_NO_CARD_IN_ZIIROPAY');
+    assert.equal(done.state, 'READY'); assert.equal(n, 2);
+  } finally { f.close(); }
+});
+
+test('provider adapter maps "Insufficient funds" (any shape/status <500) to awaitingFunds, never rejected', async () => {
+  for (const [status, body] of [[200, { success: false, message: 'Insufficient funds' }],
+    [400, { success: false, error: 'Insufficient funds' }], [422, { success: false, errors: { balance: ['Insufficient funds'] } }],
+    [402, { success: false }]]) {
+    const p = createCardProvider({ apiKey: 'synthetic-not-a-key', mode: 'live', fetchImpl: async () => Response.json(body, { status }) });
+    const r = await p.create({ customerId: cid, name: 'Fixture Customer', fundingCents: 500 });
+    assert.deepEqual([r.ok, r.awaitingFunds, r.rejected], [false, true, undefined], status + JSON.stringify(body));
+  }
+  const p = createCardProvider({ apiKey: 'synthetic-not-a-key', mode: 'live', fetchImpl: async () => Response.json({ success: false, message: 'Insufficient funds' }, { status: 503 }) });
+  assert.equal((await p.create({ customerId: cid, name: 'Fixture Customer', fundingCents: 500 })).awaitingFunds, undefined);
+});
