@@ -593,7 +593,7 @@ async function load(fromCache) {
     const all = (await getData('cards', '/api/admin/virtual-cards/holders', fromCache)).holders;
     const rows = all.filter((h) => has(h.name, h.email, h.uid, h.last4));
     const ST = { READY: ['Kat aktif', 'text-emerald-400'], REVIEW: ['Revizyon', 'text-orange-400'], PENDING: ['An kou', 'text-amber-400'] };
-    $('list').innerHTML = rows.length ? `<p class="text-xs text-gray-400 mb-2">${rows.length} kliyan</p>` + rows.map((h) => {
+    $('list').innerHTML = rows.length ? `<p class="text-xs text-gray-400 mb-2">${rows.length} kliyan</p><button class="b bg-red-600 text-white mb-2" onclick="refundAwaiting()"><i class="fa-solid fa-rotate-left mr-1"></i>Anile + ranbouse tout kòmand an kou</button>` + rows.map((h) => {
       const [l, c] = ST[h.state] || [h.state, 'text-gray-400'];
       return `<div class="card rounded-2xl p-4 flex justify-between items-center gap-2">
         <div class="min-w-0"><p class="font-semibold truncate">${esc(h.name || 'Itilizatè efase')}</p>
@@ -621,6 +621,16 @@ async function load(fromCache) {
       ${t.status === 'pending' ? `<div class="flex gap-2 mt-2"><button class="b bg-emerald-600 text-white" onclick="wd('${t.id}','done')">Make kòm peye</button><button class="b bg-red-600 text-white" onclick="wd('${t.id}','rejected')">Refize + ranbouse</button></div>` : ''}</div>`;
     }).join('') : `<p class="empty">${q ? 'Pa gen rezilta pou rechèch sa a.' : 'Pa gen retrè ankò.'}</p>`;
   }
+}
+
+async function refundAwaiting() {
+  if (!confirm('Anile epi ranbouse tout kòmand kat ki an kou (founisè a pa t kreye kat la)? Kliyan yo rekipere lajan yo.')) return;
+  const r = await fetch('/api/admin/virtual-cards/orders/refund-awaiting', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY' }) });
+  const d = await r.json().catch(() => ({}));
+  alert(r.ok ? `Ranbouse: ${d.refunded} · Sote: ${d.skipped} · Echwe: ${d.failed}` : (d.error || 'Erè'));
+  load();
 }
 
 const DM = { MonCash: 'HTG', NatCash: 'HTG', PayPal: 'USD', Zelle: 'USD', Meru: 'USD', CashApp: 'USD', Wise: 'USD', USDT: 'USD' };
