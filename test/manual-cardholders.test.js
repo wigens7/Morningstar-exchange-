@@ -237,6 +237,8 @@ globalThis.fetch=async(url,options)=>{
     const publicView = await (await fetch(base + '/api/virtual-cards/cardholder', { headers: headers('customer') })).json();
     assert.equal(publicView.cardholderApproved, true);
     assert.doesNotMatch(JSON.stringify(publicView), /provider-fixture|@example|revision/);
+    const adminView = await (await fetch(base + '/api/admin/users/customer/cardholder', { headers: headers('admin') })).json();
+    assert.equal(adminView.customerId, 'provider-fixture-123');
     assert.equal((await fetch(base + '/manual-cardholders.js')).status, 404);
     const db = new DatabaseSync(path.join(f.dir, 'p2p.sqlite'));
     assert.equal(db.prepare("SELECT count(*) AS n FROM email_outbox WHERE event_type='CARDHOLDER_APPROVED'").get().n, 1);

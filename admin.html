@@ -414,15 +414,21 @@ function paint360() {
   $('p-body').innerHTML = `<div class="kpis">${kpis}</div>
     ${window.ME_ROLE === 'admin' && u.role === 'user' ? `<section class="card rounded-2xl p-4 mt-4 space-y-3">
       <h3 class="font-semibold text-base"><i class="fa-solid fa-credit-card mr-2 text-teal-400"></i>Kat vityèl</h3>
+      <div class="border border-gray-700 rounded-xl p-3">
+        <p class="text-xs text-gray-400 mb-1">ZiiroPay Customer ID</p>
+        <div class="flex gap-2"><input id="ch-id" class="field flex-1 min-w-0" style="padding:.5rem .75rem;font-size:.8rem" placeholder="Customer ID" autocomplete="off" spellcheck="false" disabled>
+          <button id="ch-save" type="button" class="b tab" onclick="saveManualCardholder()" disabled>Sove</button></div>
+        <p id="ch-result" class="text-xs text-gray-400 mt-2">Verifikasyon ap fèt ak ZiiroPay…</p>
+      </div>
       <div id="card-order-list" class="space-y-3 mt-3" aria-live="polite"></div>
     </section>` : ''}
     ${tabs}<div id="p-view"></div>
     ${p360.logStart ? `<p class="kv-note mt-3">Jounal detaye (IP + aparèy) kòmanse ${esc(fmtDT(p360.logStart))}. Sa ki anvan sa rekonstwi ak istorik tranzaksyon an.</p>` : '<p class="kv-note mt-3">Pa gen jounal detaye pou kont sa a ankò. Istorik la rekonstwi ak tranzaksyon yo.</p>'}`;
   paint360View();
-  if (window.ME_ROLE === 'admin' && u.role === 'user') loadCardOrders(u.id);
+  if (window.ME_ROLE === 'admin' && u.role === 'user') { loadCardOrders(u.id); loadManualCardholder(u.id); }
 }
 function cardholderStatusMessage(data) {
-  if (data.cardholderApproved) return 'Cardholder apwouve epi asosye. ' +
+  if (data.cardholderApproved) return 'Customer ID jwenn epi asosye otomatikman ak ZiiroPay (APPROVED). ' +
     (data.notificationPending ? 'Notifikasyon kliyan an ap tann. ' : 'Notifikasyon kliyan an prepare. ') +
     (data.cardOperationsEnabled ? 'Kliyan an ka ale nan Kat vityèl pou verifye pri a epi mande kat la avèk PIN li.' :
       'Asosiyasyon an pa kreye yon kat otomatikman; kreasyon kat la poko aktive.');
@@ -432,7 +438,7 @@ function cardholderStatusMessage(data) {
     CARDHOLDER_LOCAL_KYC_REQUIRED: 'KYC Morningstar kliyan an dwe apwouve anvan asosiyasyon an.',
     CARDHOLDER_PROFILE_REQUIRED: 'Kliyan an dwe konplete non ak siyati nan pwofil li.'
   };
-  return messages[data.code] || 'Pa gen cardholder asosye ankò. Kole Customer ID ki gen estati APPROVED la.';
+  return messages[data.code] || 'ZiiroPay pa gen yon cardholder APPROVED pou imèl sa a (rechèch otomatik la pa jwenn). Kole Customer ID a manyèlman, epi klike Sove.';
 }
 async function loadManualCardholder(userId) {
   const input = $('ch-id'), button = $('ch-save'), result = $('ch-result');
@@ -447,7 +453,7 @@ async function loadManualCardholder(userId) {
     view.revision = data.revision; view.loading = false;
     input.value = data.customerId || '';
     result.textContent = cardholderStatusMessage(data);
-    input.disabled = false; button.disabled = Boolean(data.code);
+    input.disabled = Boolean(data.cardholderApproved || data.code); button.disabled = input.disabled;
   } catch {
     if (cardholderView === view) result.textContent = 'Dosye a pa disponib. Klike Rechaje estati anvan ou eseye ankò.';
   }
