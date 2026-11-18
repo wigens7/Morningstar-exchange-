@@ -51,7 +51,7 @@ async function run() {
       return respond({ id: quoteId, creationFeeUSD: '5.00', initialFundingUSD: '3.00', totalUSD: '8.00' });
     }
     if (url.pathname.endsWith('/reveal')) {
-      reveals++; assert.match(route.request().postDataJSON().pin, /^\d{6}$/);
+      reveals++;
       return respond({ number: '1111111111111111', cvv: '000', expiry: '04/2029', expiresInSeconds: 30 });
     }
     if (method === 'POST') {
@@ -81,9 +81,9 @@ async function run() {
   assert.equal(posted, 1); assert.equal(reveals, 0);
   assert.equal(await p.locator('#pin').inputValue(), '');
   await p.screenshot({ path: path.join(artifacts, 'virtual-card-ready-masked-390.png'), fullPage: true });
-  await p.bringToFront(); await p.locator('#reveal-pin').fill('123456'); await p.locator('#reveal').click();
+  await p.bringToFront(); await p.locator('#reveal').click();
   await p.locator('#secret:not([hidden])').waitFor();
-  assert.equal(reveals, 1); assert.equal(await p.locator('#reveal-pin').inputValue(), '');
+  assert.equal(reveals, 1);
   await p.clock.fastForward(30001); assert.equal(await p.locator('#secret').textContent(), '');
   assert.equal(await p.evaluate(() => localStorage.length + sessionStorage.length), 0);
   state = 'REVIEW'; await p.reload(); await p.locator('#orders h2').waitFor();

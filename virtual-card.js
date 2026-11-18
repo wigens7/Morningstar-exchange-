@@ -19,7 +19,6 @@
   function hideSecret() {
     clearTimeout(clearTimer); $('secret').replaceChildren();
     $('secret').hidden = true; $('hide-secret').hidden = true;
-    $('reveal-pin').value = '';
   }
   function line(parent, label, value, cls = 'row') {
     const row = document.createElement('div'); row.className = cls;
@@ -118,11 +117,11 @@
   });
   $('refresh').addEventListener('click', () => { hideSecret(); void load(); });
   $('reveal').addEventListener('click', async () => {
-    if (busy || !readyId || !/^\d{6}$/.test($('reveal-pin').value)) { text('Antre PIN 6 chif ou pou wè detay kat ou.'); return; }
+    if (busy || !readyId) return;
     busy = true; $('reveal').disabled = true;
-    const pin = $('reveal-pin').value; hideSecret();
+    hideSecret();
     try {
-      const detail = await api('/api/virtual-cards/orders/' + encodeURIComponent(readyId) + '/reveal', { pin });
+      const detail = await api('/api/virtual-cards/orders/' + encodeURIComponent(readyId) + '/reveal', {});
       if (document.hidden || !document.hasFocus()) { hideSecret(); return; }
       line($('secret'), 'Nimewo kat', detail.number); line($('secret'), 'CVV', detail.cvv);
       line($('secret'), 'Ekspirasyon', detail.expiry);
