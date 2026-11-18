@@ -470,9 +470,6 @@ async function loadCardOrders(userId) {
       if (order.state === 'REVIEW') {
         const warning = document.createElement('p'); warning.className = 'text-sm text-amber-300 my-3';
         warning.textContent = 'Si kont founisè a pa t gen ase lajan, rechaje li, verifye sou ZiiroPay ke pa gen kat ki kreye, epi klike Retry. Kliyan an pa peye de fwa.'; panel.append(warning);
-        const pin = document.createElement('input'); pin.className = 'inp'; pin.type = 'password';
-        pin.inputMode = 'numeric'; pin.maxLength = 6; pin.autocomplete = 'off'; pin.placeholder = 'PIN admin (6 chif)';
-        pin.setAttribute('aria-label', 'PIN admin (6 chif)'); panel.append(pin);
         const attest = document.createElement('label'); attest.className = 'flex gap-2 items-start text-sm my-3';
         const cb = document.createElement('input'); cb.type = 'checkbox';
         const txt = document.createElement('span'); txt.textContent = 'Mwen verifye sou ZiiroPay: PA GEN kat ki te kreye pou demann sa a.';
@@ -482,19 +479,18 @@ async function loadCardOrders(userId) {
         let busy = false;
         retry.onclick = async () => {
           if (busy) return;
-          if (!/^\d{6}$/.test(pin.value) || !cb.checked) { result.textContent = 'Antre PIN ou epi make konfimasyon an.'; return; }
+          if (!cb.checked) { result.textContent = 'Make konfimasyon an anvan.'; return; }
           busy = true; retry.disabled = true;
-          const secret = pin.value; pin.value = '';
           try {
             const r = await fetch('/api/admin/virtual-cards/orders/' + encodeURIComponent(order.id) + '/retry', {
               method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-              body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY', pin: secret }), signal: AbortSignal.timeout(35000)
+              body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY' }), signal: AbortSignal.timeout(35000)
             });
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || 'Retry pa fini.');
             if (p360?.user?.id === userId) await loadCardOrders(userId);
           } catch (e) { result.textContent = (e && e.message) || 'Retry pa fini. Rechaje estati a anvan ou repete.'; }
-          finally { busy = false; retry.disabled = false; pin.value = ''; }
+          finally { busy = false; retry.disabled = false; }
         };
         panel.append(attest, retry, result);
       }
