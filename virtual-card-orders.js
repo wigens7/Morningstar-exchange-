@@ -403,6 +403,26 @@ function createCardOrders(options) {
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
       return { orders: storage().prepare('SELECT * FROM card_orders WHERE user_id=? ORDER BY created_at DESC LIMIT 10').all(userId).map(view) };
     },
+    // Admin 360: each order plus, when a provider card exists, its live status/balance/last four read from ZiiroPay
+    // (falls back to the snapshot saved at creation). Never returns the card number, CVV or provider URLs.
+    async adminCards(actor, userId) {
+      const { orders } = this.adminList(actor, userId);
+      const rows = storage().prepare('SELECT id,card_id,candidate_id,provider_reference,customer_id FROM card_orders WHERE user_id=?').all(userId);
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      return { orders: await Promise.all(orders.map(async (o) => {
+        const r = byId.get(o.id), id = r?.card_id || r?.candidate_id;
+        if (!id) return { ...o, provider: 'ZiiroPay', providerCard: null };
+        let live = null;
+        try { const d = provider.configured ? await provider.details(id) : null; if (d?.ok) live = d.card; } catch { /* snapshot below */ }
+        const snap = o.card;
+        return { ...o, provider: 'ZiiroPay', providerCard: {
+          cardId: id, reference: live?.reference || r.provider_reference || null,
+          last4: live?.last4 || snap?.last4 || null, expiry: live?.expiry || snap?.expiry || null, brand: live?.brand || snap?.brand || null,
+          status: live?.status || snap?.status || null,
+          balanceUSD: live ? (live.balanceCents / 100).toFixed(2) : snap?.balanceUSD ?? null,
+          live: Boolean(live), checkedAt: live ? new Date(now()).toISOString() : snap?.checkedAt || null } };
+      })) };
+    },
     adminHolders(actor) {
       admin(actor);
       return { holders: storage().prepare("SELECT * FROM card_orders WHERE state!='FAILED' ORDER BY created_at DESC LIMIT 1000").all().map((op) => {
@@ -451,6 +471,7 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.post('/api/virtual-cards/orders/:id/reveal', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['pin']), pinGuard, handler((req) => service.reveal(req.user.id, req.params.id)));
   app.get('/api/admin/virtual-cards/orders', privateHeaders, adminOnly, handler((req) => service.adminList(req.user, req.query.userId)));
+  app.get('/api/admin/virtual-cards/cards', privateHeaders, adminOnly, handler((req) => service.adminCards(req.user, req.query.userId)));
   app.get('/api/admin/virtual-cards/holders', privateHeaders, adminOnly, handler((req) => service.adminHolders(req.user)));
   app.post('/api/admin/virtual-cards/orders/:id/reconcile', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['cardId', 'pin']), pinGuard, handler((req) => service.reconcile(req.user, req.params.id, req.body.cardId)));

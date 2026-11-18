@@ -431,3 +431,16 @@ test('webhook card id completes a paid order whose create answer had no card id,
     assert.deepEqual(await f.service.adoptCard(cardId), { adopted: false });
   } finally { f.close(); }
 });
+
+test('admin customer view shows live provider status, balance and last four, never the card number', async () => {
+  const f = await fixture();
+  try {
+    await f.service.create('customer', f.request());
+    f.card.balanceCents = 250; f.card.status = 'frozen';
+    const out = await f.service.adminCards(admin, 'customer');
+    const pc = out.orders[0].providerCard;
+    assert.deepEqual([pc.status, pc.balanceUSD, pc.last4, pc.live, out.orders[0].provider], ['frozen', '2.50', '1111', true, 'ZiiroPay']);
+    assert.doesNotMatch(JSON.stringify(out), /"number"|"cvv"/);
+    await rejects(f.service.adminCards(client, 'customer'), 'CARD_NOT_ELIGIBLE');
+  } finally { f.close(); }
+});
