@@ -307,6 +307,37 @@ function createCardOrders(options) {
     }
     return out;
   }
+  // Automatic completion, no admin step. Waiting is only for provider funds:
+  //  - AWAITING_FUNDS orders re-send the (never-created) provider POST at most once a minute; the existing
+  //    reservation is reused, so the customer is never charged twice.
+  //  - REVIEW orders that already have a provider candidate id re-check the card read-only and settle once it verifies.
+  let completing = false;
+  async function autoComplete() {
+    if (completing || (!db && !fs.existsSync(path.join(dataDir, 'virtual-card-orders.sqlite')))) return;
+    if (!enabled || !provider.configured) return;
+    completing = true;
+    try {
+      const waiting = storage().prepare(`SELECT * FROM card_orders WHERE state='AWAITING_FUNDS' AND card_id IS NULL AND candidate_id IS NULL
+        AND attempt_started_at IS NOT NULL AND attempt_started_at<? LIMIT 10`).all(now() - 60000);
+      for (const op of waiting) {
+        if (activeJobs.has(op.id)) continue;
+        activeJobs.set(op.id, true);
+        try { await submit(op, op.user_id, 'system', true); }
+        catch (e) {
+          console.error('[card-auto] order=' + op.id + ' code=' + e.code + ' detail=' + (e.detail || e.message));
+          update(op.id, 'REVIEW', e.code === 'CARD_WALLET_UNCERTAIN' ? e.code : 'CARD_REVIEW_REQUIRED');
+        } finally { activeJobs.delete(op.id); }
+      }
+      const review = storage().prepare("SELECT * FROM card_orders WHERE state='REVIEW' AND card_id IS NULL AND candidate_id IS NOT NULL LIMIT 10").all();
+      for (const op of review) {
+        if (activeJobs.has(op.id)) continue;
+        activeJobs.set(op.id, true);
+        try { await finish(op, op.candidate_id, 'system'); }
+        catch (e) { console.error('[card-auto] order=' + op.id + ' still REVIEW code=' + e.code + ' detail=' + (e.detail || e.message)); }
+        finally { activeJobs.delete(op.id); }
+      }
+    } finally { completing = false; }
+  }
   async function prepare(userId) { await options.autoLink?.(userId); }
   async function recover() {
     if (recovering || (!db && !fs.existsSync(path.join(dataDir, 'virtual-card-orders.sqlite')))) return;
@@ -340,7 +371,7 @@ function createCardOrders(options) {
     const q = quote(userId, INITIAL_CARD_FUNDING_USD);
     return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
   }
-  return { quote, create, createNow, current, reconcile, retry, release, releaseAwaiting, prepare, recover, reveal,
+  return { quote, create, createNow, current, reconcile, retry, release, releaseAwaiting, prepare, autoComplete, recover, reveal,
     adminList(actor, userId) {
       admin(actor);
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);

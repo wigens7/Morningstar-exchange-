@@ -1583,6 +1583,7 @@ ready.then(() => {
     void drainEmailOutbox();
     void manualCardholders.retryNotifications().catch(() => {});
     void cardOrders.recover().catch(() => {});
+    void cardOrders.autoComplete().catch(() => {});
   }, 30 * 1000).unref();
   void drainEmailOutbox();
   void runZiiroPayStartupCheck(ziiropayClient);
