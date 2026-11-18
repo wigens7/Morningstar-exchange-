@@ -22,6 +22,7 @@ const messages = {
   CARD_WALLET_UNCERTAIN: 'Verifikasyon balans lan poko fini. Pa fè yon lòt demann; kontakte admin.',
   CARD_PROVIDER_REJECTED: 'Founisè kat la rejte demann lan. Rezèv la anile; pa gen debi final.',
   CARD_REVIEW_REQUIRED: 'Rezilta demann lan mande verifikasyon admin. Rezèv oswa peman an poko finalize; pa repete acha a.',
+  CARD_AWAITING_PROVIDER: 'Peman ou an sekirize. Kat la ap kreye otomatikman le sèvis la pare; pa gen okenn lòt acha pou fè.',
   CARD_BUSY: 'Gen yon operasyon sou demann sa a deja an kou.',
   CARD_NOT_FOUND: 'Demann kat sa a pa disponib.',
   CARD_REVEAL_UNAVAILABLE: 'Detay sekirize kat la pa disponib kounye a.',
@@ -84,15 +85,16 @@ function createCardOrders(options) {
   }
   function view(op) {
     if (!op) return null;
+    const awaiting = op.state === 'AWAITING_FUNDS';
     const state = op.state === 'READY' || op.state === 'FAILED' || op.state === 'REVIEW' ? op.state : 'PENDING';
-    return { id: op.id, state, code: op.code || null, createdAt: new Date(op.created_at).toISOString(),
+    return { id: op.id, state, code: awaiting ? 'PROVIDER_FUNDS' : op.code || null, createdAt: new Date(op.created_at).toISOString(),
       creationFeeUSD: (op.fee_cents / 100).toFixed(2), initialFundingUSD: (op.funding_cents / 100).toFixed(2),
       totalUSD: (op.total_cents / 100).toFixed(2), reservationStatus: state === 'READY' ? 'SETTLED' :
         state === 'FAILED' ? 'RELEASED' : 'VERIFYING',
       card: op.state === 'READY' && op.public_card ? JSON.parse(op.public_card) : null,
       message: state === 'READY' ? 'Kat ou kreye epi verifye. Rezèv la tounen yon sèl peman final.' :
         state === 'FAILED' ? 'Demann lan echwe; pa gen debi final, epi nenpòt rezèv ki te fèt anile.' :
-          state === 'REVIEW' ? messages.CARD_REVIEW_REQUIRED : 'Demann ou an kou. Pa fè yon lòt acha.' };
+          state === 'REVIEW' ? messages.CARD_REVIEW_REQUIRED : awaiting ? messages.CARD_AWAITING_PROVIDER : 'Demann ou an kou. Pa fè yon lòt acha.' };
   }
   function owned(userId, id) {
     if (!uuid(id)) throw error('CARD_NOT_FOUND', 404);
@@ -189,6 +191,7 @@ function createCardOrders(options) {
     storage().prepare("UPDATE card_orders SET state='SUBMITTING',attempt_started_at=? WHERE id=?").run(now(), op.id);
     const result = await provider.create({ customerId: op.customer_id,
       name: fresh.profile.firstName + ' ' + fresh.profile.lastName, fundingCents: op.funding_cents });
+    if (result.awaitingFunds) { update(op.id, 'AWAITING_FUNDS', 'PROVIDER_FUNDS'); audit(op, actorId, 'PROVIDER_AWAITING_FUNDS'); return view(row(op.id)); }
     if (result.rejected) return await refund(op, 'CARD_PROVIDER_REJECTED', actorId);
     if (!result.ok || !validId(result.candidateId)) throw Object.assign(error('CARD_REVIEW_REQUIRED'), { detail: 'provider_create:' + (result.code || 'no_card_id') });
     storage().prepare('UPDATE card_orders SET candidate_id=? WHERE id=?').run(result.candidateId, op.id);
@@ -258,7 +261,7 @@ function createCardOrders(options) {
     on();
     const op = row(id);
     if (!op || op.state === 'READY' || op.state === 'FAILED') throw error('CARD_NOT_FOUND', 404);
-    if (op.state !== 'REVIEW' || op.card_id || op.candidate_id || op.attempt_started_at === null) throw error('CARD_REVIEW_REQUIRED');
+    if (!['REVIEW', 'AWAITING_FUNDS'].includes(op.state) || op.card_id || op.candidate_id || op.attempt_started_at === null) throw error('CARD_REVIEW_REQUIRED');
     if (activeJobs.has(id)) throw error('CARD_BUSY');
     activeJobs.set(id, true);
     try {
@@ -288,12 +291,12 @@ function createCardOrders(options) {
     if (recovering || (!db && !fs.existsSync(path.join(dataDir, 'virtual-card-orders.sqlite')))) return;
     recovering = true;
     try {
-      for (const op of storage().prepare("SELECT * FROM card_orders WHERE state NOT IN ('READY','FAILED') LIMIT 25").all()) {
+      for (const op of storage().prepare("SELECT * FROM card_orders WHERE state NOT IN ('READY','FAILED','AWAITING_FUNDS') LIMIT 25").all()) {
         if (activeJobs.has(op.id)) continue;
         activeJobs.set(op.id, true);
         try {
           if (op.attempt_started_at === null) await refund(op, 'INTERRUPTED_BEFORE_SEND', 'system');
-          else update(op.id, 'REVIEW', 'CARD_REVIEW_REQUIRED');
+          else if (op.state !== 'AWAITING_FUNDS') update(op.id, 'REVIEW', 'CARD_REVIEW_REQUIRED');
         } catch { update(op.id, 'REVIEW', 'CARD_WALLET_UNCERTAIN'); }
         finally { activeJobs.delete(op.id); }
       }

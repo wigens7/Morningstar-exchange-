@@ -42,6 +42,12 @@ function createCardProvider(options = {}) {
         ['active', 'complete', 'completed', 'success'].includes(body.status);
       const validationRejected = r.status === 422 && body.errors && typeof body.errors === 'object' &&
         !Array.isArray(body.errors) && Object.keys(body.errors).length > 0;
+      // Provider definitively said "no card" because its own balance is too low: keep the order
+      // pending so an admin can top up and Retry. Never a refund, never an ambiguous review.
+      const lowFunds = method === 'POST' && body.success === false && !hasCardHint && r.status < 500 &&
+        (r.status === 402 || /insufficient|not enough|low balance|fund|balance/i.test(
+          JSON.stringify([body.message, body.error, body.errors, body.response?.message]) || ''));
+      if (lowFunds) return { ok: false, awaitingFunds: true, code: 'CARD_PROVIDER_FUNDS' };
       if (method === 'POST' && (validationRejected || [401, 403].includes(r.status)) &&
           body.success === false && !hasCardHint) {
         return { ok: false, rejected: true, code: 'CARD_PROVIDER_REJECTED' };

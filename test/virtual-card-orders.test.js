@@ -294,3 +294,18 @@ test('admin retry re-sends the provider POST for a REVIEW order with no card, re
     await rejects(f.service.retry(admin, result.id, 'CONFIRMED_NO_CARD_IN_ZIIROPAY'), 'CARD_NOT_FOUND');
   } finally { f.close(); }
 });
+
+test('provider out of funds keeps the order pending (no refund, no review) until admin Retry creates the card', async () => {
+  const f = await fixture();
+  try {
+    let n = 0;
+    f.provider.create = async () => { n++; return n === 1 ? { ok: false, awaitingFunds: true, code: 'CARD_PROVIDER_FUNDS' } : { ok: true, candidateId: cardId }; };
+    const r = await f.service.create('customer', f.request());
+    assert.equal(r.state, 'PENDING'); assert.equal(r.code, 'PROVIDER_FUNDS');
+    assert.doesNotMatch(r.message, /verifikasyon admin/);
+    await f.service.recover();
+    assert.equal(f.service.adminList(admin, 'customer').orders[0].code, 'PROVIDER_FUNDS');
+    const done = await f.service.retry(admin, r.id, 'CONFIRMED_NO_CARD_IN_ZIIROPAY');
+    assert.equal(done.state, 'READY'); assert.equal(n, 2);
+  } finally { f.close(); }
+});

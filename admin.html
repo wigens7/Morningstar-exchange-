@@ -469,7 +469,7 @@ async function loadCardOrders(userId) {
       const panel = document.createElement('div'); panel.className = 'border border-gray-700 rounded-xl p-3';
       const label = document.createElement('p'); label.className = 'text-sm';
       label.textContent = order.state + ' · Total: ' + order.totalUSD + ' USD · ' + order.message; panel.append(label);
-      if (order.state === 'REVIEW') {
+      if (order.state === 'REVIEW' || order.code === 'PROVIDER_FUNDS') {
         const warning = document.createElement('p'); warning.className = 'text-sm text-amber-300 my-3';
         warning.textContent = 'Si kont founisè a pa t gen ase lajan, rechaje li, verifye sou ZiiroPay ke pa gen kat ki kreye, epi klike Retry. Kliyan an pa peye de fwa.'; panel.append(warning);
         const attest = document.createElement('label'); attest.className = 'flex gap-2 items-start text-sm my-3';
@@ -490,6 +490,8 @@ async function loadCardOrders(userId) {
             });
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || 'Retry pa fini.');
+            if (d.code === 'PROVIDER_FUNDS') { result.textContent = 'Kont founisè a poko gen ase lajan. Mete lajan epi klike Retry ankò.'; return; }
+            if (d.state === 'REVIEW') { result.textContent = 'Retry fini men kat la pa verifye ankò; gade log sèvè a ([card-retry]).'; return; }
             if (p360?.user?.id === userId) await loadCardOrders(userId);
           } catch (e) { result.textContent = (e && e.message) || 'Retry pa fini. Rechaje estati a anvan ou repete.'; }
           finally { busy = false; retry.disabled = false; }
