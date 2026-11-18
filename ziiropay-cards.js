@@ -120,6 +120,24 @@ function createCardProvider(options = {}) {
         b.response?.card_detail?.card_id].filter(validId))];
       return ids.length === 1 ? { ok: true, candidateId: ids[0] } : { ok: false, code: 'CARD_PROVIDER_UNCERTAIN' };
     },
+    // Card history (GET nfc-card-transactions). The answer schema is not published, so every field is read
+    // defensively, kept as short plain text/number, and anything that looks like a card number is dropped.
+    async history(cardId) {
+      if (!validId(cardId)) return { ok: false, code: 'INVALID_CARD_ID' };
+      const result = await request('nfc-card-transactions', 'GET', { card_id: cardId });
+      if (!result.ok) return { ok: false, code: 'CARD_HISTORY_UNAVAILABLE' };
+      const b = result.body, r = b.response;
+      const list = [r?.transactions, r?.history, r?.data, r?.card_transactions, r, b.data?.transactions, b.data, b.transactions]
+        .find(Array.isArray);
+      const str = (v) => (typeof v === 'string' || typeof v === 'number' ? String(v) : '').replace(/\d{13,19}/g, '').trim().slice(0, 80);
+      const items = (list || []).slice(0, 50).filter((t) => t && typeof t === 'object').map((t) => ({
+        id: str(t.id ?? t.reference ?? t.transaction_id),
+        date: str(t.created_at ?? t.date ?? t.timestamp ?? t.transaction_date),
+        type: str(t.type ?? t.action ?? t.event ?? t.transaction_type),
+        description: str(t.description ?? t.narrative ?? t.merchant ?? t.merchant_name ?? t.reason),
+        amount: str(t.amount ?? t.centAmount ?? ''), status: str(t.status), currency: str(t.currency ?? 'USD') }));
+      return { ok: true, items, known: Array.isArray(list) };
+    },
     async details(cardId, sensitive = false) {
       if (!validId(cardId)) return { ok: false, code: 'INVALID_CARD_ID' };
       const result = await request('fetch-nfccard-detail', 'GET', { card_id: cardId });

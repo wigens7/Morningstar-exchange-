@@ -391,13 +391,29 @@ function createCardOrders(options) {
     if (!card.number || !card.cvv) throw error('CARD_REVEAL_UNAVAILABLE', 503);
     return { number: card.number, cvv: card.cvv, expiry: card.expiry, expiresInSeconds: 30 };
   }
+  // Customer card page: live status/balance from ZiiroPay (snapshot fallback) and ZiiroPay card history.
+  // Never returns the card number, CVV or provider URLs (reveal stays PIN-protected).
+  async function myCard(userId) {
+    const op = storage().prepare("SELECT * FROM card_orders WHERE user_id=? AND state='READY' AND card_id IS NOT NULL ORDER BY created_at DESC LIMIT 1").get(userId);
+    if (!op) return { hasCard: false };
+    const snap = op.public_card ? JSON.parse(op.public_card) : null;
+    const [d, h] = provider.configured ? await Promise.all([
+      provider.details(op.card_id).catch(() => null), provider.history(op.card_id).catch(() => null)]) : [null, null];
+    const live = d?.ok ? d.card : null;
+    return { hasCard: true, orderId: op.id, provider: 'ZiiroPay', live: Boolean(live),
+      card: { last4: live?.last4 || snap?.last4 || null, expiry: live?.expiry || snap?.expiry || null,
+        brand: live?.brand || snap?.brand || null, status: live?.status || snap?.status || null,
+        balanceUSD: live ? (live.balanceCents / 100).toFixed(2) : snap?.balanceUSD ?? null,
+        reference: live?.reference || op.provider_reference || null, createdAt: new Date(op.created_at).toISOString() },
+      historyAvailable: Boolean(h?.ok), history: h?.ok ? h.items : [] };
+  }
   // One-click creation: fixed $5.00 initial card balance + creation fee, no PIN/consent step.
   // Needs an approved ZiiroPay customer ID and enough available USD for fee + $5.00.
   async function createNow(userId) {
     const q = quote(userId, fundingUSD(settings));
     return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
   }
-  return { quote, create, createNow, current, reconcile, retry, release, releaseAwaiting, prepare, adoptCard, autoComplete, recover, reveal,
+  return { quote, create, createNow, current, myCard, reconcile, retry, release, releaseAwaiting, prepare, adoptCard, autoComplete, recover, reveal,
     adminList(actor, userId) {
       admin(actor);
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
@@ -460,6 +476,7 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   });
   app.get('/virtual-card.js', (req, res) => res.sendFile(scriptFile));
   app.get('/api/virtual-cards/orders', privateHeaders, auth, handler(async (req) => { await service.prepare(req.user.id); return service.current(req.user.id); }));
+  app.get('/api/virtual-cards/orders/card', privateHeaders, auth, handler((req) => service.myCard(req.user.id)));
   app.post('/api/virtual-cards/quote', privateHeaders, auth, ajax, rateLimit(20, 15 * 60 * 1000),
     strict(['initialFundingUSD']), handler((req) => service.quote(req.user.id, req.body.initialFundingUSD)));
   app.post('/api/virtual-cards/create', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
