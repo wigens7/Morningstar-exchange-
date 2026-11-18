@@ -390,3 +390,14 @@ test('autoComplete settles a REVIEW order with a candidate id once the card veri
     assert.equal(f.store.getUser('customer').usd, 92);
   } finally { f.close(); }
 });
+
+test('quote refuses to sell a card below the provider cost', async () => {
+  const f = await fixture();
+  try {
+    const dir = f.dir, fileName = path.join(dir, 'virtual-card-settings.json');
+    const v = JSON.parse(fs.readFileSync(fileName, 'utf8')); v.creationPriceCents = 100;   // below $2.58 cost for $5.00
+    fs.writeFileSync(fileName, JSON.stringify(v));
+    await rejects(f.service.createNow('customer'), 'CARD_SETTINGS_UNAVAILABLE');
+    assert.equal(f.store.getUser('customer').usd, 100);
+  } finally { f.close(); }
+});
