@@ -288,11 +288,11 @@ function createCardOrders(options) {
     } finally { activeJobs.delete(id); }
   }
   // Bulk cancel + refund of every order the provider left in AWAITING_FUNDS.
-  // Only orders with no provider card/candidate qualify, so no card can exist; REVIEW orders are never touched.
-  async function releaseAwaiting(actor, confirmation) {
+  // Every unfinished order (AWAITING_FUNDS, REVIEW, SUBMITTING...) with no provider card/candidate id is cancelled and
+  // refunded by an admin; orders that already hold a provider card id are never touched.
+  async function releaseAwaiting(actor) {
     admin(actor);
-    if (confirmation !== 'CONFIRMED_NO_CARD_IN_ZIIROPAY') throw error('CARD_INVALID_REQUEST', 400);
-    const ops = storage().prepare("SELECT * FROM card_orders WHERE state='AWAITING_FUNDS' AND card_id IS NULL AND candidate_id IS NULL").all();
+    const ops = storage().prepare("SELECT * FROM card_orders WHERE state NOT IN ('READY','FAILED') AND card_id IS NULL AND candidate_id IS NULL").all();
     const out = { refunded: 0, skipped: 0, failed: 0 };
     for (const op of ops) {
       if (activeJobs.has(op.id)) { out.skipped++; continue; }
@@ -400,7 +400,7 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.post('/api/admin/virtual-cards/orders/:id/refund', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['confirmation', 'pin']), pinGuard, handler((req) => service.release(req.user, req.params.id, req.body.confirmation)));
   app.post('/api/admin/virtual-cards/orders/refund-awaiting', privateHeaders, adminOnly, ajax, rateLimit(5, 15 * 60 * 1000),
-    strict(['confirmation']), handler((req) => service.releaseAwaiting(req.user, req.body.confirmation)));
+    strict([]), handler((req) => service.releaseAwaiting(req.user)));
 }
 
 module.exports = { createCardOrders, mountCardOrders, messages };

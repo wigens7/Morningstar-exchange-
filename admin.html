@@ -486,7 +486,7 @@ async function loadCardOrders(userId) {
           try {
             const r = await fetch('/api/admin/virtual-cards/orders/' + encodeURIComponent(order.id) + '/retry', {
               method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-              body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY' }), signal: AbortSignal.timeout(35000)
+              body: JSON.stringify({}), signal: AbortSignal.timeout(35000)
             });
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || 'Retry pa fini.');
@@ -624,12 +624,12 @@ async function load(fromCache) {
 }
 
 async function refundAwaiting() {
-  if (!confirm('Anile epi ranbouse tout kòmand kat ki an kou (founisè a pa t kreye kat la)? Kliyan yo rekipere lajan yo.')) return;
+  if (!confirm('Anile epi ranbouse TOUT kòmand kat ki poko fini (an kou, revizyon)? Kliyan yo rekipere lajan yo.')) return;
   const r = await fetch('/api/admin/virtual-cards/orders/refund-awaiting', { method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    body: JSON.stringify({ confirmation: 'CONFIRMED_NO_CARD_IN_ZIIROPAY' }) });
+    body: JSON.stringify({}) });
   const d = await r.json().catch(() => ({}));
-  alert(r.ok ? `Ranbouse: ${d.refunded} · Sote: ${d.skipped} · Echwe: ${d.failed}` : (d.error || 'Erè'));
+  alert(r.ok ? (d.refunded + d.skipped + d.failed === 0 ? 'Pa gen okenn kòmand kat ki poko fini.' : `Ranbouse: ${d.refunded} · Sote: ${d.skipped} · Echwe: ${d.failed}`) : (d.error || 'Erè'));
   load();
 }
 
