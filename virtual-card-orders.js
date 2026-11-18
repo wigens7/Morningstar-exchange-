@@ -289,13 +289,14 @@ function createCardOrders(options) {
   }
   // Bulk cancel + refund of every order the provider left in AWAITING_FUNDS.
   // Every unfinished order (AWAITING_FUNDS, REVIEW, SUBMITTING...) with no provider card/candidate id is cancelled and
-  // refunded by an admin; orders that already hold a provider card id are never touched.
+  // refunded by an admin; orders with a verified provider card id are skipped (same rule as release()).
   async function releaseAwaiting(actor) {
     admin(actor);
-    const ops = storage().prepare("SELECT * FROM card_orders WHERE state NOT IN ('READY','FAILED') AND card_id IS NULL AND candidate_id IS NULL").all();
+    const ops = storage().prepare("SELECT * FROM card_orders WHERE state NOT IN ('READY','FAILED')").all();
     const out = { refunded: 0, skipped: 0, failed: 0 };
     for (const op of ops) {
-      if (activeJobs.has(op.id)) { out.skipped++; continue; }
+      // Same rule as the single refund: an order with a verified provider card id is never refunded.
+      if (op.card_id || activeJobs.has(op.id)) { out.skipped++; continue; }
       activeJobs.set(op.id, true);
       try {
         audit(op, actor.id, 'ADMIN_BULK_CANCEL_AWAITING_FUNDS');
@@ -397,11 +398,11 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.post('/api/admin/virtual-cards/orders/:id/reconcile', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
     strict(['cardId', 'pin']), pinGuard, handler((req) => service.reconcile(req.user, req.params.id, req.body.cardId)));
   app.post('/api/admin/virtual-cards/orders/:id/retry', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
-    strict([]), handler((req) => service.retry(req.user, req.params.id)));
+    handler((req) => service.retry(req.user, req.params.id)));
   app.post('/api/admin/virtual-cards/orders/:id/refund', privateHeaders, adminOnly, ajax, rateLimit(10, 15 * 60 * 1000),
-    strict([]), handler((req) => service.release(req.user, req.params.id)));
+    handler((req) => service.release(req.user, req.params.id)));
   app.post('/api/admin/virtual-cards/orders/refund-awaiting', privateHeaders, adminOnly, ajax, rateLimit(5, 15 * 60 * 1000),
-    strict([]), handler((req) => service.releaseAwaiting(req.user)));
+    handler((req) => service.releaseAwaiting(req.user)));
 }
 
 module.exports = { createCardOrders, mountCardOrders, messages };
