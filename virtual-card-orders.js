@@ -288,11 +288,12 @@ function createCardOrders(options) {
     } finally { activeJobs.delete(id); }
   }
   // Bulk cancel + refund of every order the provider left in AWAITING_FUNDS.
-  // Only orders with no provider card/candidate qualify, so no card can exist; REVIEW orders are never touched.
+  // Every unfinished order (AWAITING_FUNDS, REVIEW, SUBMITTING...) with no provider card/candidate id is cancelled and
+  // refunded on the admin's attestation that no card exists in ZiiroPay (same attestation as the per-order refund).
   async function releaseAwaiting(actor, confirmation) {
     admin(actor);
     if (confirmation !== 'CONFIRMED_NO_CARD_IN_ZIIROPAY') throw error('CARD_INVALID_REQUEST', 400);
-    const ops = storage().prepare("SELECT * FROM card_orders WHERE state='AWAITING_FUNDS' AND card_id IS NULL AND candidate_id IS NULL").all();
+    const ops = storage().prepare("SELECT * FROM card_orders WHERE state NOT IN ('READY','FAILED') AND card_id IS NULL AND candidate_id IS NULL").all();
     const out = { refunded: 0, skipped: 0, failed: 0 };
     for (const op of ops) {
       if (activeJobs.has(op.id)) { out.skipped++; continue; }
