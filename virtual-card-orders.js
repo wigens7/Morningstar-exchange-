@@ -152,11 +152,14 @@ function createCardOrders(options) {
     sameAccount(op, user, allowFreshRebinding);
     const c = result?.card;
     const expiry = typeof c?.expiry === 'string' && /^(0[1-9]|1[0-2])\/(20\d{2})$/.exec(c.expiry);
-    if (!result?.ok || !c || c.customerId !== op.customer_id || c.status !== 'active' ||
-        !Number.isSafeInteger(c.balanceCents) || !expiry || Date.UTC(Number(expiry[2]), Number(expiry[1]), 1) <= now() ||
-        norm(c.email) !== norm(user.email) || norm(c.holder) !== norm(user.profile.firstName + ' ' + user.profile.lastName) ||
-        c.balanceCents < op.funding_cents || Date.parse(c.createdAt) < op.created_at - 300000 ||
-        Date.parse(c.createdAt) > now() + 300000) throw error('CARD_REVIEW_REQUIRED');
+    const checks = {
+      provider_details: Boolean(result?.ok && c), customer_id: c?.customerId === op.customer_id, status_active: c?.status === 'active',
+      balance_number: Number.isSafeInteger(c?.balanceCents), expiry: Boolean(expiry) && Date.UTC(Number(expiry[2]), Number(expiry[1]), 1) > now(),
+      email: norm(c?.email) === norm(user.email), holder: norm(c?.holder) === norm(user.profile.firstName + ' ' + user.profile.lastName),
+      balance_enough: c?.balanceCents >= op.funding_cents, created_after_order: Date.parse(c?.createdAt) >= op.created_at - 300000,
+      created_not_future: Date.parse(c?.createdAt) <= now() + 300000 };
+    const bad = Object.keys(checks).filter((k) => !checks[k]);
+    if (bad.length) throw Object.assign(error('CARD_REVIEW_REQUIRED'), { detail: 'verify_failed:' + bad.join(',') });
     return c;
   }
   async function finish(op, cardId, actorId, actor) {
@@ -187,7 +190,7 @@ function createCardOrders(options) {
     const result = await provider.create({ customerId: op.customer_id,
       name: fresh.profile.firstName + ' ' + fresh.profile.lastName, fundingCents: op.funding_cents });
     if (result.rejected) return await refund(op, 'CARD_PROVIDER_REJECTED', actorId);
-    if (!result.ok || !validId(result.candidateId)) throw error('CARD_REVIEW_REQUIRED');
+    if (!result.ok || !validId(result.candidateId)) throw Object.assign(error('CARD_REVIEW_REQUIRED'), { detail: 'provider_create:' + (result.code || 'no_card_id') });
     storage().prepare('UPDATE card_orders SET candidate_id=? WHERE id=?').run(result.candidateId, op.id);
     return await finish(op, result.candidateId, actorId);
   }
@@ -261,7 +264,10 @@ function createCardOrders(options) {
     try {
       audit(op, actor.id, 'ADMIN_RETRY_PROVIDER_CREATE');
       try { return await submit(op, op.user_id, actor.id, true); }
-      catch (e) { update(op.id, 'REVIEW', e.code === 'CARD_WALLET_UNCERTAIN' ? e.code : 'CARD_REVIEW_REQUIRED'); return view(row(op.id)); }
+      catch (e) {
+        console.error('[card-retry] order=' + op.id + ' code=' + e.code + ' detail=' + (e.detail || e.message));
+        update(op.id, 'REVIEW', e.code === 'CARD_WALLET_UNCERTAIN' ? e.code : 'CARD_REVIEW_REQUIRED'); return view(row(op.id));
+      }
     } finally { activeJobs.delete(id); }
   }
   async function release(actor, id, confirmation) {
