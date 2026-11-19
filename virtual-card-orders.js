@@ -78,7 +78,22 @@ function createCardOrders(options) {
     return db;
   }
   const row = (id) => storage().prepare('SELECT * FROM card_orders WHERE id=?').get(id);
-  const update = (id, state, code = null) => storage().prepare('UPDATE card_orders SET state=?,code=? WHERE id=?').run(state, code, id);
+  // Tell the admin (email) when a customer's card order did not complete. Never affects the order itself.
+  function adminAlert(id, state, code) {
+    try {
+      const o = row(id), u = o && getUser(o.user_id);
+      if (!o || !options.notifyAdminIssue) return;
+      options.notifyAdminIssue({ id: o.id, state, code: code || null, reason: messages[code] || code || '', totalUSD: (o.total_cents / 100).toFixed(2),
+        attempted: o.attempt_started_at !== null, customerName: u ? [u.profile?.firstName, u.profile?.lastName].filter(Boolean).join(' ') || u.name || '' : '',
+        customerEmail: u?.email || '', occurredAt: new Date(now()).toISOString() });
+    } catch { /* alert is best effort */ }
+  }
+  const update = (id, state, code = null) => {
+    const before = state === 'REVIEW' ? row(id)?.state : null;
+    const result = storage().prepare('UPDATE card_orders SET state=?,code=? WHERE id=?').run(state, code, id);
+    if (state === 'REVIEW' && before !== 'REVIEW') adminAlert(id, 'REVIEW', code);
+    return result;
+  };
   const audit = (op, actor, action) => storage().prepare(
     'INSERT INTO card_order_audit(order_id,actor_id,action,at) VALUES(?,?,?,?)').run(op.id, actor, action, now());
   function eligible(user) {
@@ -165,6 +180,7 @@ function createCardOrders(options) {
   async function refund(op, code, actorId, guard) {
     await wallet.refund(op, guard);
     update(op.id, 'FAILED', code);
+    if (actorId === op.user_id || actorId === 'system') adminAlert(op.id, 'FAILED', code);   // not for admin-initiated refunds
     audit(op, actorId, 'RESERVATION_RELEASED');
     await notice(row(op.id));
     return view(row(op.id));

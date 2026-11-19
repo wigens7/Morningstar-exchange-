@@ -136,6 +136,28 @@ test('wrong owner/email/name/card status/initial funding/time never finalizes pa
   }
 });
 
+test('admin is alerted once, with the reason and the customer, when creation fails; not when it succeeds', async () => {
+  const alerts = [];
+  const f = await fixture({ notifyAdminIssue: (e) => alerts.push(e) });
+  try {
+    assert.equal((await f.service.create('customer', f.request())).state, 'READY');
+    assert.equal(alerts.length, 0);
+  } finally { f.close(); }
+  const g = await fixture({ notifyAdminIssue: (e) => alerts.push(e) });
+  try {
+    g.opts.kycProvider.lookup = async () => ({ ok: true, approved: true, identity: { ...normIdentity(), customer_id: 'someone-else' } });
+    assert.equal((await g.service.create('customer', g.request())).state, 'FAILED');
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].state, 'FAILED'); assert.equal(alerts[0].code, 'CARD_NOT_ELIGIBLE');
+    assert.match(alerts[0].reason, /Cardholder/); assert.equal(alerts[0].customerEmail, client.email); assert.equal(alerts[0].attempted, false);
+  } finally { g.close(); }
+  const h = await fixture({ notifyAdminIssue: () => { throw new Error('mail down'); } });
+  try {
+    h.opts.kycProvider.lookup = async () => ({ ok: false });
+    assert.equal((await h.service.create('customer', h.request())).state, 'FAILED', 'a broken alert never changes the order');
+  } finally { h.close(); }
+});
+
 test('account changes after KYC await cannot initiate a provider POST', async () => {
   const f = await fixture();
   try {
