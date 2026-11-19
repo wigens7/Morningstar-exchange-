@@ -487,16 +487,16 @@ test('add funds moves USD from the system balance to the card exactly once, and 
     const usdBefore = f.store.getUser('customer').usd;
     const body = topupBody('10.00');
     assert.equal((await f.service.topUp('customer', body)).state, 'DONE');
-    assert.equal(f.store.getUser('customer').usd, usdBefore - 10);
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
     assert.deepEqual(await f.service.topUp('customer', body), { ...(await f.service.topUp('customer', body)) });
     assert.deepEqual(calls, [1000], 'same requestKey never funds twice');
-    assert.equal(f.store.getUser('customer').usd, usdBefore - 10);
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
     const out = await f.service.myCard('customer');
-    assert.equal(out.card.balanceUSD, '13.00'); assert.equal(out.topups[0].amountUSD, '10.00');
+    assert.equal(out.card.balanceUSD, '13.00'); assert.equal(out.topups[0].amountUSD, '10.00'); assert.equal(out.topups[0].feeUSD, '0.50'); assert.equal(out.topUpFeeUSD, '0.50');
     assert.equal(out.billingAddress.postalCode, '33127'); assert.equal(out.billingAddress.city, 'Miami');
-    for (const bad of ['0.50', '501', '-5', '1e2', 'abc']) await rejects(f.service.topUp('customer', topupBody(bad)), 'TOPUP_INVALID_AMOUNT');
+    for (const bad of ['0.50', '4.99', '501', '-5', '1e2', 'abc']) await rejects(f.service.topUp('customer', topupBody(bad)), 'TOPUP_INVALID_AMOUNT');
     await rejects(f.service.topUp('customer', topupBody('400')), 'CARD_INSUFFICIENT');
-    assert.equal(f.store.getUser('customer').usd, usdBefore - 10);
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
   } finally { f.close(); }
 });
 
@@ -516,14 +516,14 @@ test('add funds: an uncertain answer keeps the USD held, blocks a second top-up,
   try {
     const usdBefore = f.store.getUser('customer').usd;
     assert.equal((await f.service.topUp('customer', topupBody('10'))).state, 'PENDING');
-    assert.equal(f.store.getUser('customer').usd, usdBefore - 10);
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
     await rejects(f.service.topUp('customer', topupBody('5')), 'TOPUP_PENDING');
     await f.service.autoComplete();
     assert.equal((await f.service.myCard('customer')).topups[0].state, 'PENDING');
     f.card.balanceCents += 1000; await f.service.autoComplete();
     assert.equal((await f.service.myCard('customer')).topups[0].state, 'DONE');
     assert.equal(sent, 1, 'ZiiroPay is never asked twice');
-    assert.equal(f.store.getUser('customer').usd, usdBefore - 10);
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
   } finally { f.close(); }
 });
 

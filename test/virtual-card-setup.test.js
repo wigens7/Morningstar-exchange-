@@ -37,6 +37,12 @@ test('card price survives a new settings instance; stale save cannot overwrite i
     assert.equal(restarted.save('99.99', null).error, 'STALE_SETTINGS');
     const updated = restarted.save('2.58', saved.revision);
     assert.equal(updated.creationPriceCents, 258);
+    assert.equal(updated.topUpFeeCents, 50, 'default top-up fee is the $0.50 minimum');
+    for (const bad of ['0.49', '2.01', '0', '10', 'x']) assert.equal(restarted.save('2.58', updated.revision, undefined, bad).error, 'INVALID_TOPUP_FEE');
+    assert.equal(restarted.read().topUpFeeCents, 50, 'a rejected fee changes nothing');
+    const lo = restarted.save('2.58', updated.revision, undefined, '0.50'); assert.equal(lo.topUpFeeCents, 50);
+    const hi = restarted.save('2.58', lo.revision, undefined, '2.00'); assert.equal(hi.topUpFeeCents, 200);
+    assert.equal(createCardSettings(dir).read().topUpFeeCents, 200);
     assert.notEqual(updated.revision, saved.revision);
     assert.equal(fs.statSync(path.join(dir, 'virtual-card-settings.json')).mode & 0o777, 0o600);
     assert.deepEqual(fs.readdirSync(dir), ['virtual-card-settings.json']);

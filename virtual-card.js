@@ -1,7 +1,7 @@
 'use strict';
 (() => {
   const $ = (id) => document.getElementById(id);
-  let readyId, busy = false, clearTimer, pollTimer, fundKey = null, fundAmount = null, billingText = '';
+  let topUpFee = null, readyId, busy = false, clearTimer, pollTimer, fundKey = null, fundAmount = null, billingText = '';
   const text = (message) => { $('message').textContent = message; };
   const el = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt !== undefined) n.textContent = txt; return n; };
   const STATUS = { active: 'Aktif', frozen: 'Jele', terminated: 'Fèmen', pending: 'An atant' };
@@ -55,7 +55,7 @@
     for (const t of list) {
       const row = el('div', 'tx'), left = el('div'), sub = el('small', '', new Date(t.createdAt).toLocaleString());
       const label = { DONE: 'Fini', FAILED: 'Echwe, lajan tounen', PENDING: 'An verifikasyon' }[t.state] || t.state;
-      left.append(el('span', '', 'Rechaj · ' + label), sub); row.append(left, el('strong', '', '+$' + t.amountUSD)); box.append(row);
+      left.append(el('span', '', 'Rechaj · ' + label), sub); row.append(left, el('strong', '', '+$' + t.amountUSD + (Number(t.feeUSD) ? ' (frè $' + t.feeUSD + ')' : ''))); box.append(row);
     }
   }
   function renderHistory(d) {
@@ -75,6 +75,7 @@
       $('wallet').hidden = !d.hasCard; if (!d.hasCard) return;
       renderHero(d);
       $('avail').textContent = '$' + d.availableUSD;
+      topUpFee = d.topUpFeeUSD; feeNote();
       renderTopups(d.topups || []); renderHistory(d);
       const b = d.billingAddress, box = $('billing'); box.replaceChildren();
       line(box, 'Address', b.address); line(box, 'City', b.city); line(box, 'State', b.state);
@@ -126,19 +127,25 @@
     } finally { busy = false; $('create').disabled = false; }
   });
   document.querySelectorAll('.act').forEach((b) => b.addEventListener('click', () => openPanel(b.dataset.panel)));
-  document.querySelectorAll('#quick button').forEach((b) => b.addEventListener('click', () => { $('amount').value = Number(b.dataset.amt).toFixed(2); }));
+  document.querySelectorAll('#quick button').forEach((b) => b.addEventListener('click', () => { $('amount').value = Number(b.dataset.amt).toFixed(2); feeNote(); }));
+  function feeNote() {
+    const n = Number($('amount').value), note = $('fee-note');
+    if (topUpFee === null) return;
+    note.textContent = 'Minimòm rechaj: $5.00. Frè rechaj: $' + topUpFee + (n >= 5 && n <= 500 ? '. Total ki soti nan balans USD ou: $' + (n + Number(topUpFee)).toFixed(2) + '.' : ' pou chak rechaj.');
+  }
+  $('amount').addEventListener('input', feeNote);
   function fundNotice(kind, msg) { const n = $('fund-msg'); n.hidden = false; n.className = 'notice ' + kind; n.textContent = msg; }
   $('fund').addEventListener('click', async () => {
     if (busy) return;
     const amount = $('amount').value.trim();
     const n = Number(amount);
-    if (!/^\d{1,3}(\.\d{1,2})?$/.test(amount) || n < 1 || n > 500) { fundNotice('err', 'Antre yon montan ant $1.00 ak $500.00.'); return; }
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(amount) || n < 5 || n > 500) { fundNotice('err', 'Antre yon montan ant $5.00 ak $500.00.'); return; }
     if (fundAmount !== amount) { fundKey = crypto.randomUUID(); fundAmount = amount; }   // same click retried = same key = never twice
     busy = true; $('fund').disabled = true; $('fund-msg').hidden = true;
     try {
       const t = await api('/api/virtual-cards/topup', { amountUSD: Number(amount).toFixed(2), requestKey: fundKey });
-      fundKey = null; fundAmount = null; $('amount').value = '';
-      fundNotice(t.state === 'DONE' ? 'ok' : '', t.state === 'DONE' ? 'Rechaj la fini. $' + t.amountUSD + ' antre sou kat la.' :
+      fundKey = null; fundAmount = null; $('amount').value = ''; feeNote();
+      fundNotice(t.state === 'DONE' ? 'ok' : '', t.state === 'DONE' ? 'Rechaj la fini. $' + t.amountUSD + ' antre sou kat la (frè $' + t.feeUSD + ').' :
         'Rechaj la an verifikasyon. Lajan an sekirize; pa repete rechaj la. Balans lan ap mete ajou poukont li.');
     } catch (e) {
       if (e.name !== 'AbortError') { fundKey = null; fundAmount = null; }
