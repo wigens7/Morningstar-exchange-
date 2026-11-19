@@ -264,3 +264,13 @@ test('autoLink links an APPROVED ZiiroPay cardholder with no admin action, and n
     assert.equal(f.calls(), 2);
   } finally { f.close(); }
 });
+
+test('name matching ignores accents, hyphens, order and a middle name, but not a different person', () => {
+  const { sameName } = require('../name-match');
+  assert.equal(sameName('Marie Marthe', 'Joseph', 'Marie-Marthe', 'JOSEPH'), true);
+  assert.equal(sameName('Jean', 'Éric Pierre', 'Jean', 'Eric'), true);
+  assert.equal(sameName('Joseph', 'Marie', 'Marie', 'Joseph'), true);
+  assert.equal(sameName('Marie', 'Joseph', 'Marie', 'Pierre'), false);
+  assert.equal(sameName('Marie', 'Joseph', 'Joseph', 'Joseph'), false);
+  assert.equal(sameName('', '', 'A', 'B'), false);
+});

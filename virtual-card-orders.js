@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { usdToCents, providerFeeCents } = require('./virtual-card-setup');
 const { validId } = require('./ziiropay-cards');
+const { sameName } = require('./name-match');
 const uuid = (s) => typeof s === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(s);
 const norm = (s) => String(s || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 const error = (code, status = 409) => Object.assign(new Error(code), { code, status });
@@ -159,7 +160,7 @@ function createCardOrders(options) {
     const checks = {
       provider_details: Boolean(result?.ok && c), customer_id: c?.customerId === op.customer_id, status_active: c?.status === 'active',
       balance_number: Number.isSafeInteger(c?.balanceCents), expiry: Boolean(expiry) && Date.UTC(Number(expiry[2]), Number(expiry[1]), 1) > now(),
-      email: norm(c?.email) === norm(user.email), holder: norm(c?.holder) === norm(user.profile.firstName + ' ' + user.profile.lastName),
+      email: norm(c?.email) === norm(user.email), holder: sameName(c?.holder, '', user.profile.firstName, user.profile.lastName),
       balance_enough: c?.balanceCents >= op.funding_cents, created_after_order: Date.parse(c?.createdAt) >= op.created_at - 300000,
       created_not_future: Date.parse(c?.createdAt) <= now() + 300000 };
     const bad = Object.keys(checks).filter((k) => !checks[k]);
