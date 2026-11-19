@@ -1519,6 +1519,12 @@ const cardOrders = createCardOrders({
   autoLink: (userId) => manualCardholders.autoLink(userId),
   wallet: createCardWallet(store), provider: cardProvider, kycProvider: cardLookup,
   settings: require('./virtual-card-setup').createCardSettings(DATA_DIR),
+  notifyAdminIssue: (event) => queueEmailNotification(`card-admin:${event.id}:${event.state}`,
+    event.state === 'REVIEW' ? 'CARD_CREATION_REVIEW' : 'CARD_CREATION_FAILED', [{ type: 'admin' }], {
+      occurredAt: event.occurredAt, amount: event.totalUSD + ' USD', orderRef: event.id,
+      customer: [event.customerName, event.customerEmail].filter(Boolean).join(' · '),
+      reasonText: [event.reason, event.code && `(${event.code})`].filter(Boolean).join(' ') + (event.attempted ? ' · ZiiroPay te eseye' : ' · anvan ZiiroPay')
+    }),
   notifyOutcome: async (user, event) => {
     const users = loadUsers(), latest = users.find((u) => u.id === user?.id);
     if (!latest) return false;

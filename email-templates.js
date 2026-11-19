@@ -129,6 +129,8 @@ const NOTICES = {
     P2P_AD_STATUS: { title: 'Estati òf P2P chanje', USER: 'Estati òf P2P ou a chanje. Tcheke òf la nan aplikasyon an.' },
     P2P_STATUS: { title: 'Mizajou sou lòd P2P', USER: 'Nou mete estati lòd P2P ou ajou.' },
     P2P_ADMIN_ALERT: { title: 'Alèt aktivite P2P', ADMIN: 'Sistèm nan detekte yon aktivite oswa yon pwoblèm P2P ki mande atansyon.' },
+    CARD_CREATION_FAILED: { title: 'Kreyasyon kat pa fèt', ADMIN: 'Yon kliyan eseye kreye yon kat vityèl men kreyasyon an pa fèt. Rezèv la tounen nan balans kliyan an. Rezon an make anba a.' },
+    CARD_CREATION_REVIEW: { title: 'Kreyasyon kat mande verifikasyon', ADMIN: 'Yon kreyasyon kat vityèl poko klè e li mande verifikasyon ou. Lajan kliyan an rete rezève; pa rembouse l ni relanse l san ou pa tcheke ZiiroPay. Rezon an make anba a.' },
     SYSTEM_OPERATION_ERROR: { title: 'Erè operasyon enpòtan', ADMIN: 'Yon demann pou yon operasyon enpòtan retounen erè. Verifye estati li nan aplikasyon an anvan ou fè lòt aksyon.' }
   },
   en: {
@@ -161,6 +163,8 @@ const NOTICES = {
     P2P_AD_STATUS: { title: 'P2P offer status changed', USER: 'Your P2P offer status changed. Check the offer in the app.' },
     P2P_STATUS: { title: 'P2P order update', USER: 'The status of your P2P order was updated.' },
     P2P_ADMIN_ALERT: { title: 'P2P activity alert', ADMIN: 'The system detected P2P activity or an issue that needs attention.' },
+    CARD_CREATION_FAILED: { title: 'Card creation failed', ADMIN: 'A customer tried to create a virtual card and it did not complete. The hold was returned to the customer. The reason is below.' },
+    CARD_CREATION_REVIEW: { title: 'Card creation needs review', ADMIN: 'A virtual card creation is unclear and needs your review. The customer funds stay held; do not refund or retry before checking ZiiroPay. The reason is below.' },
     SYSTEM_OPERATION_ERROR: { title: 'Important operation error', ADMIN: 'A request for an important operation returned an error. Check its status in the app before taking further action.' }
   },
   fr: {
@@ -290,10 +294,10 @@ function notificationEmail({ eventType, audience = 'USER', locale = 'ht', payloa
   const role = String(audience).toUpperCase() === 'ADMIN' ? 'ADMIN' : String(audience).toUpperCase();
   const summary = entry[role] || entry.USER || entry.ADMIN;
   const labels = {
-    ht: { order: 'Lòd', offer: 'Òf', request: 'Demann', amount: 'Montan', method: 'Metòd', status: 'Estati', reason: 'Rezon', alert: 'Alèt', event: 'Evènman' },
-    en: { order: 'Order', offer: 'Offer', request: 'Request', amount: 'Amount', method: 'Method', status: 'Status', reason: 'Reason', alert: 'Alert', event: 'Event' },
-    fr: { order: 'Ordre', offer: 'Offre', request: 'Demande', amount: 'Montant', method: 'Méthode', status: 'Statut', reason: 'Motif', alert: 'Alerte', event: 'Événement' },
-    es: { order: 'Orden', offer: 'Oferta', request: 'Solicitud', amount: 'Importe', method: 'Método', status: 'Estado', reason: 'Motivo', alert: 'Alerta', event: 'Evento' }
+    ht: { order: 'Lòd', offer: 'Òf', request: 'Demann', amount: 'Montan', method: 'Metòd', status: 'Estati', reason: 'Rezon', customer: 'Kliyan', alert: 'Alèt', event: 'Evènman' },
+    en: { order: 'Order', offer: 'Offer', request: 'Request', amount: 'Amount', method: 'Method', status: 'Status', reason: 'Reason', customer: 'Customer', alert: 'Alert', event: 'Event' },
+    fr: { order: 'Ordre', offer: 'Offre', request: 'Demande', amount: 'Montant', method: 'Méthode', status: 'Statut', reason: 'Motif', customer: 'Client', alert: 'Alerte', event: 'Événement' },
+    es: { order: 'Orden', offer: 'Oferta', request: 'Solicitud', amount: 'Importe', method: 'Método', status: 'Estado', reason: 'Motivo', customer: 'Cliente', alert: 'Alerta', event: 'Evento' }
   }[lang];
   const details = [];
   if (payload.orderRef) details.push({ label: labels.order, value: payload.orderRef });
@@ -312,6 +316,8 @@ function notificationEmail({ eventType, audience = 'USER', locale = 'ht', payloa
     };
     details.push({ label: labels.reason, value: (reasons[payload.reasonCode] && reasons[payload.reasonCode][lang]) || payload.reasonCode });
   }
+  if (payload.customer) details.push({ label: labels.customer, value: payload.customer });
+  if (payload.reasonText) details.push({ label: labels.reason, value: payload.reasonText });
   if (payload.alertType) details.push({ label: labels.alert, value: payload.alertType });
   if (payload.event) details.push({ label: labels.event, value: payload.event });
   return noticeEmail({
