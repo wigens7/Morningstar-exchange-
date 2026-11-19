@@ -7,6 +7,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { createKycProvider } = require('./ziiropay-kyc');
+const { sameName } = require('./name-match');
 const fail = (code, status = 400) => Object.assign(new Error(code), { code, status });
 const normalize = (value) => String(value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
@@ -104,11 +105,15 @@ function createManualCardholders(options) {
         reviewPrevious(); throw fail('CARDHOLDER_NOT_APPROVED', 409);
       }
       const identity = result.identity;
-      if (!identity || identity.customer_id !== body.customerId ||
-          normalize(identity.email) !== normalize(user.email) ||
-          normalize(identity.first_name) !== normalize(user.profile.firstName) ||
-          normalize(identity.last_name) !== normalize(user.profile.lastName)) {
-        reviewPrevious(); throw fail('CARDHOLDER_IDENTITY_MISMATCH', 409);
+      const fields = !identity ? ['identity'] : [
+        identity.customer_id !== body.customerId && 'customer_id',
+        normalize(identity.email) !== normalize(user.email) && 'email',
+        !sameName(identity.first_name, identity.last_name, user.profile.firstName, user.profile.lastName) && 'name'].filter(Boolean);
+      if (fields.length) {
+        reviewPrevious();
+        // Admin-only detail: which check failed, and the Customer ID ZiiroPay itself holds for this email.
+        throw Object.assign(fail('CARDHOLDER_IDENTITY_MISMATCH', 409), { fields,
+          providerCustomerId: validId(identity?.customer_id) ? identity.customer_id : null });
       }
       user = options.getUser(userId);
       if (eligibility(user) || fingerprint(user) !== expected) throw fail('CARDHOLDER_ACCOUNT_CHANGED', 409);
@@ -198,7 +203,8 @@ function mountManualCardholders(app, { service, auth, adminOnly, rateLimit, issu
     catch (e) {
       const safe = Object.hasOwn(messages, e.code);
       res.status(safe ? e.status : 503).json({ code: safe ? e.code : 'CARDHOLDER_UNAVAILABLE',
-        error: safe ? messages[e.code] : 'Dosye cardholder la pa disponib. Rechaje li pou verifye estati a.' });
+        error: safe ? messages[e.code] : 'Dosye cardholder la pa disponib. Rechaje li pou verifye estati a.',
+        ...(safe && e.fields ? { fields: e.fields, providerCustomerId: e.providerCustomerId ?? null } : {}) });
     }
   };
   app.get('/api/admin/users/:id/cardholder', privateRoute, adminOnly,

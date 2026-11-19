@@ -474,7 +474,10 @@ async function saveManualCardholder() {
     const data = await response.json();
     if (cardholderView !== view || !p360 || p360.user.id !== view.userId) return;
     if (!response.ok) {
-      result.textContent = data.error || 'Asosiyasyon an pa fini. Rechaje estati a pou verifye.';
+      const names = { customer_id: 'Customer ID', email: 'imèl', name: 'non', identity: 'idantite' };
+      result.textContent = (data.error || 'Asosiyasyon an pa fini. Rechaje estati a pou verifye.') +
+        (data.fields ? ' Sa ki pa koresponn: ' + data.fields.map((f) => names[f] || f).join(', ') + '.' : '') +
+        (data.providerCustomerId && data.fields?.includes('customer_id') ? ' Customer ID ZiiroPay gen pou imèl sa a: ' + data.providerCustomerId : '');
       return;
     }
     view.revision = data.revision; input.value = data.customerId;
