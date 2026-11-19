@@ -30,6 +30,8 @@ function breakdown(value) {
   };
 }
 
+const MIN_TOPUP_FEE_CENTS = 50, MAX_TOPUP_FEE_CENTS = 200;
+
 function usdToCents(value) {
   // Montan soti nan yon string desimal, pa floating-point oswa exponent.
   if (typeof value !== 'string' || !/^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/.test(value)) return null;
@@ -44,7 +46,7 @@ function createCardSettings(dataDir) {
     let value;
     try { value = JSON.parse(fs.readFileSync(file, 'utf8')); }
     catch (e) {
-      if (e.code === 'ENOENT') return { revision: null, creationPriceCents: null, initialFundingCents: DEFAULT_FUNDING_CENTS, updatedAt: null };
+      if (e.code === 'ENOENT') return { revision: null, creationPriceCents: null, initialFundingCents: DEFAULT_FUNDING_CENTS, topUpFeeCents: MIN_TOPUP_FEE_CENTS, updatedAt: null };
       throw new Error('CARD_SETTINGS_UNAVAILABLE');
     }
     if (!value || value.schemaVersion !== 1 ||
@@ -57,9 +59,12 @@ function createCardSettings(dataDir) {
     if (value.initialFundingCents === undefined) value.initialFundingCents = DEFAULT_FUNDING_CENTS;
     if (!Number.isSafeInteger(value.initialFundingCents) || value.initialFundingCents < MIN_FUNDING_CENTS ||
         value.initialFundingCents > MAX_FUNDING_CENTS) throw new Error('CARD_SETTINGS_UNAVAILABLE');
+    if (value.topUpFeeCents === undefined) value.topUpFeeCents = MIN_TOPUP_FEE_CENTS;
+    if (!Number.isSafeInteger(value.topUpFeeCents) || value.topUpFeeCents < MIN_TOPUP_FEE_CENTS ||
+        value.topUpFeeCents > MAX_TOPUP_FEE_CENTS) throw new Error('CARD_SETTINGS_UNAVAILABLE');
     return value;
   }
-  function save(price, revision, funding) {
+  function save(price, revision, funding, topUpFee) {
     const cents = usdToCents(price);
     if (cents === null) return { error: 'INVALID_PRICE' };
     const current = read();
@@ -69,11 +74,16 @@ function createCardSettings(dataDir) {
       fundingCents = usdToCents(funding);
       if (fundingCents === null || fundingCents < MIN_FUNDING_CENTS || fundingCents > MAX_FUNDING_CENTS) return { error: 'INVALID_FUNDING' };
     }
+    let feeCents = current.topUpFeeCents;
+    if (topUpFee !== undefined) {
+      feeCents = usdToCents(topUpFee);
+      if (feeCents === null || feeCents < MIN_TOPUP_FEE_CENTS || feeCents > MAX_TOPUP_FEE_CENTS) return { error: 'INVALID_TOPUP_FEE' };
+    }
     // Never let the admin sell a card for less than ZiiroPay charges for it.
     if (cents < providerFeeCents(fundingCents)) return { error: 'BELOW_COST', minCents: providerFeeCents(fundingCents) };
     const value = {
       schemaVersion: 1, revision: crypto.randomUUID(),
-      creationPriceCents: cents, initialFundingCents: fundingCents, updatedAt: new Date().toISOString()
+      creationPriceCents: cents, initialFundingCents: fundingCents, topUpFeeCents: feeCents, updatedAt: new Date().toISOString()
     };
     const temp = file + '.' + crypto.randomUUID() + '.tmp';
     let fd;
@@ -102,6 +112,7 @@ function publicSetup(value) {
     currency: 'USD',
     creationPriceUSD: value.creationPriceCents === null ? null : (value.creationPriceCents / 100).toFixed(2),
     creationPriceConfigured: value.creationPriceCents !== null,
+    topUpFeeUSD: (value.topUpFeeCents / 100).toFixed(2), minTopUpFeeUSD: (MIN_TOPUP_FEE_CENTS / 100).toFixed(2), maxTopUpFeeUSD: (MAX_TOPUP_FEE_CENTS / 100).toFixed(2), minTopUpUSD: '5.00',
     ...breakdown(value),
     cardOperationsEnabled: false,
     withdrawalEnabled: false,
@@ -130,12 +141,13 @@ function mountVirtualCardSetup(app, { dataDir, auth, adminOnly, rateLimit, pageF
     // Rejte kle siplemantè: yon kliyan pa ka aktive retrè oswa operasyon yo.
     const body = req.body;
     if (!body || Array.isArray(body) ||
-        Object.keys(body).some((k) => !['creationPriceUSD', 'initialFundingUSD', 'revision'].includes(k))) {
+        Object.keys(body).some((k) => !['creationPriceUSD', 'initialFundingUSD', 'topUpFeeUSD', 'revision'].includes(k))) {
       return res.status(400).json({ error: 'Demann pri kat la pa valid.' });
     }
     try {
-      const value = settings.save(body.creationPriceUSD, body.revision, body.initialFundingUSD);
+      const value = settings.save(body.creationPriceUSD, body.revision, body.initialFundingUSD, body.topUpFeeUSD);
       if (value.error === 'INVALID_PRICE') return res.status(400).json({ error: 'Mete yon pri USD ant 0 ak 999999.99, avèk 2 desimal maksimòm.' });
+      if (value.error === 'INVALID_TOPUP_FEE') return res.status(400).json({ code: 'INVALID_TOPUP_FEE', error: 'Frè rechaj la dwe ant 0.50 ak 2.00 USD.' });
       if (value.error === 'INVALID_FUNDING') return res.status(400).json({ error: 'Premye montan kat la dwe ant 1.00 ak 1000.00 USD.' });
       if (value.error === 'BELOW_COST') return res.status(400).json({ code: 'BELOW_COST',
         error: 'Frè a twò ba: ZiiroPay pran ' + (value.minCents / 100).toFixed(2) + ' USD pou kat sa a. Mete omwen ' + (value.minCents / 100).toFixed(2) + ' USD pou ou pa pèdi lajan.' });

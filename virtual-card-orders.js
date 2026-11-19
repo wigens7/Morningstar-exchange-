@@ -27,9 +27,17 @@ const messages = {
   CARD_BUSY: 'Gen yon operasyon sou demann sa a deja an kou.',
   CARD_NOT_FOUND: 'Demann kat sa a pa disponib.',
   CARD_REVEAL_UNAVAILABLE: 'Detay sekirize kat la pa disponib kounye a.',
+  TOPUP_INVALID_AMOUNT: 'Montan an dwe ant $5.00 ak $500.00.',
+  TOPUP_NO_CARD: 'Ou pa gen yon kat aktif pou rechaje.',
+  TOPUP_CARD_NOT_ACTIVE: 'Kat la pa aktif. Rechaj la pa posib kounye a.',
+  TOPUP_PENDING: 'Gen yon rechaj ki deja an kou. Tann li fini.',
+  TOPUP_PROVIDER_REFUSED: 'Founisè a pa t aksepte rechaj la. Lajan an tounen nan balans USD ou.',
   CARD_INTERNAL_ERROR: 'Nou pa ka fini verifikasyon an kounye a. Rechaje estati a anvan nenpòt lòt aksyon.'
 };
 
+// Same billing address for every cardholder.
+const BILLING_ADDRESS = { address: '3401 N. Miami, Ave. Ste 230', city: 'Miami', state: 'Florida', country: 'United States', postalCode: '33127' };
+const MIN_TOPUP_CENTS = 500;
 const fundingUSD = (settings) => (settings.read().initialFundingCents / 100).toFixed(2);
 
 function createCardOrders(options) {
@@ -57,8 +65,16 @@ function createCardOrders(options) {
         UNIQUE(user_id,request_key));
       CREATE UNIQUE INDEX IF NOT EXISTS one_open_card_per_user ON card_orders(user_id) WHERE state!='FAILED';
       CREATE UNIQUE INDEX IF NOT EXISTS one_open_card_per_cardholder ON card_orders(customer_id) WHERE state!='FAILED';
+      CREATE TABLE IF NOT EXISTS card_topups(
+        id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_key TEXT NOT NULL,card_id TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,balance_before_cents INTEGER NOT NULL,state TEXT NOT NULL,
+        created_at INTEGER NOT NULL,code TEXT,UNIQUE(user_id,request_key));
+      CREATE UNIQUE INDEX IF NOT EXISTS one_open_topup_per_user ON card_topups(user_id) WHERE state IN ('HELD','REVIEW');
       CREATE TABLE IF NOT EXISTS card_order_audit(
         id INTEGER PRIMARY KEY,order_id TEXT NOT NULL,actor_id TEXT NOT NULL,action TEXT NOT NULL,at INTEGER NOT NULL);`);
+    if (!db.prepare("SELECT 1 FROM pragma_table_info('card_topups') WHERE name='fee_cents'").get()) {
+      db.exec('ALTER TABLE card_topups ADD COLUMN fee_cents INTEGER NOT NULL DEFAULT 0');
+    }
     return db;
   }
   const row = (id) => storage().prepare('SELECT * FROM card_orders WHERE id=?').get(id);
@@ -339,6 +355,7 @@ function createCardOrders(options) {
         catch (e) { console.error('[card-auto] order=' + op.id + ' still REVIEW code=' + e.code + ' detail=' + (e.detail || e.message)); }
         finally { activeJobs.delete(op.id); }
       }
+      await autoCompleteTopups();
     } finally { completing = false; }
   }
   // ZiiroPay may finish a card after the create call (event virtualcard.created.complete). The webhook payload is
@@ -401,12 +418,74 @@ function createCardOrders(options) {
     const [d, h] = provider.configured ? await Promise.all([
       provider.details(op.card_id).catch(() => null), provider.history(op.card_id).catch(() => null)]) : [null, null];
     const live = d?.ok ? d.card : null;
-    return { hasCard: true, orderId: op.id, provider: 'ZiiroPay', live: Boolean(live),
+    const topups = storage().prepare('SELECT * FROM card_topups WHERE user_id=? ORDER BY created_at DESC LIMIT 10').all(userId).map(topupView);
+    return { hasCard: true, orderId: op.id, provider: 'ZiiroPay', live: Boolean(live), billingAddress: BILLING_ADDRESS,
+      availableUSD: Number(getUser(userId)?.usd || 0).toFixed(2), topups,
+      topUpFeeUSD: (settings.read().topUpFeeCents / 100).toFixed(2), minTopUpUSD: (MIN_TOPUP_CENTS / 100).toFixed(2),
       card: { last4: live?.last4 || snap?.last4 || null, expiry: live?.expiry || snap?.expiry || null,
         brand: live?.brand || snap?.brand || null, status: live?.status || snap?.status || null,
         balanceUSD: live ? (live.balanceCents / 100).toFixed(2) : snap?.balanceUSD ?? null,
         reference: live?.reference || op.provider_reference || null, createdAt: new Date(op.created_at).toISOString() },
       historyAvailable: Boolean(h?.ok), history: h?.ok ? h.items : [] };
+  }
+  // Add funds from the customer's system USD balance to their ZiiroPay card.
+  // Money moves exactly once: the USD is held first (same ledger as card creation), ZiiroPay is called once, and the
+  // hold becomes final only when the card balance independently shows the increase. A definite refusal gives the USD
+  // back; an uncertain answer keeps the hold and is re-checked read-only (never re-sent) until the balance proves it.
+  const topupView = (t) => t && ({ id: t.id, amountUSD: (t.amount_cents / 100).toFixed(2), feeUSD: ((t.fee_cents || 0) / 100).toFixed(2),
+    totalUSD: ((t.amount_cents + (t.fee_cents || 0)) / 100).toFixed(2), state: t.state === 'SETTLED' ? 'DONE' :
+    t.state === 'FAILED' ? 'FAILED' : 'PENDING', createdAt: new Date(t.created_at).toISOString() });
+  const topupOp = (t) => ({ id: t.id, user_id: t.user_id, total_cents: t.amount_cents + (t.fee_cents || 0) });
+  async function settleTopup(t) {
+    const d = await provider.details(t.card_id);
+    if (!d?.ok || d.card.status !== 'active' || d.card.balanceCents < t.balance_before_cents + t.amount_cents) return false;
+    await wallet.settle(topupOp(t), () => {});
+    storage().prepare("UPDATE card_topups SET state='SETTLED',code=NULL WHERE id=?").run(t.id);
+    return true;
+  }
+  async function topUp(userId, input) {
+    on();
+    const cents = usdToCents(input?.amountUSD);
+    if (!uuid(input?.requestKey) || cents === null || cents < MIN_TOPUP_CENTS || cents > 50000) throw error('TOPUP_INVALID_AMOUNT', 400);
+    const prior = storage().prepare('SELECT * FROM card_topups WHERE user_id=? AND request_key=?').get(userId, input.requestKey);
+    if (prior) return topupView(prior);
+    const order = storage().prepare("SELECT card_id FROM card_orders WHERE user_id=? AND state='READY' AND card_id IS NOT NULL ORDER BY created_at DESC LIMIT 1").get(userId);
+    if (!order) throw error('TOPUP_NO_CARD', 409);
+    if (storage().prepare("SELECT id FROM card_topups WHERE user_id=? AND state IN ('HELD','REVIEW')").get(userId)) throw error('TOPUP_PENDING', 409);
+    const before = await provider.details(order.card_id);
+    if (!before?.ok || before.card.status !== 'active') throw error('TOPUP_CARD_NOT_ACTIVE', 409);
+    const t = { id: crypto.randomUUID(), user_id: userId, request_key: input.requestKey, card_id: order.card_id,
+      amount_cents: cents, fee_cents: settings.read().topUpFeeCents, balance_before_cents: before.card.balanceCents, state: 'HELD', created_at: now(), code: null };
+    await wallet.reserve(topupOp(t), () => {});            // CARD_INSUFFICIENT when the USD balance is too low
+    try {
+      storage().prepare('INSERT INTO card_topups(id,user_id,request_key,card_id,amount_cents,balance_before_cents,state,created_at,code,fee_cents) VALUES(?,?,?,?,?,?,?,?,?,?)').run(t.id, userId, t.request_key, t.card_id,
+        t.amount_cents, t.balance_before_cents, 'HELD', t.created_at, null, t.fee_cents);
+    } catch (e) { await wallet.refund(topupOp(t), () => {}).catch(() => {}); throw error('TOPUP_PENDING', 409); }
+    activeJobs.set(t.id, true);
+    try {
+      const r = await provider.fund(t.card_id, cents);
+      if (!r.ok && r.definitive) {
+        await wallet.refund(topupOp(t), () => {});
+        storage().prepare("UPDATE card_topups SET state='FAILED',code=? WHERE id=?").run(r.awaitingFunds ? 'PROVIDER_FUNDS' : 'REFUSED', t.id);
+        throw error('TOPUP_PROVIDER_REFUSED', 409);
+      }
+      if (!r.ok) console.error('[card-topup] uncertain id=' + t.id + ' code=' + r.code);
+      if (!(await settleTopup(t))) storage().prepare("UPDATE card_topups SET state='REVIEW' WHERE id=?").run(t.id);
+    } catch (e) {
+      if (e.code === 'TOPUP_PROVIDER_REFUSED') throw e;
+      console.error('[card-topup] id=' + t.id + ' ' + (e.code || e.message));
+      storage().prepare("UPDATE card_topups SET state='REVIEW' WHERE id=? AND state='HELD'").run(t.id);
+    } finally { activeJobs.delete(t.id); }
+    return topupView(storage().prepare('SELECT * FROM card_topups WHERE id=?').get(t.id));
+  }
+  async function autoCompleteTopups() {
+    if (!db && !fs.existsSync(path.join(dataDir, 'virtual-card-orders.sqlite'))) return;
+    for (const t of storage().prepare("SELECT * FROM card_topups WHERE state IN ('HELD','REVIEW') LIMIT 10").all()) {
+      if (activeJobs.has(t.id)) continue;
+      activeJobs.set(t.id, true);
+      try { await settleTopup(t); } catch (e) { console.error('[card-topup] recheck id=' + t.id + ' ' + (e.code || e.message)); }
+      finally { activeJobs.delete(t.id); }
+    }
   }
   // One-click creation: fixed $5.00 initial card balance + creation fee, no PIN/consent step.
   // Needs an approved ZiiroPay customer ID and enough available USD for fee + $5.00.
@@ -414,7 +493,7 @@ function createCardOrders(options) {
     const q = quote(userId, fundingUSD(settings));
     return create(userId, { quoteId: q.id, requestKey: crypto.randomUUID(), consent: true, acceptedTotalUSD: q.totalUSD });
   }
-  return { quote, create, createNow, current, myCard, reconcile, retry, release, releaseAwaiting, prepare, adoptCard, autoComplete, recover, reveal,
+  return { quote, create, createNow, current, myCard, topUp, reconcile, retry, release, releaseAwaiting, prepare, adoptCard, autoComplete, recover, reveal,
     adminList(actor, userId) {
       admin(actor);
       if (typeof userId !== 'string' || userId.length > 128) throw error('CARD_INVALID_REQUEST', 400);
@@ -478,6 +557,8 @@ function mountCardOrders(app, { service, auth, adminOnly, pinGuard, rateLimit, p
   app.get('/virtual-card.js', (req, res) => res.sendFile(scriptFile));
   app.get('/api/virtual-cards/orders', privateHeaders, auth, handler(async (req) => { await service.prepare(req.user.id); return service.current(req.user.id); }));
   app.get('/api/virtual-cards/orders/card', privateHeaders, auth, handler((req) => service.myCard(req.user.id)));
+  app.post('/api/virtual-cards/topup', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),
+    strict(['amountUSD', 'requestKey']), handler((req) => service.topUp(req.user.id, req.body)));
   app.post('/api/virtual-cards/quote', privateHeaders, auth, ajax, rateLimit(20, 15 * 60 * 1000),
     strict(['initialFundingUSD']), handler((req) => service.quote(req.user.id, req.body.initialFundingUSD)));
   app.post('/api/virtual-cards/create', privateHeaders, auth, ajax, rateLimit(10, 15 * 60 * 1000),

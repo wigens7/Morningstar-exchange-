@@ -67,7 +67,8 @@ function createCardProvider(options = {}) {
           body.success === false && !hasCardHint) {
         return { ok: false, rejected: true, code: 'CARD_PROVIDER_REJECTED' };
       }
-      if (!r.ok || body.success !== true) return { ok: false, code: 'CARD_PROVIDER_UNCERTAIN' };
+      if (!r.ok || body.success !== true) return { ok: false, code: 'CARD_PROVIDER_UNCERTAIN',
+        clientError: r.status >= 400 && r.status < 500 && body.success === false };
       return { ok: true, body };
     } catch {
       return { ok: false, code: 'CARD_PROVIDER_UNCERTAIN' };
@@ -137,6 +138,16 @@ function createCardProvider(options = {}) {
         description: str(t.description ?? t.narrative ?? t.merchant ?? t.merchant_name ?? t.reason),
         amount: str(t.amount ?? t.centAmount ?? ''), status: str(t.status), currency: str(t.currency ?? 'USD') }));
       return { ok: true, items, known: Array.isArray(list) };
+    },
+    // Add funds to a card (POST fund-withdraw-nfccard type=fund). definitive=true means ZiiroPay clearly refused and
+    // nothing moved; anything else is uncertain and must be settled only after the card balance proves it.
+    async fund(cardId, amountCents) {
+      if (!validId(cardId) || !Number.isSafeInteger(amountCents) || amountCents < 1 || amountCents > 99999999) {
+        return { ok: false, definitive: true, code: 'INVALID_FUND_REQUEST' };
+      }
+      const r = await request('fund-withdraw-nfccard', 'POST', { card_id: cardId, amount: (amountCents / 100).toFixed(2), type: 'fund' });
+      if (r.ok) return { ok: true };
+      return { ok: false, definitive: Boolean(r.awaitingFunds || r.rejected || r.clientError), awaitingFunds: Boolean(r.awaitingFunds), code: r.code };
     },
     async details(cardId, sensitive = false) {
       if (!validId(cardId)) return { ok: false, code: 'INVALID_CARD_ID' };

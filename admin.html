@@ -854,6 +854,8 @@ async function loadSettings() {
           <h4><i class="fa-solid fa-building-columns"></i>Founisè · ZiiroPay</h4>
           <div class="vc-row"><div>Premye montan sou kat la<small>Lajan ki antre sou kat kliyan an</small></div>
             <label class="vc-field"><span>$</span><input id="vc-funding" type="text" inputmode="decimal" maxlength="7" aria-label="Premye montan sou kat la (USD)" disabled></label></div>
+          <div class="vc-row"><div>Frè rechaj kat<small>Chak rechaj kliyan fè. Ant $0.50 ak $2.00 sèlman. Minimòm rechaj: $5.</small></div>
+            <label class="vc-field"><span>$</span><input id="vc-topfee" type="text" inputmode="decimal" maxlength="4" aria-label="Frè rechaj kat (USD, 0.50 a 2.00)" disabled></label></div>
           <div class="vc-row"><div>Frè kreyasyon<small><span id="vc-pfixed">2.50</span> + <span id="vc-ppct">1.5</span>%</small></div><b id="vc-pfee">—</b></div>
           <div class="vc-row"><div>Total ZiiroPay debite w</div><b id="vc-ptotal">—</b></div>
         </div>
@@ -910,7 +912,7 @@ function recalcCardPrice() {
 async function loadCardPrice() {
   const input = $('vc-price'), funding = $('vc-funding'), button = $('vc-price-save'), result = $('vc-price-result');
   if (!input || !funding || !button || !result) return;
-  input.disabled = true; funding.disabled = true; button.disabled = true;
+  input.disabled = true; funding.disabled = true; button.disabled = true; $('vc-topfee').disabled = true;
   try {
     const response = await fetch('/api/admin/virtual-cards/settings', { cache: 'no-store' });
     const data = await response.json();
@@ -920,6 +922,7 @@ async function loadCardPrice() {
     cardFeeRule = { fixed: Math.round(Number(data.providerFixedFeeUSD) * 100), bp: Math.round(Number(data.providerPercent) * 100) };
     funding.value = data.initialFundingUSD;
     input.value = data.creationPriceUSD === null ? '' : data.creationPriceUSD;
+    $('vc-topfee').value = data.topUpFeeUSD; $('vc-topfee').disabled = false;
     input.disabled = false; funding.disabled = false;
     input.oninput = recalcCardPrice; funding.oninput = recalcCardPrice;
     recalcCardPrice();
@@ -929,7 +932,9 @@ async function loadCardPrice() {
 async function saveCardPrice() {
   const input = $('vc-price'), funding = $('vc-funding'), button = $('vc-price-save'), result = $('vc-price-result');
   if (!input || !funding || !button || !result || button.disabled) return;
-  const price = input.value.trim(), fund = funding.value.trim();
+  const price = input.value.trim(), fund = funding.value.trim(), topfee = $('vc-topfee').value.trim();
+  const feeCents = centsOf(topfee);
+  if (feeCents === null || feeCents < 50 || feeCents > 200) { vcMsg('Frè rechaj la dwe ant 0.50 ak 2.00 USD.', 'bad'); return; }
   if (centsOf(price) === null || centsOf(fund) === null) {
     vcMsg('Mete montan USD valid, avèk 2 desimal maksimòm (egzanp: 4.00).', 'bad');
     return;
@@ -939,7 +944,7 @@ async function saveCardPrice() {
   try {
     const response = await fetch('/api/admin/virtual-cards/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-      body: JSON.stringify({ creationPriceUSD: price, initialFundingUSD: fund, revision: cardPriceRevision })
+      body: JSON.stringify({ creationPriceUSD: price, initialFundingUSD: fund, topUpFeeUSD: topfee, revision: cardPriceRevision })
     });
     const data = await response.json();
     if (!response.ok) {
@@ -947,7 +952,7 @@ async function saveCardPrice() {
       return;
     }
     cardPriceRevision = data.revision;
-    input.value = data.creationPriceUSD; funding.value = data.initialFundingUSD;
+    input.value = data.creationPriceUSD; funding.value = data.initialFundingUSD; $('vc-topfee').value = data.topUpFeeUSD;
     vcMsg('Sove. Kliyan peye $' + data.customerTotalUSD + ' (frè $' + data.creationPriceUSD + ' + $' + data.initialFundingUSD + ' sou kat la). Pwofi: $' + data.marginUSD + '.', 'good');
   } catch { vcMsg('Pri a pa sove oswa rezilta a pa sèten. Rechaje seksyon an pou verifye li.', 'bad'); }
   finally { input.disabled = false; funding.disabled = false; recalcCardPrice(); }

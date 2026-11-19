@@ -470,3 +470,64 @@ test('provider history keeps only short plain fields and drops anything that loo
   assert.equal(out.items[0].url, undefined);
   assert.deepEqual((await mk({ success: true, response: {} }).history('abcdef123456')).items, []);
 });
+
+function topupFixture(fund) {
+  let f;
+  const provider = { configured: true, mode: 'live', async create() { return { ok: true, candidateId: cardId }; },
+    async details() { return { ok: true, card: structuredClone(f.card) }; },
+    async history() { return { ok: true, items: [] }; }, fund: (id, cents) => fund(f, id, cents) };
+  return (async () => { f = await fixture({ provider }); await f.service.create('customer', f.request()); return f; })();
+}
+const topupBody = (amountUSD = '10.00') => ({ amountUSD, requestKey: crypto.randomUUID() });
+
+test('add funds moves USD from the system balance to the card exactly once, and the card balance proves it', async () => {
+  const calls = [];
+  const f = await topupFixture(async (x, id, cents) => { calls.push(cents); x.card.balanceCents += cents; return { ok: true }; });
+  try {
+    const usdBefore = f.store.getUser('customer').usd;
+    const body = topupBody('10.00');
+    assert.equal((await f.service.topUp('customer', body)).state, 'DONE');
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
+    assert.deepEqual(await f.service.topUp('customer', body), { ...(await f.service.topUp('customer', body)) });
+    assert.deepEqual(calls, [1000], 'same requestKey never funds twice');
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
+    const out = await f.service.myCard('customer');
+    assert.equal(out.card.balanceUSD, '13.00'); assert.equal(out.topups[0].amountUSD, '10.00'); assert.equal(out.topups[0].feeUSD, '0.50'); assert.equal(out.topUpFeeUSD, '0.50');
+    assert.equal(out.billingAddress.postalCode, '33127'); assert.equal(out.billingAddress.city, 'Miami');
+    for (const bad of ['0.50', '4.99', '501', '-5', '1e2', 'abc']) await rejects(f.service.topUp('customer', topupBody(bad)), 'TOPUP_INVALID_AMOUNT');
+    await rejects(f.service.topUp('customer', topupBody('400')), 'CARD_INSUFFICIENT');
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
+  } finally { f.close(); }
+});
+
+test('add funds: a definite ZiiroPay refusal gives the USD back', async () => {
+  const f = await topupFixture(async () => ({ ok: false, definitive: true, code: 'CARD_PROVIDER_REJECTED' }));
+  try {
+    const usdBefore = f.store.getUser('customer').usd;
+    await rejects(f.service.topUp('customer', topupBody('10')), 'TOPUP_PROVIDER_REFUSED');
+    assert.equal(f.store.getUser('customer').usd, usdBefore);
+    assert.equal((await f.service.myCard('customer')).topups[0].state, 'FAILED');
+  } finally { f.close(); }
+});
+
+test('add funds: an uncertain answer keeps the USD held, blocks a second top-up, and settles once the balance shows it', async () => {
+  let sent = 0;
+  const f = await topupFixture(async () => { sent++; return { ok: false, definitive: false, code: 'CARD_PROVIDER_UNCERTAIN' }; });
+  try {
+    const usdBefore = f.store.getUser('customer').usd;
+    assert.equal((await f.service.topUp('customer', topupBody('10'))).state, 'PENDING');
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
+    await rejects(f.service.topUp('customer', topupBody('5')), 'TOPUP_PENDING');
+    await f.service.autoComplete();
+    assert.equal((await f.service.myCard('customer')).topups[0].state, 'PENDING');
+    f.card.balanceCents += 1000; await f.service.autoComplete();
+    assert.equal((await f.service.myCard('customer')).topups[0].state, 'DONE');
+    assert.equal(sent, 1, 'ZiiroPay is never asked twice');
+    assert.equal(f.store.getUser('customer').usd, usdBefore - 10.5);
+  } finally { f.close(); }
+});
+
+test('add funds needs an existing active card', async () => {
+  const f = await fixture();
+  try { await rejects(f.service.topUp('customer', topupBody('10')), 'TOPUP_NO_CARD'); } finally { f.close(); }
+});
