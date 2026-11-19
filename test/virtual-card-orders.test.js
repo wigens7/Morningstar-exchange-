@@ -158,6 +158,21 @@ test('admin is alerted once, with the reason and the customer, when creation fai
   } finally { h.close(); }
 });
 
+test('creation accepts the same person written differently by ZiiroPay (middle name, order, accents) but not another person', async () => {
+  const f = await fixture();
+  try {
+    f.opts.kycProvider.lookup = async () => ({ ok: true, approved: true, identity: { ...normIdentity(), first_name: 'Fixtüre Middle', last_name: 'CUSTOMER' } });
+    assert.equal((await f.service.create('customer', f.request())).state, 'READY');
+    assert.equal(f.calls(), 1);
+  } finally { f.close(); }
+  const g = await fixture();
+  try {
+    g.opts.kycProvider.lookup = async () => ({ ok: true, approved: true, identity: { ...normIdentity(), last_name: 'Other' } });
+    assert.equal((await g.service.create('customer', g.request())).state, 'FAILED');
+    assert.equal(g.calls(), 0); assert.equal(g.store.getUser('customer').usd, 100);
+  } finally { g.close(); }
+});
+
 test('account changes after KYC await cannot initiate a provider POST', async () => {
   const f = await fixture();
   try {
