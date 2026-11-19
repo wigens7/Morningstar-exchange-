@@ -112,8 +112,11 @@ function createManualCardholders(options) {
       if (fields.length) {
         reviewPrevious();
         // Admin-only detail: which check failed, and the Customer ID ZiiroPay itself holds for this email.
+        console.error('[cardholder] mismatch user=' + userId + ' fields=' + fields.join(','));
         throw Object.assign(fail('CARDHOLDER_IDENTITY_MISMATCH', 409), { fields,
-          providerCustomerId: validId(identity?.customer_id) ? identity.customer_id : null });
+          providerCustomerId: validId(identity?.customer_id) ? identity.customer_id : null,
+          providerName: identity ? String(identity.first_name || '') + ' ' + String(identity.last_name || '') : null,
+          providerEmail: identity ? String(identity.email || '') : null });
       }
       user = options.getUser(userId);
       if (eligibility(user) || fingerprint(user) !== expected) throw fail('CARDHOLDER_ACCOUNT_CHANGED', 409);
@@ -204,7 +207,7 @@ function mountManualCardholders(app, { service, auth, adminOnly, rateLimit, issu
       const safe = Object.hasOwn(messages, e.code);
       res.status(safe ? e.status : 503).json({ code: safe ? e.code : 'CARDHOLDER_UNAVAILABLE',
         error: safe ? messages[e.code] : 'Dosye cardholder la pa disponib. Rechaje li pou verifye estati a.',
-        ...(safe && e.fields ? { fields: e.fields, providerCustomerId: e.providerCustomerId ?? null } : {}) });
+        ...(safe && e.fields ? { fields: e.fields, providerCustomerId: e.providerCustomerId ?? null, providerName: e.providerName ?? null, providerEmail: e.providerEmail ?? null } : {}) });
     }
   };
   app.get('/api/admin/users/:id/cardholder', privateRoute, adminOnly,
