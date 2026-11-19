@@ -241,8 +241,12 @@ function createCardOrders(options) {
       const user = getUser(userId), kyc = await kycProvider.lookup(user.email);
       const identity = kyc.identity;
       if (!kyc.ok || !kyc.approved || identity?.customer_id !== op.customer_id ||
-          norm(identity.email) !== norm(user.email) || norm(identity.first_name) !== norm(user.profile.firstName) ||
-          norm(identity.last_name) !== norm(user.profile.lastName)) throw error('CARD_NOT_ELIGIBLE', 403);
+          norm(identity.email) !== norm(user.email) ||
+          !sameName(identity.first_name, identity.last_name, user.profile.firstName, user.profile.lastName)) {
+        console.error('[card-create] identity mismatch user=' + userId + ' fields=' + [norm(identity?.email) !== norm(user.email) && 'email',
+          !sameName(identity?.first_name, identity?.last_name, user.profile.firstName, user.profile.lastName) && 'name'].filter(Boolean).join(','));
+        throw error('CARD_NOT_ELIGIBLE', 403);
+      }
       sameAccount(op, getUser(userId));
       if (settings.read().revision !== q.price_revision || q.expires_at <= now()) throw error('CARD_STALE_QUOTE');
       update(op.id, 'RESERVING');
