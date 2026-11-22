@@ -137,7 +137,8 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 
   <!-- Balans -->
   <section class="hero rounded-3xl p-5 mb-5">
-    <p class="text-[11px] uppercase tracking-[.14em] text-gray-400 font-medium">Balans disponib</p>
+    <div class="flex items-center justify-between"><p class="text-[11px] uppercase tracking-[.14em] text-gray-400 font-medium">Balans disponib</p>
+      <button id="bal-eye" type="button" onclick="toggleBal()" class="text-gray-400 hover:text-gray-200 px-1" aria-label="Show or hide balance"><i class="fa-solid fa-eye-slash"></i></button></div>
     <p class="mt-1 text-[2rem] leading-none font-bold gold-text"><span id="bal">0.00</span> <span class="text-base font-semibold">HTG</span></p>
     <div class="mt-4 pt-3 border-t border-white/10 grid grid-cols-2 gap-3 text-xs">
       <div><p class="text-gray-500">Dola (USD / USDT)</p><p id="usd" class="mt-0.5 text-sm font-semibold text-gray-100">$0.00</p></div>
@@ -350,12 +351,18 @@ function renderHistory() {
   }).join('') : `<div class="py-10 text-center text-gray-500"><i class="fa-regular fa-folder-open text-2xl mb-2 block"></i><p class="text-xs">${t('noTx')}</p></div>`;
 }
 
+/* Balance privacy: hidden by default */
+const balHidden = () => localStorage.getItem('balHidden') !== '0';
+function toggleBal() { localStorage.setItem('balHidden', balHidden() ? '0' : '1'); render(); }
+
 function render() {
   renderBell();
   const first = me.name.trim().split(/\s+/)[0];
   $('uname').textContent = me.name; $('avatar').textContent = (first[0] || '?').toUpperCase();
-  $('bal').textContent = num(me.balance);
-  $('usd').textContent = '$' + num(me.usd);
+  const hide = balHidden();
+  $('bal').textContent = hide ? '••••••' : num(me.balance);
+  $('usd').textContent = hide ? '$••••' : '$' + num(me.usd);
+  $('bal-eye').firstElementChild.className = 'fa-solid ' + (hide ? 'fa-eye-slash' : 'fa-eye');
   $('rate').textContent = rateTxt();
   $('ban').classList.toggle('hidden', !me.banned);
   $('prof').classList.toggle('hidden', !!me.profile || !!me.banned);
