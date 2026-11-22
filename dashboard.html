@@ -16,7 +16,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
 .gold-btn:disabled{opacity:.45}
 .panel{background:rgba(18,20,29,.78);border:1px solid rgba(255,255,255,.07);backdrop-filter:blur(14px)}
 .hero{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(38,33,20,.95),rgba(14,15,22,.98) 60%);border:1px solid rgba(212,175,55,.32);box-shadow:0 16px 40px rgba(0,0,0,.55)}
-.hero::before{content:"";position:absolute;right:-60px;top:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,.22),transparent 70%)}
+.hero::before{content:"";position:absolute;pointer-events:none;right:-60px;top:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,.22),transparent 70%)}
 .aico{width:3.1rem;height:3.1rem;border-radius:1rem;display:flex;align-items:center;justify-content:center;font-size:1.05rem;color:var(--gold);background:linear-gradient(160deg,rgba(40,38,30,.95),rgba(16,17,24,.95));border:1px solid rgba(212,175,55,.28);transition:all .15s}
 .act:active .aico{transform:scale(.94);border-color:var(--gold)}
 .chip{font-size:.72rem;font-weight:600;padding:.3rem .75rem;border-radius:999px;border:1px solid rgba(255,255,255,.1);color:#9ca3af;white-space:nowrap}
@@ -138,7 +138,7 @@ body{font-family:'Inter',-apple-system,Roboto,Arial,sans-serif;background:#090a0
   <!-- Balans -->
   <section class="hero rounded-3xl p-5 mb-5">
     <div class="flex items-center justify-between"><p class="text-[11px] uppercase tracking-[.14em] text-gray-400 font-medium">Balans disponib</p>
-      <button id="bal-eye" type="button" onclick="toggleBal()" class="text-gray-400 hover:text-gray-200 px-1" aria-label="Show or hide balance"><i class="fa-solid fa-eye-slash"></i></button></div>
+      <button id="bal-eye" type="button" onclick="toggleBal()" class="relative z-10 text-gray-400 hover:text-gray-200 px-2 py-1" aria-label="Show or hide balance"><i class="fa-solid fa-eye-slash"></i></button></div>
     <p class="mt-1 text-[2rem] leading-none font-bold gold-text"><span id="bal">0.00</span> <span class="text-base font-semibold">HTG</span></p>
     <div class="mt-4 pt-3 border-t border-white/10 grid grid-cols-2 gap-3 text-xs">
       <div><p class="text-gray-500">Dola (USD / USDT)</p><p id="usd" class="mt-0.5 text-sm font-semibold text-gray-100">$0.00</p></div>
